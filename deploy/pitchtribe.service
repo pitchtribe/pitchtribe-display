@@ -14,22 +14,47 @@ ExecStart=/usr/bin/env node /opt/pitchtribe/app/server.js
 Restart=always
 RestartSec=3
 
-# Bind to port 80 without running as root.
+# Bind to port 80 without running as root. Both lines are needed, and the
+# bounding set cannot be emptied: without CAP_NET_BIND_SERVICE the dashboard
+# fails to start at all.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 
-# Hardening
+# ---------------------------------------------------------------- hardening
+# /var/lib/pitchtribe is the only writable path — the club's database, media
+# and backups. Everything else is read-only, /opt/pitchtribe included, so a
+# flaw in the dashboard cannot rewrite the code that serves it.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
+ReadWritePaths=/var/lib/pitchtribe
 PrivateTmp=true
 PrivateDevices=true
-ReadWritePaths=/var/lib/pitchtribe
 ProtectKernelTunables=true
 ProtectKernelModules=true
+ProtectKernelLogs=true
 ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+# Other users' processes are hidden. ProcSubset=pid is deliberately not set:
+# the guest Wi-Fi reads /proc/net/arp to recognise a device (app/lib/portal.js).
+ProtectProc=invisible
 RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
 LockPersonality=true
+RemoveIPC=true
+KeyringMode=private
+# The club's data is readable only by the service user.
+UMask=0077
+# AF_NETLINK stays: listing this Pi's addresses for Settings → About reads the
+# network interfaces through a netlink socket.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# MemoryDenyWriteExecute is deliberately NOT set: it stops V8 from mapping its
+# JIT pages, and Node exits on start.
 
 [Install]
 WantedBy=multi-user.target

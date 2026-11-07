@@ -50,6 +50,7 @@ its own apex record and its email routing (MX/SPF/DKIM) untouched.
 | `dist/` | Build output (git-ignored) |
 | `app/` | Signage app: dashboard, player and server — see [`app/README.md`](app/README.md) |
 | `deploy/` | Raspberry Pi installer, systemd units and kiosk launcher for the app |
+| `deploy/ssh/` | sshd drop-in that hardens remote access — see [Device hardening](#device-hardening) |
 | `.github/workflows/app.yml` | CI: tests the signage app when `app/` or `deploy/` change |
 
 ## Languages
@@ -131,6 +132,39 @@ The API token needs the **Cloudflare Pages: Edit** permission and nothing more.
 
 A deploy can also be run manually with `workflow_dispatch`, or from a workstation with
 `npx wrangler login && npm run deploy`.
+
+## Device hardening
+
+A club Pi sits on a shared network, often in a public room, and nobody administers it. The
+hardening lives in the code that provisions the card — `deploy/*.service`, `deploy/ssh/`,
+`deploy/install.sh` and `image/build.sh` — not in a separate configuration-management layer, so
+flashing a card and running the installer give the same result. `app/test/hardening.test.js`
+pins the decisions below, and runs in CI with the rest of the app tests.
+
+**The dashboard** (`deploy/pitchtribe.service`) runs as the unprivileged `pitchtribe` user under a
+systemd sandbox: `ProtectSystem=strict` with `/var/lib/pitchtribe` as the only writable path, so a
+flaw in the dashboard cannot rewrite the code that serves it; a `@system-service` syscall filter;
+`RestrictAddressFamilies`, `RestrictNamespaces`, `ProtectProc=invisible` and `UMask=0077`.
+
+**The boot configuration** (`image/build.sh`) disables the serial console (`enable_uart=0`, which is
+otherwise a root shell for anyone who can reach the board) and the Bluetooth radio, and boots
+quietly so the screen shows nothing before the kiosk.
+
+**SSH** (`deploy/ssh/10-pitchtribe-hardening.conf`) is off until someone switches it on in
+**Settings → Remote access**. The drop-in refuses root logins and empty passwords, and limits
+authentication attempts, sessions and the login grace time.
+
+Four things are deliberately **not** done, each because it breaks the product:
+
+| Not done | Why |
+| --- | --- |
+| Empty `CapabilityBoundingSet` on the dashboard | It serves port 80 as a non-root user and needs `CAP_NET_BIND_SERVICE`. Emptying the set stops it starting at all. |
+| `MemoryDenyWriteExecute` | V8 maps its JIT pages write-then-execute; Node exits on start. |
+| OverlayFS read-only root | The club's whole configuration — database, media, backups — lives in `/var/lib/pitchtribe` on the root filesystem, so an overlay root discards it on every reboot. |
+| A UFW firewall | The guest Wi-Fi portal runs its own nftables ruleset (`deploy/portal/portal-apply.sh`) and the two would fight over the same tables. A deny-incoming default also needs holes for mDNS, DHCP and DNS or it breaks `http://pitchtribe.local` and the portal. |
+
+`PasswordAuthentication` stays enabled and SSH stays on port 22 for the same reason: Remote access
+works by setting a password for the login, and the setup docs tell people to use the default port.
 
 ## Releases
 
