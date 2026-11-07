@@ -36,8 +36,12 @@ ProtectKernelLogs=true
 ProtectControlGroups=true
 ProtectClock=true
 ProtectHostname=true
-# Other users' processes are hidden. ProcSubset=pid is deliberately not set:
-# the guest Wi-Fi reads /proc/net/arp to recognise a device (app/lib/portal.js).
+# Other users' processes are hidden. ProcSubset=pid is deliberately not set.
+# Nothing here needs it off — the one /proc read in the codebase, /proc/net/arp
+# in app/lib/portal.js, belongs to the portal process and not to this one — but
+# it only hides files like /proc/meminfo, so it buys very little, and it is a
+# directive that surprises language runtimes. It can't be tested without
+# booting a card, and getting it wrong is a dead dashboard in every club.
 ProtectProc=invisible
 RestrictSUIDSGID=true
 RestrictRealtime=true

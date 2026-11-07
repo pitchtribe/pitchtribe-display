@@ -48,12 +48,25 @@ test('dashboard service: no MemoryDenyWriteExecute, which would stop Node starti
   assert.deepEqual(directive(pairs, 'MemoryDenyWriteExecute'), []);
 });
 
-test('dashboard service: /proc stays readable for the guest Wi-Fi', () => {
+test('dashboard service: ProcSubset stays off, and the nft call keeps its own process', () => {
   const pairs = serviceDirectives(read('deploy/pitchtribe.service'));
-  // app/lib/portal.js reads /proc/net/arp to match a guest's device. ProcSubset=pid
-  // hides everything in /proc except process directories, which breaks that.
+  // ProcSubset=pid hides everything in /proc except process directories. It is
+  // left off because it buys little (information disclosure only — other
+  // processes are already hidden by ProtectProc=invisible) and cannot be
+  // verified without booting a card.
   assert.deepEqual(directive(pairs, 'ProcSubset'), []);
-  assert.match(read('app/lib/portal.js'), /\/proc\/net\/arp/);
+
+  // The /proc/net/arp read and the `nft` call live in the portal, which runs as
+  // its own service with CAP_NET_ADMIN — not in the dashboard. If either ever
+  // moves into the dashboard, that unit needs the capability and this sandbox
+  // has to be revisited, so pin where they run.
+  assert.match(read('app/portal-server.js'), /createPortalApp/);
+  assert.ok(!/createPortalApp/.test(read('app/lib/app.js')),
+    'the dashboard must not host the portal app: it has no CAP_NET_ADMIN for nft');
+  const portalUnit = serviceDirectives(read('deploy/portal/pitchtribe-portal.service'));
+  assert.deepEqual(directive(portalUnit, 'AmbientCapabilities'), ['CAP_NET_ADMIN']);
+  // ...and the portal is the one service that must keep /proc readable.
+  assert.deepEqual(directive(portalUnit, 'ProcSubset'), []);
 });
 
 test('dashboard service: netlink stays, so Settings → About can list addresses', () => {
