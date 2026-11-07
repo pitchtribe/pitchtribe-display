@@ -123,6 +123,44 @@ else
   log "No first-boot username wizard (userconfig.service) in this base image"
 fi
 
+# ----------------------------------------------------------- boot hardening
+# A club screen has no keyboard and no serial cable plugged into it, so the
+# boot-time consoles are only a way in, and kernel chatter on a bar TV is both
+# untidy and tells a room more about the box than it needs to know.
+log "Hardening the boot configuration"
+CMDLINE="$MNT/boot/firmware/cmdline.txt"
+if [[ -f "$CMDLINE" ]]; then
+  # cmdline.txt must stay ONE line — the bootloader reads the first line and
+  # ignores the rest, so a second line silently drops those parameters.
+  read -r cmdline <"$CMDLINE" || true
+  for param in quiet loglevel=3 logo.nologo vt.global_cursor_default=0; do
+    [[ " $cmdline " == *" $param "* ]] || cmdline="$cmdline $param"
+  done
+  printf '%s\n' "$cmdline" >"$CMDLINE"
+  log "cmdline.txt: quiet boot (still one line, $(wc -w <<<"$cmdline") parameters)"
+  # fsck.mode=skip is deliberately not set: these cards lose power without being
+  # shut down, and the boot-time check is what repairs the filesystem afterwards.
+fi
+
+CONFIG_TXT="$MNT/boot/firmware/config.txt"
+if [[ -f "$CONFIG_TXT" ]] && ! grep -q '^# PitchTribe hardening' "$CONFIG_TXT"; then
+  cat >>"$CONFIG_TXT" <<'EOF'
+
+# PitchTribe hardening
+# No rainbow splash before the kiosk takes the screen.
+disable_splash=1
+# No serial console: on a Pi the UART pins are a root shell for anyone who can
+# reach the board, and nothing in PitchTribe uses them.
+enable_uart=0
+# Nothing here speaks Bluetooth, so switch the radio off rather than leave it
+# listening. Wi-Fi stays on — the guest portal and club network need it.
+dtoverlay=disable-bt
+EOF
+  # disable-bt leaves the Bluetooth attach service failing on every boot.
+  chroot "$MNT" systemctl disable hciuart.service 2>/dev/null || true
+  log "config.txt: serial console and Bluetooth disabled, splash off"
+fi
+
 cat >"$MNT/etc/pitchtribe-release" <<EOF
 PITCHTRIBE_VERSION=$VERSION
 BASE_IMAGE=$(basename "$URL")

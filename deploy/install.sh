@@ -98,6 +98,32 @@ if [[ -z "$SERVER" ]]; then
   rm -rf "$APP_DIR.old"
 
   install -m 0755 "$SRC_DIR/deploy/reset-password.sh" /usr/local/bin/pitchtribe-reset-password
+
+  # SSH hardening. SSH itself stays off until someone switches it on in the
+  # dashboard (Settings → Remote access); this only sets the terms it runs on.
+  # Password logins stay enabled on purpose — that feature sets a password, and
+  # see deploy/ssh/10-pitchtribe-hardening.conf for the rest of the reasoning.
+  log "Hardening SSH (it stays off until the dashboard switches it on)"
+  install -d -m 0755 /etc/ssh/sshd_config.d
+  # Older sshd_config files don't pull the drop-in directory in by themselves.
+  if [[ -f /etc/ssh/sshd_config ]] && ! grep -qE '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/' /etc/ssh/sshd_config; then
+    sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config
+  fi
+  install -m 0644 "$SRC_DIR/deploy/ssh/10-pitchtribe-hardening.conf" /etc/ssh/sshd_config.d/
+  # Never leave a config behind that sshd would refuse to start on: if the
+  # merged config doesn't parse, drop our part and keep the Pi reachable.
+  # `sshd -t` also fails for reasons that are none of our business — in a fresh
+  # image there are no host keys yet, as those are generated on first boot — so
+  # only back out when sshd's complaint actually names our file. Reverting on
+  # any failure would silently drop this hardening from every built image.
+  if command -v sshd >/dev/null \
+    && sshd -t 2>&1 | grep -q '10-pitchtribe-hardening\.conf'; then
+    rm -f /etc/ssh/sshd_config.d/10-pitchtribe-hardening.conf
+    log "SSH hardening skipped — sshd rejected our drop-in, left SSH untouched"
+  elif [[ "$IMAGE_BUILD" != 1 ]] && systemctl is-active --quiet ssh.service; then
+    # Only when SSH is already on; this must not be what starts it.
+    systemctl reload ssh.service || systemctl restart ssh.service || true
+  fi
   # USB stick backups (Settings → Backups in the dashboard): a root helper run
   # nightly, on request from the dashboard, and when a stick is plugged in.
   install -m 0644 "$SRC_DIR/deploy/backup/pitchtribe-backup@.service" "$SRC_DIR/deploy/backup/pitchtribe-backup.path" \

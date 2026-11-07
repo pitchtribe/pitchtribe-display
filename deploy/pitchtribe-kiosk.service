@@ -25,5 +25,21 @@ StandardError=journal
 UtmpIdentifier=tty1
 UtmpMode=user
 
+# ---------------------------------------------------------------- hardening
+# Kept deliberately light. The kiosk needs the GPU, the input devices and a
+# seat on tty1, and Chromium brings its own sandbox for the web content, which
+# is the part that handles anything untrusted. NoNewPrivileges, ProtectSystem
+# and the namespace restrictions are left off on purpose: they interfere with
+# Chromium's sandbox, and a mistake here is a black screen in a clubhouse.
+# What follows is the subset that a browser on a seat has no use for.
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
 [Install]
 WantedBy=graphical.target multi-user.target
