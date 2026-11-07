@@ -112,6 +112,10 @@ test('installer: SSH hardening is installed, validated, and never starts SSH', (
   // A config sshd refuses to parse would make the Pi unreachable, so the
   // installer checks it and backs its own file out.
   assert.match(sh, /sshd -t/);
+  // ...but only backs it out when sshd names our file. `sshd -t` also fails
+  // when there are no host keys, which is every fresh image, and reverting on
+  // that would drop this hardening from every card we build.
+  assert.match(sh, /sshd -t 2>&1 \| grep -q '10-pitchtribe-hardening/);
   // Hardening SSH must not be what switches remote access on.
   assert.match(sh, /systemctl is-active --quiet ssh\.service/);
 });

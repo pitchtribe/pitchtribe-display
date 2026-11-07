@@ -112,9 +112,14 @@ if [[ -z "$SERVER" ]]; then
   install -m 0644 "$SRC_DIR/deploy/ssh/10-pitchtribe-hardening.conf" /etc/ssh/sshd_config.d/
   # Never leave a config behind that sshd would refuse to start on: if the
   # merged config doesn't parse, drop our part and keep the Pi reachable.
-  if command -v sshd >/dev/null && ! sshd -t 2>/dev/null; then
+  # `sshd -t` also fails for reasons that are none of our business — in a fresh
+  # image there are no host keys yet, as those are generated on first boot — so
+  # only back out when sshd's complaint actually names our file. Reverting on
+  # any failure would silently drop this hardening from every built image.
+  if command -v sshd >/dev/null \
+    && sshd -t 2>&1 | grep -q '10-pitchtribe-hardening\.conf'; then
     rm -f /etc/ssh/sshd_config.d/10-pitchtribe-hardening.conf
-    log "SSH hardening skipped — sshd rejected the merged config, left it untouched"
+    log "SSH hardening skipped — sshd rejected our drop-in, left SSH untouched"
   elif [[ "$IMAGE_BUILD" != 1 ]] && systemctl is-active --quiet ssh.service; then
     # Only when SSH is already on; this must not be what starts it.
     systemctl reload ssh.service || systemctl restart ssh.service || true
