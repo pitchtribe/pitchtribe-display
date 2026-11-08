@@ -217,6 +217,15 @@ test('installer: the guest Wi-Fi part is inert until the dashboard switches it o
   // run with the guest-only configuration pitchtribe-portal-apply writes.
   assert.match(sh, /systemctl disable dnsmasq\.service/);
   assert.match(sh, /systemctl mask hostapd\.service/);
+  // ...and it checks the files afterwards. `systemctl disable` writes its result
+  // to stderr, so a suppressed failure here looks exactly like success, and the
+  // consequence is a second DHCP server on every club's network.
+  assert.match(sh, /multi-user\.target\.wants\/\$unit/);
+  assert.match(sh, /ln -sfn \/dev\/null \/etc\/systemd\/system\/hostapd\.service/);
+  for (const unit of ['dnsmasq.service', 'hostapd.service', 'pitchtribe-portal.service']) {
+    assert.ok(!new RegExp(`systemctl (disable|mask) ${unit.replace('.', '\\.')}[^\\n]*2>/dev/null`).test(sh),
+      `do not hide what systemctl says about ${unit}: the build log is the only place it shows`);
+  }
   // pitchtribe-portal.service binds the guest bridge address, which exists only
   // while guest Wi-Fi is on. Enabled for boot it would restart every three
   // seconds forever on every card that never turns guest Wi-Fi on.
