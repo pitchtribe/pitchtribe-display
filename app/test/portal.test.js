@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
-const { createPortalApp } = require('../lib/portal');
+const { createPortalApp, writePortalSettings, portalPath } = require('../lib/portal');
 const { createApp } = require('../lib/app');
 
 /** Raw HTTP so we can set the Host header like a phone's captive-portal probe. */
@@ -22,13 +22,16 @@ function request(port, { method = 'GET', path: p = '/', host = '10.42.0.1', body
   });
 }
 
-function writeDb(dataDir, portal, extra = {}) {
-  fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify({ settings: { clubName: 'Riverside <FC>', portal }, assets: [], ...extra }));
+/* The portal cannot read db.json — it runs as its own user and the dashboard
+   hands it what the sign-in page needs. This is that handover. */
+function publish(dataDir, portal, extra = {}) {
+  writePortalSettings(dataDir, { club: 'Riverside <FC>', portal, ...extra });
 }
+const portalFileIn = (dataDir, name) => path.join(portalPath(dataDir), name);
 
 async function startPortal(portal) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-portal-'));
-  writeDb(dataDir, portal);
+  publish(dataDir, portal);
   const allowed = [];
   let clock = Date.parse('2026-11-07T14:00:00Z');
   const ctx = createPortalApp({
@@ -83,7 +86,7 @@ test('accepting the terms opens the firewall for the session length', async (t) 
 
   r = await request(p.port);
   assert.match(r.text, /You’re online/, 'connected guests see the success page');
-  const saved = JSON.parse(fs.readFileSync(path.join(p.dataDir, 'portal-sessions.json'), 'utf8'));
+  const saved = JSON.parse(fs.readFileSync(portalFileIn(p.dataDir, 'portal-sessions.json'), 'utf8'));
   assert.equal(saved.sessions['127.0.0.1'].mac, 'aa:bb:cc:dd:ee:ff');
   assert.equal(saved.stats.days['2026-11-07'], 1);
 
@@ -103,7 +106,7 @@ test('email collection: optional, required, consent recorded, validation', async
   assert.match(r.text, /value="not-an-email"/, 'keeps what was typed');
   r = await request(p.port, { method: 'POST', path: '/accept', body: 'terms=yes&email=jo%40example.com&consent=yes' });
   assert.equal(r.status, 200);
-  const lines = fs.readFileSync(path.join(p.dataDir, 'portal-guests.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const lines = fs.readFileSync(portalFileIn(p.dataDir, 'portal-guests.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(lines.map((g) => [g.email, g.consent]), [['jo@example.com', true]]);
 });
 
@@ -112,8 +115,8 @@ test('switched off, outside the guest network, and rate limiting', async (t) => 
   t.after(p.stop);
   let r = await request(p.port);
   assert.equal(r.status, 503);
-  writeDb(p.dataDir, { enabled: true });
-  fs.utimesSync(path.join(p.dataDir, 'db.json'), new Date(), new Date(Date.now() + 5000));
+  publish(p.dataDir, { enabled: true });
+  fs.utimesSync(portalFileIn(p.dataDir, 'settings.json'), new Date(), new Date(Date.now() + 5000));
   r = await request(p.port);
   assert.equal(r.status, 200, 'picks up dashboard changes without a restart');
   for (let i = 0; i < 10; i++) await request(p.port, { method: 'POST', path: '/accept', body: '' });
@@ -191,4 +194,75 @@ test('dashboard: portal settings, network file for the root helper, guest export
 
   cookie = '';
   assert.equal((await call('GET', '/api/portal')).status, 401);
+});
+
+test('portal and dashboard meet only through DATA_DIR/portal, on a fresh card and an upgraded one', async (t) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-portal-split-'));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+
+  // A card set up before the portal had its own user: both files sit in
+  // DATA_DIR itself, and an upgrade must not look like the guest list was lost.
+  fs.writeFileSync(path.join(dataDir, 'portal-guests.jsonl'), `${JSON.stringify({ at: '2026-11-01T12:00:00Z', email: 'old@example.com', consent: true })}\n`);
+  fs.writeFileSync(path.join(dataDir, 'portal-sessions.json'), JSON.stringify({ updatedAt: '2026-11-01T12:00:00Z', sessions: {}, stats: { days: { '2026-11-01': 7 } } }));
+
+  const ctx = createApp({ dataDir, log: () => {} });
+  const server = await new Promise((r) => { const s = ctx.app.listen(0, '127.0.0.1', () => r(s)); });
+  t.after(() => { ctx.close(); server.closeAllConnections(); server.close(); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const setup = await fetch(`${base}/api/auth/setup`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-pitchtribe': '1' },
+    body: JSON.stringify({ clubName: 'Riverside FC', password: 'correct horse' }),
+  });
+  const cookie = (setup.headers.get('set-cookie') || '').split(';')[0];
+  const get = (url) => fetch(base + url, { headers: { cookie, 'x-pitchtribe': '1' } });
+
+  // Starting the dashboard publishes the sign-in page's settings for the portal...
+  const published = JSON.parse(fs.readFileSync(path.join(portalPath(dataDir), 'settings.json'), 'utf8'));
+  assert.equal(published.club, 'Riverside FC');
+  assert.equal(typeof published.portal.terms, 'string');
+  // ...and nothing else: no password hash, no signing secret, no API keys.
+  const text = JSON.stringify(published);
+  for (const secret of ['adminHash', 'sessionSecret', 'apiToken']) {
+    assert.ok(!text.includes(secret), `${secret} must not be handed to the portal`);
+  }
+
+  // The old guest list and stats are still read.
+  let stats = await (await get('/api/portal')).json();
+  assert.deepEqual(stats.guests, { count: 1, consented: 1 });
+  assert.match(await (await get('/api/portal/guests.csv')).text(), /old@example\.com/);
+
+  // Switch guest Wi-Fi on, as the club would, which republishes the settings.
+  const saved = await fetch(`${base}/api/portal`, {
+    method: 'PUT',
+    headers: { cookie, 'x-pitchtribe': '1', 'content-type': 'application/json' },
+    body: JSON.stringify({ enabled: true, ssid: 'Riverside-Guest', collectEmail: 'optional' }),
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(portalPath(dataDir), 'settings.json'), 'utf8')).portal.enabled, true);
+
+  // The portal, as its own user would, writes only inside DATA_DIR/portal.
+  const p = createPortalApp({
+    dataDir, portalHost: '10.42.0.1', subnet: '127.0.0.', allow: async () => {}, mac: () => '', log: () => {},
+  });
+  const portalServer = await new Promise((r) => { const s = p.app.listen(0, '127.0.0.1', () => r(s)); });
+  t.after(() => { p.close(); portalServer.close(); });
+  const accepted = await request(portalServer.address().port, {
+    method: 'POST', path: '/accept', body: 'terms=yes&email=new%40example.com&consent=yes',
+  });
+  assert.equal(accepted.status, 200, 'a guest can still sign in');
+  assert.ok(fs.existsSync(path.join(portalPath(dataDir), 'portal-guests.jsonl')));
+  assert.ok(fs.existsSync(path.join(portalPath(dataDir), 'portal-sessions.json')));
+
+  // Once the portal has written its own list, that is the one the dashboard shows.
+  stats = await (await get('/api/portal')).json();
+  assert.deepEqual(stats.guests, { count: 1, consented: 1 });
+  assert.match(await (await get('/api/portal/guests.csv')).text(), /new@example\.com/);
+  assert.equal(stats.stats.active, 1, 'and the live session count comes from the portal’s own file');
+
+  // Clearing the guest list clears both places.
+  await fetch(`${base}/api/portal/guests`, { method: 'DELETE', headers: { cookie, 'x-pitchtribe': '1' } });
+  assert.equal(fs.existsSync(path.join(portalPath(dataDir), 'portal-guests.jsonl')), false);
+  assert.equal(fs.existsSync(path.join(dataDir, 'portal-guests.jsonl')), false);
+  assert.equal((await (await get('/api/portal')).json()).guests.count, 0);
 });

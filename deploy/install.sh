@@ -47,6 +47,7 @@ Use the one-line installer, which fetches one for you:
 APP_DIR=/opt/pitchtribe
 DATA_DIR=/var/lib/pitchtribe
 SVC_USER=pitchtribe
+PORTAL_USER=pitchtribe-portal
 KIOSK_USER=pitchtribe-kiosk
 PORT="${PITCHTRIBE_PORT:-80}"
 HTTPS_PORT="${PITCHTRIBE_HTTPS_PORT:-443}"
@@ -155,6 +156,35 @@ if [[ "${PITCHTRIBE_PORTAL:-0}" == 1 ]]; then
     die "the guest Wi-Fi needs the Pi's network cable (eth0) for its internet connection"
   fi
   apt-get install -y -q hostapd dnsmasq nftables
+
+  # The portal gets its own user and its own directory. It is the one process
+  # guests can reach, and in DATA_DIR a single written file is by design a root
+  # account (the remote-access helper acts on remote-access-request.json
+  # appearing), so it must not share the dashboard's user or its writable path.
+  #
+  # Group `pitchtribe` as a supplementary group so it can traverse DATA_DIR
+  # (0750) to reach its own directory; db.json is 0600 and stays unreadable to
+  # it. The directory is group-writable and setgid so the dashboard can publish
+  # the sign-in page's settings into it and clear the guest list, and both
+  # sides' files keep the shared group.
+  # The group normally exists already (the dashboard's user owns it), but this
+  # block also runs on a portal-only Pi with PITCHTRIBE_SERVER set elsewhere.
+  getent group "$SVC_USER" >/dev/null || groupadd --system "$SVC_USER"
+  id -u "$PORTAL_USER" >/dev/null 2>&1 \
+    || useradd --system --home "$DATA_DIR/portal" --shell /usr/sbin/nologin "$PORTAL_USER"
+  usermod --append --groups "$SVC_USER" "$PORTAL_USER"
+  install -d -o "$PORTAL_USER" -g "$SVC_USER" -m 2770 "$DATA_DIR/portal"
+  # Upgrades: cards installed before the split keep the guest list and session
+  # stats in DATA_DIR itself. Move them, so the club does not open the
+  # dashboard to an empty guest list.
+  for f in portal-sessions.json portal-guests.jsonl; do
+    if [[ -f "$DATA_DIR/$f" && ! -f "$DATA_DIR/portal/$f" ]]; then
+      mv "$DATA_DIR/$f" "$DATA_DIR/portal/$f"
+      log "moved $f into $DATA_DIR/portal (the portal has its own user now)"
+    fi
+  done
+  chown -R "$PORTAL_USER:$SVC_USER" "$DATA_DIR/portal"
+  chmod 640 "$DATA_DIR/portal/"* 2>/dev/null || true
   # pitchtribe-portal-apply tells NetworkManager to leave the guest radio, the
   # access-point port and the guest bridge alone, whichever ones are in use.
   # The default dnsmasq config must not grab every interface.

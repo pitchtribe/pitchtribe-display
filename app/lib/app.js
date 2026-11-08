@@ -10,7 +10,7 @@ const express = require('express');
 const { Store, newId } = require('./store');
 const { Hub } = require('./hub');
 const { DEFAULT_PORTAL, renderSplash, themeCss } = require('./portal-page');
-const { readPortalFiles } = require('./portal');
+const { readPortalFiles, writePortalSettings, portalFile } = require('./portal');
 const { mountBackupRoutes } = require('./backup-routes');
 const { mountRemoteAccessRoutes } = require('./remote-access-routes');
 const { Feeds, LEAGUE_KEY_RE, SHOW_OPTIONS } = require('./feeds');
@@ -610,6 +610,9 @@ function createApp(opts = {}) {
         d.settings.defaultPlaylistId = main.id;
         for (const s of d.screens) if (!s.playlistId) s.playlistId = main.id;
       });
+      // The guest sign-in page shows the club's name, and the portal cannot
+      // read db.json to find it out for itself.
+      publishPortalSettings();
       res.set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret), req)).json({ ok: true });
     })
   );
@@ -640,7 +643,7 @@ function createApp(opts = {}) {
     app, api, dataDir, mediaDir, store, version: pkg.version, maxUploadBytes,
     maxRestoreBytes: opts.maxRestoreBytes,
     setupRequired: () => !data().settings.adminHash,
-    onRestored: () => configureFeeds(),
+    onRestored: () => { configureFeeds(); publishPortalSettings(); },
   });
 
   // Remote access: switch SSH on or off (via the root helper).
@@ -692,6 +695,7 @@ function createApp(opts = {}) {
         d.settings.language = language;
       });
       if (retitle) configureFeeds(); // the engine only uses the club name; keep its caches otherwise
+      if (retitle) publishPortalSettings(); // the guest sign-in page shows the club's name
       res.json(publicSettings());
     })
   );
@@ -811,6 +815,22 @@ function createApp(opts = {}) {
     }
   }
 
+  /** Hand the portal the settings and logo its sign-in page needs.
+      It runs as its own user and cannot read db.json — see lib/portal.js. */
+  function publishPortalSettings() {
+    const p = portalSettings();
+    const asset = p.logoAssetId ? data().assets.find((a) => a.id === p.logoAssetId && a.type === 'image' && a.file) : null;
+    try {
+      writePortalSettings(dataDir, {
+        club: data().settings.clubName || 'Our club',
+        portal: p,
+        logoPath: asset ? path.join(mediaDir, path.basename(asset.file.filename)) : null,
+      });
+    } catch (err) {
+      (opts.log || console.error)('[portal] could not publish the settings:', err.message);
+    }
+  }
+
   /** What pitchtribe-portal-apply found the last time it ran (portal-hw.js status). */
   function portalHardware() {
     try { return JSON.parse(fs.readFileSync(path.join(dataDir, 'portal-hardware.json'), 'utf8')); } catch { return null; }
@@ -872,6 +892,7 @@ function createApp(opts = {}) {
       };
       store.touch((d) => { d.settings.portal = next; }, { immediate: true });
       writePortalNetwork(next);
+      publishPortalSettings();
       res.json({ settings: next });
     })
   );
@@ -892,6 +913,9 @@ function createApp(opts = {}) {
   });
 
   api.delete('/portal/guests', (req, res) => {
+    // Both places: the portal keeps its files in DATA_DIR/portal now, and a
+    // card set up before that may still have the old one alongside.
+    fs.rmSync(portalFile(dataDir, 'portal-guests.jsonl'), { force: true });
     fs.rmSync(path.join(dataDir, 'portal-guests.jsonl'), { force: true });
     res.json({ ok: true });
   });
@@ -1136,6 +1160,12 @@ function createApp(opts = {}) {
     hub.close();
     store.flush();
   };
+
+  // On every start, not only when the settings are saved: the portal cannot
+  // read db.json, so after an upgrade or a restore this is what gives it the
+  // club's name, terms and logo. Last, because it reads the settings helpers
+  // defined above.
+  publishPortalSettings();
 
   return { app, store, hub, feeds, sports: feeds, close, dataDir };
 }
