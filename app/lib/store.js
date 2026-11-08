@@ -31,6 +31,10 @@ function emptyData() {
       widgets: { weather: null, wikipedia: true },
       language: 'en',
       portal: null, // guest Wi-Fi settings; null = defaults (see lib/portal-page.js)
+      // Off by default: HTTPS on this Pi can only ever use a self-signed
+      // certificate, so forcing it would greet every volunteer with a browser
+      // warning. The club turns it on under Settings → Secure connection.
+      httpsRedirect: false,
     },
     assets: [],
     playlists: [],

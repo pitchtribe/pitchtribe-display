@@ -242,3 +242,28 @@ test('no firewall is installed, because the guest portal already runs nftables',
   assert.ok(!/\bufw\b/.test(code('deploy/install.sh')), 'do not add UFW alongside the portal nftables rules');
   assert.match(read('deploy/install.sh'), /nftables/);
 });
+
+test('HTTPS: the service is told its port, and the certificate lives where it can be written', () => {
+  const unit = read('deploy/pitchtribe.service');
+  const pairs = serviceDirectives(unit);
+  // The dashboard binds 443 as well as 80, with the same single capability.
+  assert.ok(directive(pairs, 'Environment').includes('HTTPS_PORT=@HTTPS_PORT@'),
+    'without HTTPS_PORT the dashboard serves plain http only');
+  assert.match(code('deploy/install.sh'), /s\|@HTTPS_PORT@\|\$HTTPS_PORT\|g/,
+    'the installer must substitute @HTTPS_PORT@, or systemd refuses the unit');
+  // app/lib/tls.js writes the key under DATA_DIR, which is the only writable
+  // path in the sandbox. Move it anywhere else and HTTPS never starts.
+  assert.deepEqual(directive(pairs, 'ReadWritePaths'), ['/var/lib/pitchtribe']);
+  assert.match(read('app/lib/tls.js'), /path\.join\(dataDir, 'tls'\)/);
+});
+
+test('HTTPS: every card makes its own key — none is built into the image', () => {
+  // The certificate is made on first start, by the running dashboard. The image
+  // build never starts it (start_now is a no-op under IMAGE_BUILD), so no key
+  // is baked in — a shared private key on every club's card would be worse
+  // than no HTTPS at all.
+  assert.match(code('deploy/install.sh'), /start_now\(\)\s*{\s*\[\[ "\$IMAGE_BUILD" == 1 \]\] \|\| systemctl/);
+  for (const f of ['image/build.sh', 'deploy/install.sh']) {
+    assert.ok(!/openssl\s+req/.test(code(f)), `${f} must not generate a certificate at build time`);
+  }
+});

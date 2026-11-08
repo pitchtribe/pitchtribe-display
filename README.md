@@ -168,7 +168,7 @@ Four things are deliberately **not** done, each because it breaks the product:
 
 | Not done | Why |
 | --- | --- |
-| Empty `CapabilityBoundingSet` on the dashboard | It serves port 80 as a non-root user and needs `CAP_NET_BIND_SERVICE`. Emptying the set stops it starting at all. |
+| Empty `CapabilityBoundingSet` on the dashboard | It serves ports 80 and 443 as a non-root user and needs `CAP_NET_BIND_SERVICE`. Emptying the set stops it starting at all. |
 | `MemoryDenyWriteExecute` | V8 maps its JIT pages write-then-execute; Node exits on start. |
 | OverlayFS read-only root | The club's whole configuration — database, media, backups — lives in `/var/lib/pitchtribe` on the root filesystem, so an overlay root discards it on every reboot. |
 | A UFW firewall | The guest Wi-Fi portal runs its own nftables ruleset (`deploy/portal/portal-apply.sh`) and the two would fight over the same tables. A deny-incoming default also needs holes for mDNS, DHCP and DNS or it breaks `http://pitchtribe.local` and the portal. |
@@ -195,6 +195,47 @@ address `10.42.0.1`, which only exists while guest Wi-Fi is on.
 The one-line installer still leaves guest Wi-Fi out unless asked
 (`curl -sSL https://pitchtribe.media/install.sh | sudo PITCHTRIBE_PORTAL=1 bash`), because a Pi
 installed by hand is not necessarily the club's signage box.
+
+### HTTPS on the dashboard
+
+The dashboard serves HTTPS on 443 as well as HTTP on 80 (`app/lib/tls.js`, `HTTPS_PORT` in
+`deploy/pitchtribe.service`; `PITCHTRIBE_HTTPS_PORT=0` serves plain HTTP only). The certificate is
+**self-signed**, and that is not a shortcut — it is the only kind this device can have. No
+certificate authority will issue for a `.local` name or a `192.168.x.x` address, so a club Pi cannot
+have a certificate a browser trusts without a public DNS name and a service to issue against it.
+
+What self-signed HTTPS does buy: the admin password and the session cookie stop crossing the club's
+network in the clear, and `auth.sessionCookie` adds `Secure` to the cookie when the request arrives
+over TLS. What it does not buy is authentication — so the dashboard shows the certificate's SHA-256
+fingerprint under **Settings → Secure connection**, which makes the browser's warning something to
+check rather than click past.
+
+Design decisions worth keeping:
+
+- **The key is generated on the Pi**, on first start, into `DATA_DIR`. The image build never starts
+  the dashboard (`start_now` is a no-op under `PITCHTRIBE_IMAGE_BUILD`), so no key is baked into the
+  card — a private key shared by every club would be worse than no HTTPS at all.
+- **HTTP is not redirected by default.** Turning it on (Settings → Secure connection) redirects only
+  dashboard *page loads*, and never `localhost` or `/player` — the kiosk and the club's other screens
+  run browsers with no keyboard to dismiss a certificate warning with, and they carry nothing
+  private. `?nossl` on the dashboard URL comes back over HTTP if a phone will not get past the
+  warning.
+- **The certificate names the Pi, not its address** (`<host>.local`, `<host>`, `localhost`): DHCP
+  changes the address, and re-issuing on every change would churn the fingerprint that makes the
+  warning checkable.
+- **It is re-issued before it expires** (395 days, replaced within 30 of expiry, swapped in with
+  `setSecureContext` so a Pi that is never rebooted does not start serving an expired certificate,
+  which browsers treat far more harshly than an untrusted one) and when the Pi is renamed.
+- **A certificate that cannot be made turns HTTPS off**, logs why, and leaves the dashboard on HTTP.
+  HTTPS must never be a condition of a club getting its screens.
+- **No HSTS header, and the redirect is a 302 rather than a 301.** Both would be remembered by every
+  phone in the club, so a certificate the club turns out not to want could not be turned off from
+  the dashboard it had locked them out of.
+
+A certificate browsers actually trust would mean a public hostname under a PitchTribe-owned domain
+resolving to the club's LAN address, with DNS-01 ACME issuing against it and the certificate
+delivered to the card — the approach Plex takes with `*.plex.direct`. That is a cloud service with a
+running cost, not a device change, and the TLS plumbing here is what it would plug into.
 
 ## Releases
 

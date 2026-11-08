@@ -50,11 +50,12 @@ const ROTATIONS = [0, 90, 180, 270];
 const MAX_SCREENS = 200;
 const ONLINE_MS = 2.5 * 60 * 1000;
 
-function lanUrls(port) {
+function lanUrls(port, scheme = 'http') {
+  const bare = scheme === 'https' ? 443 : 80;
   const urls = [];
   for (const addrs of Object.values(os.networkInterfaces())) {
     for (const a of addrs || []) {
-      if (a.family === 'IPv4' && !a.internal) urls.push(`http://${a.address}${port === 80 ? '' : `:${port}`}/`);
+      if (a.family === 'IPv4' && !a.internal) urls.push(`${scheme}://${a.address}${port === bare ? '' : `:${port}`}/`);
     }
   }
   return urls;
@@ -92,6 +93,42 @@ function createApp(opts = {}) {
   const app = express();
   app.disable('x-powered-by');
   if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY);
+
+  // HTTPS, when server.js managed to start it. `active` is read on every
+  // request, not captured: binding port 443 can fail after the app is built.
+  const tlsInfo = opts.tls || null;
+  const tlsView = () => {
+    if (!tlsInfo || tlsInfo.active === false) return { available: false, redirect: false };
+    const suffix = tlsInfo.port === 443 ? '' : `:${tlsInfo.port}`;
+    return {
+      available: true,
+      port: tlsInfo.port,
+      url: `https://${tlsInfo.names?.[0] || os.hostname()}${suffix}/admin/`,
+      urls: lanUrls(tlsInfo.port, 'https'),
+      names: tlsInfo.names || [],
+      fingerprint: tlsInfo.fingerprint,
+      notAfter: tlsInfo.notAfter,
+      redirect: Boolean(data().settings.httpsRedirect),
+    };
+  };
+
+  // Settings → Secure connection. Only dashboard page loads are sent to HTTPS:
+  // the kiosk on this Pi and the screens elsewhere in the club would stop at a
+  // certificate warning with no keyboard to dismiss it, and `/healthz`, the
+  // player and the feeds carry nothing secret. `?nossl` is the way back in if
+  // the warning turns out to be unworkable on someone's phone.
+  app.use((req, res, next) => {
+    if (req.secure || req.method !== 'GET' || !req.path.startsWith('/admin')) return next();
+    const t = tlsView();
+    if (!t.redirect) return next();
+    if (!String(req.get('accept') || '').includes('text/html')) return next();
+    if (req.query.nossl !== undefined) return next();
+    const name = String(req.get('host') || '').replace(/:\d+$/, '');
+    if (!name || name === 'localhost' || name === '127.0.0.1') return next();
+    // 302, not 301: turning the setting off has to be enough, without every
+    // phone in the club remembering a permanent redirect.
+    return res.redirect(302, `https://${name}${t.port === 443 ? '' : `:${t.port}`}${req.originalUrl}`);
+  });
 
   // ---------- Security headers ----------
   app.use((req, res, next) => {
@@ -597,6 +634,20 @@ function createApp(opts = {}) {
   // Remote access: switch SSH on or off (via the root helper).
   mountRemoteAccessRoutes({ api, dataDir, limiter, adminHash: () => data().settings.adminHash, hashPassword: opts.hashSshPassword });
 
+  // Secure connection (Settings → Secure connection).
+  api.get('/tls', (req, res) => res.set('Cache-Control', 'no-store').json(tlsView()));
+  api.put(
+    '/tls',
+    route((req, res) => {
+      const redirect = v.bool(req.body.redirect);
+      if (redirect && !tlsView().available) throw v.bad('HTTPS is not running on this Pi, so there is nowhere to send people');
+      store.mutate((d) => {
+        d.settings.httpsRedirect = redirect;
+      });
+      res.json(tlsView());
+    })
+  );
+
   api.get('/state', (req, res) => {
     const d = data();
     res.set('Cache-Control', 'no-store').json({
@@ -611,6 +662,7 @@ function createApp(opts = {}) {
       languages: i18n.LANGUAGES.map(({ code, name }) => ({ code, name })),
       sports: sportsView(),
       widgets: widgetsView(),
+      tls: tlsView(),
     });
   });
 
