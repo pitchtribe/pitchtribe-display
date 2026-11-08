@@ -14,6 +14,7 @@
    Snapshot ids are UTC times with dashes, not colons, so FAT and exFAT sticks
    accept them. Every file is written under a temporary name and renamed, so a
    stick pulled out mid-backup leaves the previous snapshots intact. */
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -30,6 +31,29 @@ const snapshotId = (d) => d.toISOString().replace(/\.\d{3}Z$/, 'Z').replace(/:/g
 function copyAtomic(from, to) {
   const tmp = `${to}.part`;
   fs.copyFileSync(from, tmp);
+  fs.renameSync(tmp, to);
+}
+
+/**
+ * Writes db.json for a backup or a restore — never a straight file copy, and
+ * never with the session signing secret in it.
+ *
+ * Sessions are signed cookies with a 30-day life and no way to revoke one, so
+ * a secret that survives a round trip through a backup brings every cookie
+ * minted under it back to life, including ones a password change was meant to
+ * have killed. Leaving it out also keeps it off the USB stick in the drawer.
+ * `fresh` writes a new one, for the copy that becomes the live database.
+ *
+ * Mode 0600 explicitly: both callers run as root, where the umask would leave
+ * the password hash and every API key readable by anyone with an account here.
+ */
+function writeDb(db, to, { fresh = true } = {}) {
+  const settings = { ...(db.settings || {}) };
+  if (fresh) settings.sessionSecret = crypto.randomBytes(32).toString('hex');
+  else delete settings.sessionSecret;
+  const tmp = `${to}.part`;
+  fs.writeFileSync(tmp, `${JSON.stringify({ ...db, settings }, null, 2)}\n`, { mode: 0o600 });
+  fs.chmodSync(tmp, 0o600);
   fs.renameSync(tmp, to);
 }
 
@@ -117,8 +141,9 @@ function backup({ dataDir, stickDir, hostname, version = '', now = new Date(), k
   for (const f of DATA_FILES) {
     const from = path.join(dataDir, f);
     if (!fs.existsSync(from)) continue;
-    fs.copyFileSync(from, path.join(work, f));
-    bytes += fs.statSync(from).size;
+    if (f === 'db.json') writeDb(db, path.join(work, f), { fresh: false });
+    else fs.copyFileSync(from, path.join(work, f));
+    bytes += fs.statSync(path.join(work, f)).size;
   }
   for (const f of media) bytes += fs.statSync(path.join(mediaDir, f)).size;
   const manifest = {
@@ -178,8 +203,12 @@ function restore({ stickDir, host, id, dataDir }) {
   }
   for (const f of DATA_FILES) {
     const from = path.join(snapDir, f);
-    if (fs.existsSync(from)) copyAtomic(from, path.join(dataDir, f));
-    else if (f !== 'db.json') fs.rmSync(path.join(dataDir, f), { force: true });
+    if (!fs.existsSync(from)) {
+      if (f !== 'db.json') fs.rmSync(path.join(dataDir, f), { force: true });
+      continue;
+    }
+    if (f === 'db.json') writeDb(db, path.join(dataDir, f));
+    else copyAtomic(from, path.join(dataDir, f));
   }
   return manifest;
 }

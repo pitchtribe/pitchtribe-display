@@ -20,7 +20,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const zlib = require('node:zlib');
-const { Readable } = require('node:stream');
+const { Readable, Transform, pipeline: pipelineStream } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { tarChunks, readTar } = require('./tar');
 const { DATA_FILES, SAFE_NAME, SNAPSHOT_ID, mediaFiles } = require('./backup');
@@ -28,7 +28,35 @@ const v = require('./validate');
 
 const UUID_RE = /^[A-Za-z0-9-]{1,64}$/;
 
-function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, onRestored, version = '', hostname = os.hostname() }) {
+/* How much a restore is allowed to write.
+ *
+ * Restoring means unpacking an archive onto the SD card, and on a freshly
+ * flashed card it needs no password. A .tar.gz of mostly photos and video
+ * barely compresses; a file of zeros compresses a thousandfold. So a small
+ * upload can fill the card, and a Pi behind a bar with a full root filesystem
+ * does not recover on its own.
+ *
+ * Two bounds, both documented in docs/updates-backups.html:
+ *   - expansion: what comes out may not exceed RESTORE_RATIO times what went
+ *     in, once past a floor that lets small text-heavy backups through.
+ *   - headroom: stop before the card is full, whatever the ratio.
+ */
+const RESTORE_RATIO = 100;
+const RESTORE_RATIO_FLOOR = 64 * 1024 * 1024;
+const RESTORE_RESERVE_BYTES = 256 * 1024 * 1024;
+const MAX_DATA_ENTRY_BYTES = 64 * 1024 * 1024; // db.json and friends are text
+
+/** Bytes a restore may write before it would leave the card with no room. */
+function headroom(dir) {
+  try {
+    const { bsize, bavail } = fs.statfsSync(dir);
+    return Math.max(0, bsize * bavail - RESTORE_RESERVE_BYTES);
+  } catch {
+    return Infinity; // can't tell (not Linux, or a sandbox): the ratio bound still applies
+  }
+}
+
+function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, onRestored, version = '', hostname = os.hostname(), maxUploadBytes = Infinity, maxRestoreBytes }) {
   const file = (name) => path.join(dataDir, name);
   const readJson = (name) => { try { return JSON.parse(fs.readFileSync(file(name), 'utf8')); } catch { return null; } };
 
@@ -71,21 +99,52 @@ function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, 
     const work = fs.mkdtempSync(path.join(dataDir, '.restore-'));
     try {
       const names = new Set();
+      const budget = maxRestoreBytes ?? headroom(dataDir);
+      let packed = 0;
+      let unpacked = 0;
+      // Counts what the upload is, before gunzip...
+      const countPacked = new Transform({
+        transform(chunk, _enc, cb) { packed += chunk.length; cb(null, chunk); },
+      });
+      // ...and what it turns into, after. Either bound stops it mid-stream, so
+      // peak bytes written stay bounded however big the request claims to be.
+      const countUnpacked = new Transform({
+        transform(chunk, _enc, cb) {
+          unpacked += chunk.length;
+          if (unpacked > budget) {
+            cb(new v.HttpError(413, 'That backup is too big to restore — this card hasn’t room for it.'));
+            return;
+          }
+          if (unpacked > RESTORE_RATIO_FLOOR && unpacked > packed * RESTORE_RATIO) {
+            cb(v.bad('That isn’t a PitchTribe backup file. Choose the .tar.gz file from “Download backup”.'));
+            return;
+          }
+          cb(null, chunk);
+        },
+      });
       try {
-        await readTar(req.pipe(zlib.createGunzip()), (name) => {
-          const m = /^media\/([^/]+)$/.exec(name);
-          if (m && SAFE_NAME.test(m[1])) {
-            fs.mkdirSync(path.join(work, 'media'), { recursive: true });
-            names.add(name);
-            return path.join(work, 'media', m[1]);
+        await readTar(
+          // Callback form: it destroys the whole chain on error, so a corrupt
+          // gzip or a tripped bound surfaces where we read it rather than hanging.
+          pipelineStream(req, countPacked, zlib.createGunzip(), countUnpacked, () => {}),
+          (name, size) => {
+            const m = /^media\/([^/]+)$/.exec(name);
+            if (m && SAFE_NAME.test(m[1])) {
+              if (size > maxUploadBytes) throw new v.HttpError(413, 'That backup has a photo or video in it that is too large.');
+              fs.mkdirSync(path.join(work, 'media'), { recursive: true });
+              names.add(name);
+              return path.join(work, 'media', m[1]);
+            }
+            if (DATA_FILES.includes(name) || name === 'manifest.json') {
+              if (size > MAX_DATA_ENTRY_BYTES) throw new v.HttpError(413, `That backup’s ${name} is far larger than a club’s settings should be.`);
+              names.add(name);
+              return path.join(work, name);
+            }
+            return null; // anything else in the archive is ignored
           }
-          if (DATA_FILES.includes(name) || name === 'manifest.json') {
-            names.add(name);
-            return path.join(work, name);
-          }
-          return null; // anything else in the archive is ignored
-        });
+        );
       } catch (err) {
+        if (err.status) throw err;
         throw v.bad(/incorrect header check|unexpected end/i.test(err.message) || !err.message
           ? 'That isn’t a PitchTribe backup file. Choose the .tar.gz file from “Download backup”.'
           : err.message);
@@ -159,9 +218,14 @@ function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, 
     const media = mediaFiles(dataDir);
     const day = new Date().toISOString().slice(0, 10);
     const manifest = { format: 1, at: new Date().toISOString(), hostname, version, club: d.settings.clubName || '', media };
+    // The session signing secret stays out of the file. A restore mints a new
+    // one anyway, so keeping it would only mean a backup emailed to a committee
+    // member carried something that could sign admin cookies.
+    const settings = { ...d.settings };
+    delete settings.sessionSecret;
     const entries = [
       { name: 'manifest.json', buffer: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`) },
-      { name: 'db.json', buffer: Buffer.from(JSON.stringify(d, null, 2)) },
+      { name: 'db.json', buffer: Buffer.from(JSON.stringify({ ...d, settings }, null, 2)) },
       ...DATA_FILES.filter((f) => f !== 'db.json' && fs.existsSync(file(f))).map((f) => ({ name: f, file: file(f) })),
       ...media.map((f) => ({ name: `media/${f}`, file: path.join(mediaDir, f) })),
     ];

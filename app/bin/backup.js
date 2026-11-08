@@ -70,7 +70,12 @@ function listSticks(exec) {
 function withMount(o, stick, { readOnly }, fn) {
   if (stick.mountpoint) return fn(stick.mountpoint);
   fs.mkdirSync(o.mountDir, { recursive: true });
-  o.exec('mount', ['-o', readOnly ? 'ro,noatime' : 'noatime', stick.path, o.mountDir]);
+  // nosuid,nodev,noexec: plugging a stick in is enough to get it mounted here,
+  // by root, and the stick belongs to whoever walked up to the Pi. A read-only
+  // mount does not suppress the setuid bit, so without nosuid a setuid-root
+  // binary on the stick would be live for as long as it is mounted. We only
+  // ever read and write files on these, never run them.
+  o.exec('mount', ['-o', `${readOnly ? 'ro,' : ''}noatime,nosuid,nodev,noexec`, stick.path, o.mountDir]);
   try {
     return fn(o.mountDir);
   } finally {

@@ -166,7 +166,11 @@ test('helper: choose a stick, back up nightly, then restore onto a fresh card', 
   let s = helper.main('scan', o);
   assert.equal(s.sticks.length, 1);
   assert.equal(s.config, null);
-  assert.ok(sys.calls.some((c) => c.startsWith('mount -o ro,noatime /dev/sda1')), 'scans mount read-only');
+  assert.ok(
+    sys.calls.some((c) => c.startsWith('mount -o ro,noatime,nosuid,nodev,noexec /dev/sda1')),
+    'scans mount read-only, and nosuid/nodev/noexec: the stick belongs to whoever walked up to the Pi, '
+      + 'and read-only does not suppress the setuid bit'
+  );
   assert.equal(fs.existsSync(o.mountDir), false, 'and unmount afterwards');
 
   fs.writeFileSync(path.join(data, 'backup-request.json'), JSON.stringify({ id: 'r1', action: 'use', uuid: 'AAAA-1111' }));
