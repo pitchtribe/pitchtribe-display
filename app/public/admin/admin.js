@@ -1698,6 +1698,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     const widgetSettings = widgetsCard();
     const backupsBox = backupCard();
     const remoteBox = remoteAccessCard();
+    const secureBox = secureConnectionCard();
 
     const about = h('div', { class: 'card panel-box stack', style: 'gap:10px' },
       h('h2', {}, 'About'),
@@ -1709,7 +1710,46 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
 
     return shell('settings',
       h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Settings'))),
-      h('div', { class: 'stack', style: 'max-width:640px' }, general, sports, widgetSettings, backupsBox, remoteBox, pw, about));
+      h('div', { class: 'stack', style: 'max-width:640px' }, general, sports, widgetSettings, backupsBox, remoteBox, secureBox, pw, about));
+  }
+
+  // Settings → Secure connection -------------------------------------------------------
+  let secureBusy = false;
+
+  function secureConnectionCard() {
+    const head = [
+      h('h2', {}, 'Secure connection (HTTPS)'),
+      h('p', { class: 'small muted' }, 'Encrypts what passes between your phone and the Pi — the dashboard password most of all — on the club’s network.'),
+    ];
+    const box = (...kids) => h('div', { class: 'card panel-box stack', style: 'gap:10px' }, ...head, ...kids);
+    const t = state.tls;
+    if (!t || !t.available) {
+      return box(h('p', { class: 'small muted' }, 'This Pi is serving the dashboard over plain ', h('code', {}, 'http'), ' only. HTTPS starts by itself on a Pi running PitchTribe 0.4.2 or later; on an older one, update it from Settings → Remote access.'));
+    }
+    const secureNow = location.protocol === 'https:';
+    const toggle = h('input', { type: 'checkbox', checked: Boolean(t.redirect), disabled: secureBusy });
+    toggle.addEventListener('change', async () => {
+      secureBusy = true;
+      const want = toggle.checked;
+      try {
+        await api('PUT', '/tls', { redirect: want });
+        await refresh();
+        toast(want ? 'The dashboard now sends people to HTTPS' : 'The dashboard no longer redirects');
+      } catch (err) { toast(err.message, 'error'); }
+      secureBusy = false;
+      render();
+    });
+
+    return box(
+      h('p', { class: 'small' }, secureNow
+        ? h('span', {}, 'You are on ', h('strong', {}, 'HTTPS'), ' now.')
+        : h('span', {}, 'You are on plain ', h('strong', {}, 'http'), '. The secure address is ', h('a', { href: t.url }, t.url))),
+      h('dl', { class: 'kv' },
+        h('dt', {}, 'Certificate'), h('dd', {}, h('code', { style: 'word-break:break-all' }, t.fingerprint || '—')),
+        h('dt', {}, 'Renews'), h('dd', {}, t.notAfter ? new Date(t.notAfter).toLocaleDateString() : '—')),
+      h('p', { class: 'small muted' }, 'Your browser will warn you the first time, and it is right to: the Pi signed its own certificate, because no certificate authority will vouch for a name like ', h('code', {}, t.names?.[0] || 'pitchtribe.local'), ' on a private network. Continue past the warning once, and check that the fingerprint your browser shows matches the one above — that is what tells you it is this Pi and not something else on the network.'),
+      h('label', { class: 'switch' }, toggle, 'Send the dashboard to HTTPS'),
+      h('p', { class: 'small muted' }, 'Off by default, so nobody meets a warning unasked. With it on, opening the dashboard over ', h('code', {}, 'http'), ' jumps to HTTPS. Screens and the TV on this Pi are left on ', h('code', {}, 'http'), ' — they have no keyboard to dismiss a warning with — and they carry nothing private. If a phone will not get past the warning, add ', h('code', {}, '?nossl'), ' to the dashboard address to come back over ', h('code', {}, 'http'), '.'));
   }
 
   // Settings → Remote access -----------------------------------------------------------

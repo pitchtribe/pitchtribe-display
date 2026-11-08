@@ -34,6 +34,7 @@ One Node.js server runs on a Raspberry Pi. It has two parts:
 cd app
 npm ci                 # also links ../signage-server
 npm start              # http://localhost:8080/admin/  (PORT, HOST, DATA_DIR, MAX_UPLOAD_MB)
+                       # HTTPS_PORT=8443 also serves https, with a certificate it makes itself
 npm test
 ```
 
@@ -81,6 +82,7 @@ app/
   lib/store.js            JSON-file database (atomic writes) in DATA_DIR/db.json
   lib/hub.js              Server-Sent Events push to screens
   lib/auth.js             password hashing, signed session cookies, login limiter
+  lib/tls.js              the self-signed certificate the Pi makes for its own HTTPS
   lib/validate.js         input sanitisers
   public/admin/           dashboard SPA (vanilla JS, no build step)
   public/player/          kiosk player

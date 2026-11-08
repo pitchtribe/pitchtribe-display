@@ -9,13 +9,16 @@ Group=pitchtribe
 WorkingDirectory=/opt/pitchtribe/app
 Environment=NODE_ENV=production
 Environment=PORT=@PORT@
+# HTTPS alongside HTTP, with a certificate the Pi makes for itself on first
+# start (app/lib/tls.js). HTTPS_PORT=0 switches it off.
+Environment=HTTPS_PORT=@HTTPS_PORT@
 Environment=DATA_DIR=/var/lib/pitchtribe
 ExecStart=/usr/bin/env node /opt/pitchtribe/app/server.js
 Restart=always
 RestartSec=3
 
-# Bind to port 80 without running as root. Both lines are needed, and the
-# bounding set cannot be emptied: without CAP_NET_BIND_SERVICE the dashboard
+# Bind to ports 80 and 443 without running as root. Both lines are needed, and
+# the bounding set cannot be emptied: without CAP_NET_BIND_SERVICE the dashboard
 # fails to start at all.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE

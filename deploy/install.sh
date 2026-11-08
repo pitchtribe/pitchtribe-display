@@ -13,7 +13,8 @@
 #   - Node.js 22 (NodeSource) if a recent Node isn't present
 #   - PitchTribe in /opt/pitchtribe (app/ + the signage-server sports engine it embeds),
 #     data in /var/lib/pitchtribe
-#   - pitchtribe.service        — dashboard + API on port 80
+#   - pitchtribe.service        — dashboard + API on port 80, and HTTPS on 443
+#                                 with a certificate the Pi makes for itself
 #   - pitchtribe-kiosk.service  — full-screen Chromium (in the cage Wayland
 #                                 kiosk) on the HDMI output, showing this Pi's screen
 #   - avahi so the dashboard is reachable at http://<hostname>.local
@@ -24,6 +25,7 @@
 #   PITCHTRIBE_NO_KIOSK=1         server only (e.g. a headless "hub" Pi)
 #   PITCHTRIBE_SERVER=http://hub.local   kiosk only: show a screen from another PitchTribe server
 #   PITCHTRIBE_PORT=80            dashboard port
+#   PITCHTRIBE_HTTPS_PORT=443     HTTPS port; 0 serves plain http only
 #   PITCHTRIBE_PORTAL=1           also set up the guest Wi-Fi captive portal on wlan0
 #                                 (the Pi must be connected to the club router by cable)
 #   PITCHTRIBE_IMAGE_BUILD=1      used by image/build.sh: install into a mounted SD card
@@ -47,6 +49,7 @@ DATA_DIR=/var/lib/pitchtribe
 SVC_USER=pitchtribe
 KIOSK_USER=pitchtribe-kiosk
 PORT="${PITCHTRIBE_PORT:-80}"
+HTTPS_PORT="${PITCHTRIBE_HTTPS_PORT:-443}"
 SERVER="${PITCHTRIBE_SERVER:-}"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -134,7 +137,7 @@ if [[ -z "$SERVER" ]]; then
   install -m 0644 "$SRC_DIR/deploy/remote-access/pitchtribe-remote-access@.service" \
     "$SRC_DIR/deploy/remote-access/pitchtribe-remote-access.path" /etc/systemd/system/
   [[ "$IMAGE_BUILD" == 1 ]] || udevadm control --reload 2>/dev/null || true
-  sed -e "s|@PORT@|$PORT|g" "$SRC_DIR/deploy/pitchtribe.service" >/etc/systemd/system/pitchtribe.service
+  sed -e "s|@PORT@|$PORT|g" -e "s|@HTTPS_PORT@|$HTTPS_PORT|g" "$SRC_DIR/deploy/pitchtribe.service" >/etc/systemd/system/pitchtribe.service
   start_now daemon-reload
   systemctl enable pitchtribe.service pitchtribe-backup.path pitchtribe-backup.timer pitchtribe-backup@scan.service \
     pitchtribe-remote-access.path pitchtribe-remote-access@status.service
@@ -245,6 +248,9 @@ if systemctl is-enabled pitchtribe.service >/dev/null 2>&1; then
   echo
   echo "  Dashboard:  http://${HOST}$([[ "$PORT" == 80 ]] || echo ":$PORT")/"
   for ip in $(hostname -I); do echo "              http://${ip}$([[ "$PORT" == 80 ]] || echo ":$PORT")/"; done
+  # The certificate is this Pi's own, made on first start, so a browser will
+  # warn once. Settings -> Secure connection shows the fingerprint to check.
+  [[ "$HTTPS_PORT" == 0 ]] || echo "  Secure:     https://${HOST}$([[ "$HTTPS_PORT" == 443 ]] || echo ":$HTTPS_PORT")/"
   echo
   echo "  Open it on your phone (same network) to create the admin password."
 fi

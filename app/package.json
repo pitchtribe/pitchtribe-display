@@ -1,6 +1,6 @@
 {
   "name": "pitchtribe",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "PitchTribe — self-hosted digital signage for clubs: a management dashboard plus a kiosk player for Raspberry Pi screens.",
   "license": "MIT",
