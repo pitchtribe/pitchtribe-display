@@ -752,10 +752,19 @@ function createApp(opts = {}) {
     try { return JSON.parse(fs.readFileSync(path.join(dataDir, 'portal-hardware.json'), 'utf8')); } catch { return null; }
   }
 
+  /** Is the guest Wi-Fi helper on this Pi? Without it these settings are saved
+      and never applied, and the dashboard has to say so rather than report
+      "Saved — the Wi-Fi updates in a few seconds" and leave the club waiting
+      for a network that will never appear. Cards built from the PitchTribe
+      image have it; a Pi installed by hand only does with PITCHTRIBE_PORTAL=1. */
+  const portalApplyBin = opts.portalApplyBin || process.env.PORTAL_APPLY_BIN || '/usr/local/bin/pitchtribe-portal-apply';
+  const portalInstalled = () => fs.existsSync(portalApplyBin);
+
   api.get('/portal', (req, res) => {
     const files = readPortalFiles(dataDir);
     res.set('Cache-Control', 'no-store').json({
       settings: portalSettings(),
+      installed: portalInstalled(),
       hardware: portalHardware(),
       stats: { active: files.active, today: files.today, week: files.week, serviceSeenAt: files.serviceSeenAt, days: files.days },
       guests: { count: files.guests.length, consented: files.guests.filter((g) => g.consent).length },

@@ -13,7 +13,10 @@
 #                         the latest Raspberry Pi OS Lite (64-bit) release.
 #   IMAGE_NAME=<name>     output file name without extension (default pitchtribe-rpi-arm64)
 #   IMAGE_VERSION=<ver>   recorded in /etc/pitchtribe-release (default: git describe)
-#   PITCHTRIBE_PORTAL=1   also install the guest Wi-Fi portal (off by default)
+#   PITCHTRIBE_PORTAL=0   leave the guest Wi-Fi portal out of the image. It is
+#                         installed by default because the dashboard offers Guest
+#                         Wi-Fi on every card, and it stays completely inert
+#                         until someone switches it on there.
 #   EXTRA_MB=2560         space added to the root filesystem for PitchTribe + Chromium
 #   XZ_LEVEL=6            xz compression level (CI pull requests use a faster one)
 #
@@ -99,7 +102,7 @@ rm -rf "$MNT/tmp/pitchtribe/app/node_modules" "$MNT/tmp/pitchtribe/signage-serve
 log "Running deploy/install.sh in the image"
 chroot "$MNT" /usr/bin/env -i \
   PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LANG=C.UTF-8 \
-  PITCHTRIBE_IMAGE_BUILD=1 PITCHTRIBE_PORTAL="${PITCHTRIBE_PORTAL:-0}" \
+  PITCHTRIBE_IMAGE_BUILD=1 PITCHTRIBE_PORTAL="${PITCHTRIBE_PORTAL:-1}" \
   bash /tmp/pitchtribe/deploy/install.sh
 
 # ------------------------------------------------------------- image defaults
@@ -130,16 +133,11 @@ fi
 log "Hardening the boot configuration"
 CMDLINE="$MNT/boot/firmware/cmdline.txt"
 if [[ -f "$CMDLINE" ]]; then
-  # cmdline.txt must stay ONE line — the bootloader reads the first line and
-  # ignores the rest, so a second line silently drops those parameters.
-  read -r cmdline <"$CMDLINE" || true
-  for param in quiet loglevel=3 logo.nologo vt.global_cursor_default=0; do
-    [[ " $cmdline " == *" $param "* ]] || cmdline="$cmdline $param"
-  done
-  printf '%s\n' "$cmdline" >"$CMDLINE"
-  log "cmdline.txt: quiet boot (still one line, $(wc -w <<<"$cmdline") parameters)"
-  # fsck.mode=skip is deliberately not set: these cards lose power without being
-  # shut down, and the boot-time check is what repairs the filesystem afterwards.
+  # Moves the console off tty1 (the HDMI output) and adds the quiet parameters,
+  # keeping cmdline.txt to one line. See image/harden-cmdline.sh for why each
+  # part is there and what is deliberately left out.
+  "$ROOT/image/harden-cmdline.sh" "$CMDLINE"
+  log "cmdline.txt: quiet boot on tty3, no serial console ($(wc -w <"$CMDLINE") parameters on $(wc -l <"$CMDLINE") line)"
 fi
 
 CONFIG_TXT="$MNT/boot/firmware/config.txt"

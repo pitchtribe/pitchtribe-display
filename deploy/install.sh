@@ -163,8 +163,26 @@ if [[ "${PITCHTRIBE_PORTAL:-0}" == 1 ]]; then
   # Re-apply when a USB Wi-Fi adapter or USB network adapter is plugged in or out.
   install -m 0644 "$SRC_DIR/deploy/portal/90-pitchtribe-portal.rules" /etc/udev/rules.d/
   [[ "$IMAGE_BUILD" == 1 ]] || udevadm control --reload 2>/dev/null || true
+  # Installed, but nothing broadcasts or listens until Guest Wi-Fi is switched on
+  # in the dashboard. pitchtribe-portal-apply is what switches the parts below on
+  # and off, from the settings; these three make sure that nothing else does.
+  #
+  # dnsmasq: apt enables it, and its stock configuration answers DHCP and DNS on
+  # every interface — which on a club's network means a second, unasked-for DHCP
+  # server. It must only run with the guest-only configuration that
+  # pitchtribe-portal-apply writes, so take it out of the boot sequence.
+  systemctl disable dnsmasq.service 2>/dev/null || true
+  # hostapd: Debian ships it masked until it is configured, which is the right
+  # state here too — pitchtribe-portal-apply unmasks it once there is a radio and
+  # a hostapd.conf to go with it.
+  systemctl mask hostapd.service 2>/dev/null || true
+  # pitchtribe-portal.service listens on the guest bridge address (10.42.0.1),
+  # which only exists while guest Wi-Fi is on. Enabling it for boot would leave
+  # it restarting every three seconds on every card that never turns guest Wi-Fi
+  # on, so pitchtribe-portal-apply starts it instead — after the bridge is up.
+  systemctl enable pitchtribe-portal-apply.service pitchtribe-portal-apply.path
+  systemctl disable pitchtribe-portal.service 2>/dev/null || true
   start_now daemon-reload
-  systemctl enable pitchtribe-portal.service pitchtribe-portal-apply.service pitchtribe-portal-apply.path
   start_now start pitchtribe-portal-apply.path
   start_now start pitchtribe-portal-apply.service || true
   log "Guest Wi-Fi installed — switch it on and design the sign-in page under Guest Wi-Fi in the dashboard"

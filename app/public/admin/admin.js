@@ -1544,7 +1544,11 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
           const r = await api('PUT', '/portal', body);
           portal.settings = r.settings;
           render();
-          toast(r.settings.enabled ? 'Saved — the Wi-Fi updates in a few seconds' : 'Saved — guest Wi-Fi is off');
+          // Don't promise a network the Pi can't broadcast: without the add-on
+          // these settings are saved and nothing applies them.
+          toast(!r.settings.enabled ? 'Saved — guest Wi-Fi is off'
+            : portal.installed ? 'Saved — the Wi-Fi updates in a few seconds'
+              : 'Saved, but the guest Wi-Fi add-on isn’t installed on this Pi yet', portal.installed ? 'ok' : 'error');
           setTimeout(() => { if (currentView === 'wifi') { portal = null; render(); } }, 8000); // pick up the hardware check
         } catch (err) { toast(err.message, 'error'); }
       },
@@ -1577,7 +1581,10 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     const stats = h('div', { class: 'card panel-box stack', style: 'gap:12px' },
       h('h2', {}, 'Status'),
       h('dl', { class: 'kv' },
-        h('dt', {}, 'Portal service'), h('dd', {}, running ? 'Running' : p.enabled ? 'Not seen yet — is the Wi-Fi add-on installed?' : 'Off'),
+        h('dt', {}, 'Portal service'), h('dd', {}, running ? 'Running'
+          : !p.enabled ? 'Off'
+            : portal.installed ? 'Starting up — give it a minute, then check Hardware below'
+              : 'Not installed on this Pi'),
         h('dt', {}, 'Connected now'), h('dd', {}, String(st.active)),
         h('dt', {}, 'Connections today'), h('dd', {}, String(st.today)),
         h('dt', {}, 'Last 7 days'), h('dd', {}, String(st.week))),
@@ -1594,15 +1601,25 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
               toast('Guest list deleted');
             } }, icon('trash'), 'Delete list')))
         : null,
-      h('details', { class: 'help' }, h('summary', {}, 'How to switch the hardware on'),
-        h('p', { style: 'margin-top:8px' }, 'The guest network runs on the Pi’s built-in Wi-Fi while its network cable stays plugged into the club router. Install the add-on once, from a terminal on the Pi over SSH (switch SSH on under Settings → Remote access):'),
+      h('details', { class: 'help' }, h('summary', {}, 'How the hardware is set up'),
+        h('p', { style: 'margin-top:8px' }, 'The guest network runs on the Pi’s built-in Wi-Fi (or a USB aerial) while the Pi’s network cable stays plugged into the club router. Cards written from the PitchTribe SD card image already have everything they need — switch Guest Wi-Fi on above and it applies by itself.'),
+        h('p', {}, 'On a Pi that was set up by hand, install the guest Wi-Fi part once, from a terminal on the Pi over SSH (switch SSH on under Settings → Remote access):'),
         h('pre', {}, 'curl -sSL https://pitchtribe.media/install.sh | sudo PITCHTRIBE_PORTAL=1 bash'),
-        h('p', {}, h('a', { href: 'https://pitchtribe.media/docs/guest-wifi', target: '_blank', rel: 'noopener' }, 'Step-by-step guide')),
-        h('p', {}, 'After that, the settings on this page apply by themselves.')));
+        h('p', {}, h('a', { href: 'https://pitchtribe.media/docs/guest-wifi', target: '_blank', rel: 'noopener' }, 'Step-by-step guide'))));
+
+    // Saving settings the Pi cannot apply looks exactly like success, so say so
+    // in the one place nobody can miss, not only in the sidebar.
+    const notInstalled = portal.installed ? null : h('div', { class: 'card panel-box stack', style: 'gap:8px' },
+      h('h2', { style: 'color:var(--danger)' }, '⚠ The guest Wi-Fi part isn’t installed on this Pi'),
+      h('p', { class: 'small' }, 'You can save the settings below, but nothing on this Pi will broadcast the network, so it won’t appear on anyone’s phone. Install it once over SSH (Settings → Remote access), then these settings apply by themselves:'),
+      h('div', { class: 'help' }, h('pre', {}, 'curl -sSL https://pitchtribe.media/install.sh | sudo PITCHTRIBE_PORTAL=1 bash')),
+      h('p', { class: 'small muted' }, 'Cards written from the PitchTribe SD card image have it already. ',
+        h('a', { href: 'https://pitchtribe.media/docs/guest-wifi', target: '_blank', rel: 'noopener' }, 'Guest Wi-Fi guide')));
 
     syncRadio();
     return shell('wifi',
       h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Guest Wi-Fi'), h('p', {}, 'Free Wi-Fi for visitors, with your own sign-in page.'))),
+      notInstalled,
       h('div', { class: 'editor-layout wifi-layout' },
         form,
         h('aside', { class: 'stack' }, h('div', { class: 'card panel-box' }, h('h2', {}, 'Preview'), frame), stats, hardwareCard(portal.hardware))));

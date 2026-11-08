@@ -7,7 +7,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..', '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
@@ -133,13 +135,49 @@ test('installer: SSH hardening is installed, validated, and never starts SSH', (
   assert.match(sh, /systemctl is-active --quiet ssh\.service/);
 });
 
-test('image: cmdline.txt is rewritten as a single line', () => {
-  const sh = read('image/build.sh');
+// A real Raspberry Pi OS (Trixie) Lite cmdline.txt, as the image build finds it.
+const STOCK_CMDLINE = 'console=serial0,115200 console=tty1 root=PARTUUID=2ca9f1b7-02 rootfstype=ext4'
+  + ' fsck.repair=yes rootwait quiet init=/usr/lib/raspberrypi-sys-mods/firstboot';
+
+/** Runs image/harden-cmdline.sh over a cmdline.txt and returns the whole file. */
+function hardenCmdline(contents) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-cmdline-'));
+  const file = path.join(dir, 'cmdline.txt');
+  fs.writeFileSync(file, contents);
+  const r = spawnSync('bash', [path.join(ROOT, 'image', 'harden-cmdline.sh'), file], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  return fs.readFileSync(file, 'utf8');
+}
+
+test('image: the boot console moves off the screen the club can see', () => {
+  const out = hardenCmdline(`${STOCK_CMDLINE}\n`);
+  const params = out.trim().split(' ');
+  // This is the fix for a card that showed boot text on the TV: on a stock
+  // image the kernel console is tty1, which is the HDMI output, and the first
+  // boot writes to it for a while (resize, reboot, cloud-init) before the kiosk
+  // takes the screen.
+  assert.deepEqual(params.filter((p) => p.startsWith('console=')), ['console=tty3']);
+  // config.txt sets enable_uart=0, so a serial console cannot work anyway.
+  assert.ok(!out.includes('serial0'), 'no serial console: enable_uart=0 turns that port off');
+  for (const param of ['quiet', 'loglevel=3', 'logo.nologo', 'vt.global_cursor_default=0']) {
+    assert.ok(params.includes(param), `cmdline.txt should set ${param}`);
+  }
+  // Everything the card needs to boot has to survive untouched — the root
+  // filesystem, the filesystem repair, and the first-boot resize.
+  for (const param of ['root=PARTUUID=2ca9f1b7-02', 'rootfstype=ext4', 'fsck.repair=yes', 'rootwait',
+    'init=/usr/lib/raspberrypi-sys-mods/firstboot']) {
+    assert.ok(params.includes(param), `cmdline.txt must keep ${param}`);
+  }
+  assert.ok(!params.includes('fsck.mode=skip') && !params.includes('noswap'));
+});
+
+test('image: cmdline.txt stays one line, and rewriting it twice changes nothing', () => {
   // The bootloader reads the first line of cmdline.txt and ignores the rest, so
-  // appending a second line silently drops those parameters. A line-wise
-  // regex replace over this file is the classic way to get that wrong.
-  assert.match(sh, /read -r cmdline <"\$CMDLINE"/);
-  assert.match(sh, /printf '%s\\n' "\$cmdline" >"\$CMDLINE"/);
+  // anything on a second line is silently dropped. A line-wise regex replace is
+  // the classic way to get that wrong.
+  const once = hardenCmdline(`${STOCK_CMDLINE}\n`);
+  assert.equal(once.split('\n').filter(Boolean).length, 1, 'cmdline.txt must stay one line');
+  assert.equal(hardenCmdline(once), once, 'running the build twice must not append anything');
   assert.ok(!/sed -i.*cmdline\.txt/.test(code('image/build.sh')), 'do not rewrite cmdline.txt line-wise');
 });
 
@@ -160,9 +198,32 @@ test('image: boot hardening is applied', () => {
   assert.match(sh, /enable_uart=0/);
   assert.match(sh, /dtoverlay=disable-bt/);
   assert.match(sh, /disable_splash=1/);
-  for (const param of ['quiet', 'loglevel=3', 'logo.nologo', 'vt.global_cursor_default=0']) {
-    assert.ok(sh.includes(param), `cmdline.txt should set ${param}`);
-  }
+  // The quiet boot itself is image/harden-cmdline.sh, exercised above; the build
+  // has to actually call it, or none of it reaches the card.
+  assert.match(sh, /harden-cmdline\.sh" "\$CMDLINE"/);
+});
+
+test('image: the guest Wi-Fi part is on the card, because the dashboard offers it', () => {
+  // A card built without this has a full Guest Wi-Fi page in the dashboard and
+  // nothing on the Pi to carry it out: the club switches it on, is told the
+  // Wi-Fi "updates in a few seconds", and no network ever appears.
+  assert.match(read('image/build.sh'), /PITCHTRIBE_PORTAL="\$\{PITCHTRIBE_PORTAL:-1\}"/);
+});
+
+test('installer: the guest Wi-Fi part is inert until the dashboard switches it on', () => {
+  const sh = code('deploy/install.sh');
+  // dnsmasq's stock configuration answers DHCP and DNS on every interface. On a
+  // club's network that is a second, unasked-for DHCP server, so it must only
+  // run with the guest-only configuration pitchtribe-portal-apply writes.
+  assert.match(sh, /systemctl disable dnsmasq\.service/);
+  assert.match(sh, /systemctl mask hostapd\.service/);
+  // pitchtribe-portal.service binds the guest bridge address, which exists only
+  // while guest Wi-Fi is on. Enabled for boot it would restart every three
+  // seconds forever on every card that never turns guest Wi-Fi on.
+  assert.ok(!/systemctl enable [^\n]*\bpitchtribe-portal\.service/.test(sh),
+    'pitchtribe-portal.service must be started by pitchtribe-portal-apply, after the bridge is up');
+  assert.match(sh, /systemctl enable pitchtribe-portal-apply\.service pitchtribe-portal-apply\.path/);
+  assert.match(read('deploy/portal/portal-apply.sh'), /systemctl restart pitchtribe-portal\.service/);
 });
 
 test('no firewall is installed, because the guest portal already runs nftables', () => {
