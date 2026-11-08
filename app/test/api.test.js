@@ -19,9 +19,9 @@ const fakeEspn = async (url) => {
   return { ok: true, status: 200, json: async () => espnFixture };
 };
 
-async function startServer() {
+async function startServer(extra = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pitchtribe-test-'));
-  const ctx = createApp({ dataDir, maxUploadMb: 1, sportsFetch: fakeEspn, log: () => {} });
+  const ctx = createApp({ dataDir, maxUploadMb: 1, sportsFetch: fakeEspn, log: () => {}, ...extra });
   const server = await new Promise((resolve) => {
     const s = ctx.app.listen(0, '127.0.0.1', () => resolve(s));
   });
@@ -49,7 +49,7 @@ async function startServer() {
     server.close();
     fs.rmSync(dataDir, { recursive: true, force: true });
   };
-  return { call, stop, ctx, base, clearCookie: () => { cookie = ''; } };
+  return { call, stop, ctx, base, dataDir, clearCookie: () => { cookie = ''; } };
 }
 
 test('first-run setup, login and auth guard', async (t) => {
@@ -486,6 +486,38 @@ test('screen language: club default, per-screen override, validation', async (t)
   assert.equal((await s.call('GET', '/api/player/bar-tv/manifest')).body.language, 'fr', 'back to club default');
   await s.call('PUT', '/api/settings', { clubName: 'Riverside FC', language: 'klingon' });
   assert.equal((await s.call('GET', '/api/state')).body.settings.language, 'en', 'unknown codes fall back to English');
+});
+
+test('guest wi-fi: the dashboard says whether this Pi can actually broadcast it', async (t) => {
+  // Saving guest Wi-Fi settings on a Pi without the helper looks exactly like
+  // success, and the club waits for a network that never appears. The settings
+  // still save — they are kept for when it is installed — but the dashboard has
+  // to be able to tell the difference, so it reports it.
+  const missing = await startServer({ portalApplyBin: path.join(os.tmpdir(), 'pitchtribe-no-such-helper') });
+  t.after(missing.stop);
+  await missing.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+
+  let r = await missing.call('GET', '/api/portal');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.installed, false);
+  assert.equal(r.body.settings.enabled, false, 'guest Wi-Fi is off until the club switches it on');
+
+  r = await missing.call('PUT', '/api/portal', { enabled: true, ssid: 'Riverside Guest', radio: 'builtin' });
+  assert.equal(r.status, 200, 'the settings are still saved, ready for the helper');
+  assert.equal(r.body.settings.radio, 'builtin');
+  assert.equal((await missing.call('GET', '/api/portal')).body.installed, false);
+
+  // The helper writes the settings file this hands it; it must appear, or
+  // nothing applies them even once the helper is there.
+  const net = JSON.parse(fs.readFileSync(path.join(missing.dataDir, 'portal-network.json'), 'utf8'));
+  assert.equal(net.enabled, true);
+  assert.equal(net.radio, 'builtin');
+  assert.equal(net.ssid, 'Riverside Guest');
+
+  const present = await startServer({ portalApplyBin: __filename }); // any file that exists
+  t.after(present.stop);
+  await present.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  assert.equal((await present.call('GET', '/api/portal')).body.installed, true);
 });
 
 test('every language has every label', () => {

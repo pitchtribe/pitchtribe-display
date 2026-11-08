@@ -150,6 +150,16 @@ flaw in the dashboard cannot rewrite the code that serves it; a `@system-service
 otherwise a root shell for anyone who can reach the board) and the Bluetooth radio, and boots
 quietly so the screen shows nothing before the kiosk.
 
+The quiet boot is `image/harden-cmdline.sh`, and the part that does the work is moving the kernel
+console to `tty3`. On a stock card it is `tty1` — the HDMI output — and the first boot writes to it
+for a while (the card resizes its own filesystem and reboots, then cloud-init runs) before the kiosk
+takes the screen; `quiet` alone leaves a club TV showing boot text. `getty@tty1` is already off
+(`deploy/install.sh`), so once the console moves, nothing writes to the screen the room can see. The
+trade-off: if the kiosk never starts, the TV now stays black instead of showing the boot log — a
+keyboard and **Alt+F3** still bring it up, and `journalctl -b` over SSH is the better route anyway.
+Re-enabling the serial console for debugging means putting back both `enable_uart=1` in `config.txt`
+and `console=serial0,115200` in `cmdline.txt`.
+
 **SSH** (`deploy/ssh/10-pitchtribe-hardening.conf`) is off until someone switches it on in
 **Settings → Remote access**. The drop-in refuses root logins and empty passwords, and limits
 authentication attempts, sessions and the login grace time.
@@ -165,6 +175,26 @@ Four things are deliberately **not** done, each because it breaks the product:
 
 `PasswordAuthentication` stays enabled and SSH stays on port 22 for the same reason: Remote access
 works by setting a password for the login, and the setup docs tell people to use the default port.
+
+### Guest Wi-Fi on the card
+
+The dashboard offers **Guest Wi-Fi** on every card, so the card has to be able to carry it out:
+`image/build.sh` installs the portal by default (`PITCHTRIBE_PORTAL=0` leaves it out). Without it the
+club switches guest Wi-Fi on, is told the network "updates in a few seconds", and no network ever
+appears — which is exactly what happened to the first v0.4.0 card. The dashboard now also reports
+whether the helper is present (`installed` in `GET /api/portal`) and says so on the page rather than
+reporting success.
+
+Installing it changes nothing until someone switches guest Wi-Fi on. `pitchtribe-portal-apply` is
+the only thing that starts these, from the saved settings, so `deploy/install.sh` keeps all three out
+of the boot sequence: `dnsmasq` is disabled (its stock configuration would answer DHCP and DNS on
+every interface — a second, unasked-for DHCP server on the club's network), `hostapd` stays masked
+as Debian ships it, and `pitchtribe-portal.service` is not enabled because it binds the guest bridge
+address `10.42.0.1`, which only exists while guest Wi-Fi is on.
+
+The one-line installer still leaves guest Wi-Fi out unless asked
+(`curl -sSL https://pitchtribe.media/install.sh | sudo PITCHTRIBE_PORTAL=1 bash`), because a Pi
+installed by hand is not necessarily the club's signage box.
 
 ## Releases
 
