@@ -3,13 +3,23 @@ import { timingSafeEqual } from 'node:crypto';
 import { renderDisplay } from './render.js';
 
 const MAX_BODY = 1_000_000;
+const MAX_STREAM_CLIENTS = 50;
+
+/**
+ * Widget options a request may never set. `url` decides what address the Pi
+ * fetches, and a Pi can see things the caller cannot — the club router's admin
+ * page, a till, a camera recorder. Feed addresses come from the dashboard
+ * (sanitizeWidget), so dropping it here costs nothing and closes the hole.
+ * Every other widget option is already validated against a list or a pattern
+ * inside sources.js.
+ */
+const RESERVED_PARAMS = new Set(['url']);
 
 function send(res, status, body, type = 'application/json; charset=utf-8', extra = {}) {
   const payload = typeof body === 'string' ? body : JSON.stringify(body, null, 2);
   res.writeHead(status, {
     'content-type': type,
     'cache-control': 'no-store',
-    'access-control-allow-origin': '*',
     ...extra,
   });
   res.end(payload);
@@ -51,7 +61,8 @@ function authorized(req, token) {
  *   POST /api/refresh        re-fetch now            (Bearer token if apiToken set)
  *   POST /api/push           push to signage targets (Bearer token if apiToken set)
  *   GET  /api/widgets        widget list; GET /api/widgets/:kind?scope=&general=&days= for data
- *   GET  /api/geocode?q=     place search for the weather location
+ *                            (Bearer token if apiToken set; `url` is never taken from the query)
+ *   GET  /api/geocode?q=     place search for the weather location (Bearer token if apiToken set)
  *   POST /mcp                MCP over Streamable HTTP (Bearer token if apiToken set)
  */
 export function createRequestHandler({ store, config, push, mcp, widgets, log = console.error }) {
@@ -65,6 +76,11 @@ export function createRequestHandler({ store, config, push, mcp, widgets, log = 
   const handler = async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const route = `${req.method} ${url.pathname.replace(/\/+$/, '') || '/'}`;
+    // Opt-in, and off by default: with `access-control-allow-origin: *` any web
+    // page open on the club's network can read this API through the browser of
+    // whoever visited it. Screens load the display page from this origin and so
+    // never need it.
+    if (config.cors) res.setHeader('access-control-allow-origin', '*');
     try {
       if (req.method === 'OPTIONS') {
         return send(res, 204, '', 'text/plain', {
@@ -77,10 +93,20 @@ export function createRequestHandler({ store, config, push, mcp, widgets, log = 
       }
 
       if (widgets && req.method === 'GET') {
+        const widget = /^\/api\/widgets\/([a-z]+)\/?$/.exec(url.pathname);
+        const geocoding = url.pathname === '/api/geocode';
+        // Widget data and the place search make the Pi fetch from the internet
+        // on the caller's behalf, so they are treated like the POST routes
+        // rather than like the display page a screen opens.
+        if ((widget || geocoding) && !authorized(req, config.apiToken)) {
+          return send(res, 401, { error: 'Unauthorized' }, undefined, { 'www-authenticate': 'Bearer' });
+        }
         if (url.pathname === '/api/widgets') return send(res, 200, widgets.kinds);
-        const m = /^\/api\/widgets\/([a-z]+)\/?$/.exec(url.pathname);
-        if (m) return send(res, 200, await widgets.get(m[1], Object.fromEntries(url.searchParams)));
-        if (url.pathname === '/api/geocode') return send(res, 200, await widgets.geocode(url.searchParams.get('q')));
+        if (widget) {
+          const opts = Object.fromEntries([...url.searchParams].filter(([k]) => !RESERVED_PARAMS.has(k.toLowerCase())));
+          return send(res, 200, await widgets.get(widget[1], opts));
+        }
+        if (geocoding) return send(res, 200, await widgets.geocode(url.searchParams.get('q')));
       }
 
       switch (route) {
@@ -110,9 +136,14 @@ export function createRequestHandler({ store, config, push, mcp, widgets, log = 
         case 'GET /api/snapshot':
           return send(res, 200, store.snapshot());
         case 'GET /api/stream':
+          // Capped: an open stream costs a socket, and a club has a handful of
+          // screens, not fifty. Without this one script can hold them all open.
+          if (clients.size >= MAX_STREAM_CLIENTS) {
+            return send(res, 503, { error: 'Too many open streams' }, undefined, { 'retry-after': '30' });
+          }
           res.writeHead(200, {
             'content-type': 'text/event-stream', 'cache-control': 'no-store',
-            connection: 'keep-alive', 'access-control-allow-origin': '*',
+            connection: 'keep-alive',
           });
           res.write(`retry: 5000\nevent: hello\ndata: ${JSON.stringify({ updatedAt: store.updatedAt })}\n\n`);
           clients.add(res);

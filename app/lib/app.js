@@ -159,10 +159,21 @@ function createApp(opts = {}) {
   });
 
   // ---------- Signage-server engine at /feeds (sports now, widgets too) ----------
-  // GET routes (display page, JSON, SSE) are open on the LAN like the player.
-  // POST routes (refresh, push, MCP) need the sports API token or a dashboard login.
+  // The sports display page, scores JSON and SSE are open on the LAN like the
+  // player: that is what a club points a second screen at, and it is all public
+  // football.
+  //
+  // Everything that makes the Pi fetch something needs the sports API token or
+  // a dashboard login — the POST routes (refresh, push, MCP), and the widget
+  // and place-search routes. A Pi can reach things the caller cannot (the club
+  // router's admin page, a till, a camera recorder), so an open "fetch this for
+  // me" route turns it into a way in. The engine refuses these too; this is the
+  // gate that matters, because the embedded engine runs with no token of its own.
+  const FEEDS_PRIVATE = /^\/api\/(widgets\/|geocode$|geocode\/)/;
   app.use('/feeds', (req, res) => {
-    if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS') {
+    const readOnly = req.method === 'GET' || req.method === 'HEAD';
+    const needsAuth = req.method !== 'OPTIONS' && (!readOnly || FEEDS_PRIVATE.test(req.path));
+    if (needsAuth) {
       const token = store.data.settings.sports?.apiToken || '';
       const given = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '');
       const tokenOk =

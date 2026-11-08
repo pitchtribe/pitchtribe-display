@@ -10,6 +10,11 @@ import {
 } from '../src/sources.js';
 import { createWidgets } from '../src/widgets.js';
 
+// Widget fetches resolve the address first and refuse anything private, so the
+// fixture hostnames here (`club.example`, `rail.example`) get a stub resolver
+// that answers with a public address. Without it these tests would need DNS.
+const lookup = async () => [{ address: '93.184.216.34', family: 4 }];
+
 test('plainText decodes CDATA, tags and entities', () => {
   assert.equal(plainText('<![CDATA[<b>Fish &amp; chips</b> &#163;5]]>'), 'Fish & chips £5');
   assert.equal(plainText('Caf&eacute;?'), 'Caf&eacute;?', 'unknown named entities are left alone');
@@ -178,7 +183,7 @@ test('widgets wire the sources together (fake network)', async () => {
   };
   const w = createWidgets({
     config: { timezone: 'Europe/London', weather: { place: 'Leeds', latitude: 53.8, longitude: -1.55 }, widgets: { trains: { url: 'https://rail.example', token: 'secret' } } },
-    fetchImpl, log: () => {},
+    fetchImpl, log: () => {}, lookup,
   });
   const now = new Date('2026-11-03T12:00:00Z');
   const weather = await w.get('weather', { days: 1 });
@@ -220,11 +225,11 @@ test('Bus Open Data Service SIRI-VM: routes near the ground', async () => {
   const w = createWidgets({
     config: { timezone: 'Europe/London', weather: { place: 'Biggleswade', latitude: 52.087, longitude: -0.264 }, widgets: { bods: { apiKey: 'k3y' } } },
     fetchImpl: async (url) => { urls.push(url); return { ok: true, status: 200, text: async () => xml }; },
-    log: () => {},
+    log: () => {}, lookup,
   });
   const hub = await w.get('transport', { sections: ['tracker'], trackLines: ['73', '74'], trackRadius: 20 });
   assert.equal(hub.sections[0].key, 'tracker');
   assert.match(urls[0], /^https:\/\/data\.bus-data\.dft\.gov\.uk\/api\/v1\/datafeed\/\?boundingBox=-0\.55\d+,51\.90\d+,0\.0\d+,52\.26\d+&lineRef=73&api_key=k3y$/);
-  const noKey = createWidgets({ config: { timezone: 'Europe/London', weather: { latitude: 52, longitude: 0 } }, fetchImpl: async () => ({}), log: () => {} });
+  const noKey = createWidgets({ config: { timezone: 'Europe/London', weather: { latitude: 52, longitude: 0 } }, fetchImpl: async () => ({}), log: () => {}, lookup });
   assert.match(noKey.peek('transport', { sections: ['tracker'], trackLines: ['73'] }).sections[0].error, /API key/);
 });

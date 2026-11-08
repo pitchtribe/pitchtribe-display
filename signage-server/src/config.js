@@ -21,6 +21,10 @@ const DEFAULTS = {
   pushTargets: [],
   weather: null, // { place, latitude, longitude, windUnit: 'mph' | 'kmh' }
   widgets: { wikipedia: true },
+  // Off by default: with `access-control-allow-origin: *` any web page open on
+  // the same network could read this API from the browser of whoever visited
+  // it. Screens load the display page from this origin, so they do not need it.
+  cors: false,
 };
 
 /**
