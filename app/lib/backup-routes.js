@@ -24,6 +24,7 @@ const { Readable, Transform, pipeline: pipelineStream } = require('node:stream')
 const { pipeline } = require('node:stream/promises');
 const { tarChunks, readTar } = require('./tar');
 const { DATA_FILES, SAFE_NAME, SNAPSHOT_ID, mediaFiles } = require('./backup');
+const enc = require('./backup-crypto');
 const v = require('./validate');
 
 const UUID_RE = /^[A-Za-z0-9-]{1,64}$/;
@@ -63,10 +64,15 @@ function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, 
   /** What the root helper last reported, or null if it isn't installed (e.g. a dev machine). */
   const status = () => readJson('backup-status.json');
 
+  /* 0600 because a restore request can carry the recovery code the club typed
+     on the first-run screen. The root helper takes it back out once it has been
+     used (bin/backup.js), so it does not sit in DATA_DIR afterwards. */
   function request(action, extra = {}) {
     const req = { id: crypto.randomBytes(8).toString('hex'), action, at: new Date().toISOString(), ...extra };
-    fs.writeFileSync(`${file('backup-request.json')}.tmp`, `${JSON.stringify(req, null, 2)}\n`);
-    fs.renameSync(`${file('backup-request.json')}.tmp`, file('backup-request.json'));
+    const tmp = `${file('backup-request.json')}.tmp`;
+    fs.writeFileSync(tmp, `${JSON.stringify(req, null, 2)}\n`, { mode: 0o600 });
+    fs.chmodSync(tmp, 0o600);
+    fs.renameSync(tmp, file('backup-request.json'));
     return req.id;
   }
 
@@ -74,10 +80,16 @@ function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, 
   function setupInfo() {
     const s = status();
     if (!s) return { usb: [], running: null, last: null };
+    // `encrypted` and `locked` are what the screen needs to decide whether to
+    // ask for the recovery code before it can restore anything.
     const usb = (s.sticks || []).filter((k) => (k.backups || []).length).map((k) => ({
       uuid: k.uuid,
       label: k.label,
-      backups: k.backups.map((b) => ({ host: b.host, snapshots: b.snapshots.map(({ id, at, club, counts }) => ({ id, at, club, counts })) })),
+      backups: k.backups.map((b) => ({
+        host: b.host,
+        locked: Boolean(b.locked),
+        snapshots: b.snapshots.map(({ id, at, club, counts, encrypted }) => ({ id, at, club, counts, encrypted: Boolean(encrypted) })),
+      })),
     }));
     return { usb, running: s.running || null, last: s.last || null, lastRequestId: s.lastRequestId || null };
   }
@@ -91,7 +103,13 @@ function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, 
     if (!s) throw new v.HttpError(503, 'USB backups need PitchTribe to be installed on a Raspberry Pi');
     const found = (s.sticks || []).find((k) => k.uuid === uuid)?.backups?.find((b) => b.host === host)?.snapshots?.some((x) => x.id === snapshot);
     if (!found) throw v.bad('That backup isn’t on a plugged-in USB stick any more');
-    return request('restore', { uuid, host, snapshot });
+    // Checked here rather than in the root helper, so a mistyped code comes
+    // back while the club is still looking at the box they typed it into.
+    let recoveryCode;
+    if (body.recoveryCode !== undefined && String(body.recoveryCode).trim() !== '') {
+      try { recoveryCode = enc.normalizeCode(String(body.recoveryCode).slice(0, 200)); } catch (err) { throw v.bad(err.message); }
+    }
+    return request('restore', { uuid, host, snapshot, ...(recoveryCode ? { recoveryCode } : {}) });
   }
 
   /** Reads an uploaded .tar.gz backup and makes it the current data. */
@@ -200,13 +218,22 @@ function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, 
 
   api.post('/backup/request', wrap((req, res) => {
     const b = req.body || {};
-    const action = v.oneOf(b.action, ['use', 'stop', 'now', 'restore'], null);
+    const action = v.oneOf(b.action, ['use', 'stop', 'now', 'restore', 'encrypt'], null);
     if (!action) throw v.bad('Unknown backup action');
     if (!status()) throw new v.HttpError(503, 'USB backups need PitchTribe to be installed on a Raspberry Pi');
     if (action === 'restore') return res.json({ requestId: requestUsbRestore(b) });
     if (action === 'use' && !UUID_RE.test(String(b.uuid || ''))) throw v.bad('Choose a USB stick');
-    res.json({ requestId: request(action, action === 'use' ? { uuid: String(b.uuid) } : {}) });
+    const extra = { use: () => ({ uuid: String(b.uuid), encrypt: b.encrypt !== false }), encrypt: () => ({ on: b.on !== false }) }[action];
+    res.json({ requestId: request(action, extra ? extra() : {}) });
   }));
+
+  /* The printed card goes missing. A signed-in admin can be shown the code
+     again — they can already download the whole club as one file, so this is
+     not a new way in, and a club that cannot find the code has no backup. */
+  api.get('/backup/recovery', (req, res) => {
+    const code = enc.readRecoveryCode(dataDir);
+    res.set('Cache-Control', 'no-store').json({ code: code || null, formatted: code ? enc.formatCode(code) : null });
+  });
 
   api.post('/backup/restore-file', wrap(async (req, res) => {
     res.json(await restoreFromFile(req));

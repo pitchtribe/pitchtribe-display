@@ -410,6 +410,10 @@
     const msg = h('p', { class: 'small', role: 'status' });
     let busy = false;
     let poll = null;
+    // Kept across redraws: the list is redrawn when a stick is plugged in, and
+    // when the chosen backup changes the recovery-code box appears or goes.
+    let chosen = 0;
+    let typed = '';
 
     const finish = async (text) => {
       clearInterval(poll);
@@ -422,19 +426,35 @@
       const options = [];
       for (const stick of info.usb || []) {
         for (const b of stick.backups) {
-          for (const snap of b.snapshots) options.push({ stick, host: b.host, snap });
+          for (const snap of b.snapshots) options.push({ stick, host: b.host, locked: b.locked, snap });
         }
       }
       options.sort((x, y) => (x.snap.at < y.snap.at ? 1 : -1));
-      const pick = h('select', {}, options.map((o, i) => h('option', { value: String(i) },
-        `${o.snap.club || o.host} — ${fmtWhen(o.snap.at)}${(info.usb || []).length > 1 ? ` (${o.stick.label || 'USB stick'})` : ''}`)));
+      if (chosen >= options.length) chosen = 0;
+      const pick = h('select', { onchange: () => { chosen = Number(pick.value); draw(info); } }, options.map((o, i) => h('option', { value: String(i), selected: i === chosen },
+        `${o.snap.club || o.host} — ${fmtWhen(o.snap.at)}${o.snap.encrypted ? ' 🔒' : ''}${(info.usb || []).length > 1 ? ` (${o.stick.label || 'USB stick'})` : ''}`)));
+      // This card has no backup key of its own, so the only way into an
+      // encrypted stick is the code the club printed. See lib/backup-crypto.js.
+      const picked = options[chosen] || null;
+      const needsCode = Boolean(picked && picked.snap.encrypted && picked.locked);
+      const codeInput = h('input', {
+        type: 'text',
+        value: typed,
+        placeholder: 'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX',
+        autocomplete: 'off',
+        autocapitalize: 'characters',
+        spellcheck: 'false',
+        maxlength: '40',
+        oninput: () => { typed = codeInput.value; },
+      });
       const usbBtn = h('button', { class: 'btn', type: 'button', disabled: busy, onclick: async () => {
-        const o = options[Number(pick.value)];
+        const o = options[chosen];
+        if (needsCode && !codeInput.value.trim()) { msg.textContent = 'Type the recovery code from the printed card first.'; return; }
         busy = true;
         draw(info);
         msg.textContent = 'Restoring from the USB stick… The screen goes blank for a moment. Big video collections take a few minutes.';
         try {
-          const r = await api('POST', '/setup/restore-usb', { uuid: o.stick.uuid, host: o.host, snapshot: o.snap.id });
+          const r = await api('POST', '/setup/restore-usb', { uuid: o.stick.uuid, host: o.host, snapshot: o.snap.id, ...(needsCode ? { recoveryCode: typed } : {}) });
           const result = await waitForBackup(r.requestId, async () => {
             const st = await fetch('/api/auth/status', { credentials: 'same-origin', cache: 'no-store' }).then((x) => x.json());
             return st.setupRequired ? { ...st.restore } : { done: true };
@@ -468,7 +488,11 @@
         h('h2', { style: 'font-size:1.05rem' }, 'Restoring after a new memory card?'),
         h('p', { class: 'small muted' }, 'If this Pi had PitchTribe before, bring back your content, screens, settings and password instead of starting again.'),
         options.length
-          ? h('div', { class: 'stack', style: 'gap:8px' }, h('label', { class: 'field' }, 'Backup on the USB stick', pick), h('div', {}, usbBtn))
+          ? h('div', { class: 'stack', style: 'gap:8px' },
+            h('label', { class: 'field' }, 'Backup on the USB stick', pick),
+            needsCode ? h('label', { class: 'field' }, 'Recovery code', codeInput) : null,
+            needsCode ? h('p', { class: 'small muted' }, 'These backups are encrypted and this is a new memory card, so the code printed when backups were switched on is what opens them. Dashes, spaces and lower case are all fine.') : null,
+            h('div', {}, usbBtn))
           : h('p', { class: 'small muted' }, 'Plug in the USB stick with your backups — it appears here within a few seconds.'),
         h('div', {}, h('button', { class: 'btn ghost sm', type: 'button', disabled: busy, onclick: () => fileInput.click() }, 'Restore from a backup file…'), fileInput),
         msg);
@@ -1860,6 +1884,87 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     await loadBackup();
   }
 
+  /* The printed card. A club that loses its memory card *and* this code has
+     lost its backup, which is the one new way encryption can bite — so it is
+     generated rather than chosen, shown large, and printable on paper. */
+  function printRecoveryCode(code) {
+    const sheet = h('div', { id: 'print-code' },
+      h('h1', {}, `PitchTribe backup recovery code${state && state.settings && state.settings.clubName ? ` — ${state.settings.clubName}` : ''}`),
+      h('p', {}, `Printed ${new Date().toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })}`),
+      h('div', { class: 'recovery-code' }, code),
+      h('p', {}, 'Keep this somewhere safe, and not with the USB stick — a thief who takes both has everything.'),
+      h('p', {}, 'If the Raspberry Pi’s memory card ever fails, type this code into the PitchTribe set-up screen to get the club’s content, photos, settings and password back off the backup stick. Without it, and without the old memory card, those backups cannot be read — by anybody, including us.'),
+      h('p', {}, 'You can see this code again at any time: sign in to the dashboard and go to Settings → Backups.'));
+    document.body.append(sheet);
+    document.body.classList.add('printing-code');
+    const tidy = () => { document.body.classList.remove('printing-code'); sheet.remove(); window.removeEventListener('afterprint', tidy); };
+    window.addEventListener('afterprint', tidy);
+    window.print();
+    setTimeout(tidy, 60000); // afterprint is not fired by every browser
+  }
+
+  function showRecoveryCode(code, { firstTime = false } = {}) {
+    const formatted = code.match(/.{1,4}/g).join('-');
+    modal({
+      title: firstTime ? 'Write this code down now' : 'Backup recovery code',
+      body: h('div', { class: 'stack', style: 'gap:12px' },
+        h('p', { class: 'small' }, firstTime
+          ? 'Backups on the USB stick are encrypted from now on. This code is the only way to read them if this Pi’s memory card fails. Print it, or write it down, and keep it away from the stick.'
+          : 'This is the code that unlocks the backups on your USB stick after a memory-card failure. Keep it away from the stick itself.'),
+        h('div', { class: 'recovery-code' }, formatted),
+        h('p', { class: 'small muted' }, 'Letters and numbers only — there is no O, I, L or U in it, so nothing can be mistaken for a 0 or a 1.')),
+      footer: (close) => [
+        h('button', { class: 'btn', type: 'button', onclick: () => navigator.clipboard?.writeText(formatted).then(() => toast('Copied'), () => toast('Copy failed — write it down instead', 'error')) }, icon('copy'), 'Copy'),
+        h('button', { class: 'btn', type: 'button', onclick: () => printRecoveryCode(formatted) }, 'Print'),
+        h('button', { class: 'btn primary', type: 'button', onclick: close }, firstTime ? 'I have written it down' : 'Close'),
+      ],
+    });
+  }
+
+  async function revealRecoveryCode({ firstTime = false } = {}) {
+    try {
+      const { code } = await api('GET', '/backup/recovery');
+      if (!code) return toast('There is no recovery code yet — switch encryption on first.', 'error');
+      showRecoveryCode(code, { firstTime });
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  /** Encryption, for a club that has already chosen a stick. */
+  function encryptionRow(cfg, st) {
+    const on = Boolean(cfg.encrypt);
+    const code = Boolean(st.encryption && st.encryption.recoveryCode);
+    const box = h('div', { class: 'stack', style: 'gap:6px;margin-top:4px' });
+    append(box, [
+      on
+        ? h('p', { class: 'small' }, '🔒 Backups on this stick are encrypted. A stick that goes missing gives away nothing but the club’s name and when the backups were taken.')
+        : h('p', { class: 'small' }, 'Backups on this stick are not encrypted. Anyone who picks it up can read the guest Wi-Fi sign-ups, every photo and the dashboard password’s hash, on any computer.'),
+      h('div', { class: 'actions' },
+        on
+          ? h('button', { class: 'btn sm', type: 'button', disabled: !code, onclick: () => revealRecoveryCode() }, 'Show recovery code')
+          : h('button', { class: 'btn sm primary', type: 'button', onclick: () => turnEncryptionOn() }, 'Encrypt these backups'),
+        on
+          ? h('button', { class: 'btn sm ghost', type: 'button', onclick: async () => {
+            if (!(await confirmDialog('Stop encrypting backups?', 'The next backup, and every one after it, can be read on any computer by anyone holding the stick. Backups already on the stick stay encrypted.', { confirmLabel: 'Stop encrypting' }))) return;
+            backupAction({ action: 'encrypt', on: false }, 'Switching encryption off…', 'Encryption switched off');
+          } }, 'Stop encrypting')
+          : null),
+    ]);
+    return box;
+  }
+
+  async function turnEncryptionOn() {
+    const ok = await confirmDialog(
+      'Encrypt the backups on this stick?',
+      'You will be shown a recovery code to print. If this Pi’s memory card fails, that code is the only way to read the backups — lose both and the backups are gone. Encrypting starts now and takes a few minutes if the club has a lot of video.',
+      { confirmLabel: 'Encrypt and show me the code', danger: false }
+    );
+    if (!ok) return;
+    await backupAction({ action: 'encrypt', on: true }, 'Encrypting the backups on the stick…', 'Backups on the stick are encrypted');
+    await revealRecoveryCode({ firstTime: true });
+  }
+
   function backupCard() {
     const head = [
       h('h2', {}, 'Backups'),
@@ -1897,12 +2002,17 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
           if (!(await confirmDialog('Stop backing up to this stick?', 'Backups already on it are kept.', { confirmLabel: 'Stop backups', danger: false }))) return;
           backupAction({ action: 'stop' }, 'Switching off…', 'USB backups switched off');
         } }, 'Stop using this stick')));
+      usb.push(encryptionRow(cfg, st));
     } else if (sticks.length) {
       usb.push(h('p', { class: 'small' }, 'Choose the stick to back up to. PitchTribe keeps its backups in a folder of their own and leaves everything else on the stick alone.'));
+      usb.push(h('p', { class: 'small muted' }, 'The backups are encrypted, and you will be shown a recovery code to print — a stick in a drawer holds your guest sign-ups, your photos and your password, so it should not be readable by whoever finds it.'));
       for (const k of sticks) {
         usb.push(h('div', { class: 'actions', style: 'align-items:center' },
           h('span', { class: 'small', style: 'flex:1' }, `${k.label || 'USB stick'} · ${size(k)}`),
-          h('button', { class: 'btn sm primary', type: 'button', disabled: Boolean(k.error), onclick: () => backupAction({ action: 'use', uuid: k.uuid }, 'Making the first backup…', 'Backups switched on — first backup done') }, 'Use this stick for backups')));
+          h('button', { class: 'btn sm primary', type: 'button', disabled: Boolean(k.error), onclick: async () => {
+            await backupAction({ action: 'use', uuid: k.uuid, encrypt: true }, 'Making the first backup…', 'Backups switched on — first backup done');
+            await revealRecoveryCode({ firstTime: true });
+          } }, 'Use this stick for backups')));
       }
     } else {
       usb.push(h('p', { class: 'small muted' }, 'Plug a USB stick into the Pi and it appears here within a few seconds. Most sticks work as they come (FAT32 or exFAT). 32 GB is plenty for most clubs.'));

@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createApp } = require('../lib/app');
+const enc = require('../lib/backup-crypto');
 
 const offline = async () => ({ ok: false, status: 503, json: async () => ({}), text: async () => '' });
 
@@ -48,6 +49,17 @@ test('backup file: download from one club, restore onto a freshly flashed Pi', a
   const listing = execFileSync('tar', ['-tzf', file], { encoding: 'utf8' }).trim().split('\n');
   assert.ok(listing.includes('db.json') && listing.includes('manifest.json'));
   assert.ok(listing.includes(`media/${up.body.file.filename}`));
+  // The backup key and the recovery code are not in the file either. A key
+  // inside the thing it protects is not a key, and this file goes to a laptop.
+  fs.writeFileSync(path.join(a.dataDir, enc.KEY_FILE), enc.newMasterKey());
+  enc.writeRecoveryCode(a.dataDir, enc.newRecoveryCode());
+  const again = await a.call('GET', '/api/backup/download');
+  const file2 = path.join(a.dataDir, 'backup2.tar.gz');
+  fs.writeFileSync(file2, again.body);
+  const listing2 = execFileSync('tar', ['-tzf', file2], { encoding: 'utf8' }).trim().split('\n');
+  assert.ok(!listing2.includes(enc.KEY_FILE) && !listing2.includes(enc.RECOVERY_FILE), listing2.join(' '));
+  fs.rmSync(path.join(a.dataDir, enc.KEY_FILE));
+  fs.rmSync(enc.recoveryPath(a.dataDir));
 
   a.signOut();
   assert.equal((await a.call('GET', '/api/backup/download')).status, 401);
@@ -114,8 +126,64 @@ test('USB backups: status for Settings, requests for the root helper, restore fr
   assert.equal(requestFile().action, 'now');
   assert.equal((await a.call('POST', '/api/backup/request', { action: 'format-disk' })).status, 400);
 
+  // Picking a stick encrypts it unless the club says otherwise.
+  assert.equal(requestFile().encrypt, undefined, 'the previous request was “now”');
+  await a.call('POST', '/api/backup/request', { action: 'use', uuid: 'AAAA-1111' });
+  assert.equal(requestFile().encrypt, true);
+  await a.call('POST', '/api/backup/request', { action: 'use', uuid: 'AAAA-1111', encrypt: false });
+  assert.equal(requestFile().encrypt, false);
+  assert.equal((await a.call('POST', '/api/backup/request', { action: 'encrypt', on: true })).status, 200);
+  assert.deepEqual([requestFile().action, requestFile().on], ['encrypt', true]);
+
+  // The recovery code a signed-in admin can be shown again.
+  assert.equal((await a.call('GET', '/api/backup/recovery')).body.code, null, 'nothing to show before encryption is on');
+  const code = enc.writeRecoveryCode(a.dataDir, enc.newRecoveryCode());
+  const shown = await a.call('GET', '/api/backup/recovery');
+  assert.equal(shown.body.code, code);
+  assert.equal(shown.body.formatted, enc.formatCode(code));
+  assert.equal(shown.headers.get('cache-control'), 'no-store');
+  a.signOut();
+  assert.equal((await a.call('GET', '/api/backup/recovery')).status, 401, 'and only to a signed-in admin');
+  await a.call('POST', '/api/auth/login', { password: 'correct horse' });
+
   // Without the helper (not on a Pi), USB actions say so.
   fs.rmSync(statusFile);
   assert.equal((await a.call('GET', '/api/backup')).body.available, false);
   assert.equal((await a.call('POST', '/api/backup/request', { action: 'now' })).status, 503);
+});
+
+test('USB restore: the first-run screen can send the printed recovery code', async (t) => {
+  const a = await start(t);
+  const requestFile = () => JSON.parse(fs.readFileSync(path.join(a.dataDir, 'backup-request.json'), 'utf8'));
+  const snapshot = '2026-11-04T03-30-00Z';
+  fs.writeFileSync(path.join(a.dataDir, 'backup-status.json'), JSON.stringify({
+    running: null,
+    encryption: { on: true, machineKey: false, recoveryCode: false },
+    sticks: [{ uuid: 'AAAA-1111', label: 'CLUB', backups: [
+      { host: 'bar-tv', locked: true, snapshots: [{ id: snapshot, at: '2026-11-04T03:30:00.000Z', club: 'Riverside FC', counts: { assets: 3 }, encrypted: true }] },
+    ] }],
+  }));
+
+  // The screen is told the stick is encrypted and that this card cannot open
+  // it, which is what makes it ask for the code at all.
+  const st = await a.call('GET', '/api/auth/status');
+  const backups = st.body.restore.usb[0].backups[0];
+  assert.equal(backups.locked, true);
+  assert.equal(backups.snapshots[0].encrypted, true);
+  assert.equal(backups.snapshots[0].club, 'Riverside FC', 'still listed before anyone has signed in');
+
+  const code = enc.newRecoveryCode();
+  const ask = (recoveryCode) => a.call('POST', '/api/setup/restore-usb', { uuid: 'AAAA-1111', host: 'bar-tv', snapshot, recoveryCode });
+  const nonsense = await ask('too short');
+  assert.equal(nonsense.status, 400);
+  assert.match(nonsense.body.error, /24 letters and numbers/, 'a mistyped code comes back straight away');
+
+  assert.equal((await ask(enc.formatCode(code).toLowerCase())).status, 200);
+  assert.equal(requestFile().recoveryCode, code, 'tidied up for the helper, dashes and case and all');
+  // It can carry a recovery code, so it is not left world-readable.
+  assert.equal(fs.statSync(path.join(a.dataDir, 'backup-request.json')).mode & 0o777, 0o600);
+
+  // A stick that needs no code still works without one.
+  assert.equal((await a.call('POST', '/api/setup/restore-usb', { uuid: 'AAAA-1111', host: 'bar-tv', snapshot })).status, 200);
+  assert.equal(requestFile().recoveryCode, undefined);
 });

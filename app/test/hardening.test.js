@@ -312,3 +312,20 @@ test('guest portal: its own user, one writable directory, and no sight of db.jso
   assert.match(install, /install -d -o "\$PORTAL_USER" -g "\$SVC_USER" -m 2770 "\$DATA_DIR\/portal"/);
   assert.match(install, /mv "\$DATA_DIR\/\$f" "\$DATA_DIR\/portal\/\$f"/);
 });
+
+test('the backup key stays root’s, and the recovery code stays 0600', () => {
+  // Encryption is worth nothing if a `chown -R` from an older restore, or a
+  // volunteer following half a forum post, leaves the key readable by the
+  // network-facing dashboard. The installer re-asserts both on every run.
+  const install = read('deploy/install.sh');
+  assert.match(install, /chown root:root "\$DATA_DIR\/backup-key"/);
+  assert.match(install, /chmod 0600 "\$DATA_DIR\/backup-key"/);
+  assert.match(install, /chown "\$SVC_USER:\$SVC_USER" "\$DATA_DIR\/backup-recovery\.json"/);
+  assert.match(install, /chmod 0600 "\$DATA_DIR\/backup-recovery\.json"/);
+
+  // And neither file is in the set that gets copied to a stick or into the
+  // downloaded .tar.gz. A key carried inside what it protects is not a key.
+  const { DATA_FILES } = require('../lib/backup');
+  const enc = require('../lib/backup-crypto');
+  assert.ok(!DATA_FILES.includes(enc.KEY_FILE) && !DATA_FILES.includes(enc.RECOVERY_FILE), DATA_FILES.join(' '));
+});

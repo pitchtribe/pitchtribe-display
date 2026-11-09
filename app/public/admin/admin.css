@@ -386,3 +386,16 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 @media (max-width: 1000px) { .wifi-layout { grid-template-columns: 1fr; } }
 .portal-preview { width: 100%; height: 560px; border: 1px solid var(--line); border-radius: 12px; background: #060c16; }
 input[type="color"] { width: 100%; height: 40px; padding: 2px; border: 1px solid var(--line-hi); border-radius: 9px; background: var(--bg); }
+
+/* The backup recovery code. Shown once when a club switches encryption on, and
+   again to a signed-in admin who cannot find the paper. It is read off a page
+   and typed back in by hand, so it is set large, monospaced and spaced out. */
+.recovery-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: clamp(17px, 3.4vw, 26px); font-weight: 700; letter-spacing: 0.1em; line-height: 1.6; text-align: center; word-break: break-all; padding: 14px; border: 1px dashed var(--line-hi); border-radius: 10px; background: var(--bg); }
+#print-code { display: none; }
+@media print {
+  body.printing-code > *:not(#print-code) { display: none !important; }
+  #print-code { display: block !important; padding: 24px; color: #000; background: #fff; font-family: system-ui, sans-serif; }
+  #print-code h1 { font-size: 20px; margin: 0 0 6px; }
+  #print-code p { font-size: 13px; margin: 8px 0; max-width: 46em; }
+  #print-code .recovery-code { color: #000; background: #fff; border: 2px dashed #000; margin: 18px 0; }
+}
