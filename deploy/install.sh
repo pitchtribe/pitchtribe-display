@@ -133,16 +133,20 @@ if [[ -z "$SERVER" ]]; then
     "$SRC_DIR/deploy/backup/pitchtribe-backup.timer" /etc/systemd/system/
   install -m 0644 "$SRC_DIR/deploy/backup/91-pitchtribe-backup.rules" /etc/udev/rules.d/
   # Remote access (Settings → Remote access): a root helper that switches SSH on
-  # or off and sets its login, when the dashboard asks.
+  # or off and sets its login, and switches support access (Raspberry Pi Connect)
+  # on or off, when the dashboard asks. The timer ends a support session that has
+  # run out even if nobody ever opens the dashboard again.
   install -m 0644 "$SRC_DIR/deploy/remote-access/pitchtribe-remote-access@.service" \
-    "$SRC_DIR/deploy/remote-access/pitchtribe-remote-access.path" /etc/systemd/system/
+    "$SRC_DIR/deploy/remote-access/pitchtribe-remote-access.path" \
+    "$SRC_DIR/deploy/remote-access/pitchtribe-support-expire.timer" /etc/systemd/system/
   [[ "$IMAGE_BUILD" == 1 ]] || udevadm control --reload 2>/dev/null || true
   sed -e "s|@PORT@|$PORT|g" -e "s|@HTTPS_PORT@|$HTTPS_PORT|g" "$SRC_DIR/deploy/pitchtribe.service" >/etc/systemd/system/pitchtribe.service
   start_now daemon-reload
   systemctl enable pitchtribe.service pitchtribe-backup.path pitchtribe-backup.timer pitchtribe-backup@scan.service \
-    pitchtribe-remote-access.path pitchtribe-remote-access@status.service
+    pitchtribe-remote-access.path pitchtribe-remote-access@status.service pitchtribe-support-expire.timer
   start_now restart pitchtribe.service
-  start_now start pitchtribe-backup.path pitchtribe-backup.timer pitchtribe-remote-access.path
+  start_now start pitchtribe-backup.path pitchtribe-backup.timer pitchtribe-remote-access.path \
+    pitchtribe-support-expire.timer
   start_now start --no-block pitchtribe-remote-access@status.service || true
   start_now start --no-block pitchtribe-backup@scan.service || true
   SERVER="http://localhost$([[ "$PORT" == 80 ]] || echo ":$PORT")"
