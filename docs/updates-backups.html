@@ -13,9 +13,19 @@
 </div>
 
 <h2 id="os-updates">Updating Raspberry Pi OS</h2>
-<p>Raspberry Pi OS gets security fixes regularly. Every few months, connect to the Pi and run:</p>
+<p>This one looks after itself. PitchTribe installs the operating system's security fixes when you first install it, and then every night at about three o'clock, just before the backup — so the Pi is patched and the night's backup is taken from an up-to-date card.</p>
+<p>Two things it deliberately leaves alone, because nobody is in the building at three in the morning:</p>
+<ul>
+  <li><strong>It never removes software</strong>, so the screen can't lose Chromium overnight. The handful of updates that need something uninstalled wait for you.</li>
+  <li><strong>It never restarts the Pi.</strong> A new kernel takes effect the next time the Pi reboots — no rush; the fix is installed either way.</li>
+</ul>
+<p>So once or twice a year, when it suits the club, connect to the Pi and finish the job by hand:</p>
 <pre data-copy><code>sudo apt update &amp;&amp; sudo apt full-upgrade -y &amp;&amp; sudo reboot</code></pre>
 <p>The Pi restarts and the screen comes back by itself after a minute or two.</p>
+<div class="callout">
+  <p class="callout-title">Checking what the nightly update did</p>
+  <p>Over SSH, <code>sudo journalctl -u pitchtribe-os-update</code> shows the last few nights, and <code>/var/lib/pitchtribe/os-update-status.json</code> holds the latest result — when it ran, what it installed, and whether a reboot is waiting. A Pi that's offline simply skips the night and catches up on the next one.</p>
+</div>
 
 <h2 id="backup">Backing up to a USB stick</h2>
 <p>Everything that makes your PitchTribe yours — content, photos and videos, playlists, screens, settings, guest Wi-Fi sign-ups and the password — can be copied to a USB stick plugged into the Pi, automatically, every night. If the memory card ever fails, you flash a new one, plug the stick in, and tap <strong>Restore</strong>. What goes on the stick is <a href="#encryption">encrypted</a>, so a stick that walks off doesn’t take the club’s guest list with it — which means there is one code to print and keep safe.</p>

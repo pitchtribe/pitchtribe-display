@@ -42,4 +42,4 @@ jobs:
 
       - name: Check deploy scripts
         working-directory: deploy
-        run: bash -n install.sh && bash -n bootstrap.sh && bash -n reset-password.sh && bash -n kiosk.sh && bash -n ../image/build.sh && bash -n ../image/harden-cmdline.sh && bash -n portal/portal-apply.sh && node --check ../app/lib/portal-hw.js && node --check ../app/bin/backup.js && node --check ../app/bin/remote-access.js
+        run: bash -n install.sh && bash -n bootstrap.sh && bash -n reset-password.sh && bash -n kiosk.sh && bash -n update/os-update.sh && bash -n ../image/build.sh && bash -n ../image/harden-cmdline.sh && bash -n portal/portal-apply.sh && node --check ../app/lib/portal-hw.js && node --check ../app/bin/backup.js && node --check ../app/bin/remote-access.js

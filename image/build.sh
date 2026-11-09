@@ -17,6 +17,10 @@
 #                         installed by default because the dashboard offers Guest
 #                         Wi-Fi on every card, and it stays completely inert
 #                         until someone switches it on there.
+#   PITCHTRIBE_NO_OS_UPGRADE=1   leave the base image's packages where they are.
+#                         The build normally installs the Raspberry Pi OS updates
+#                         waiting for the base image, which is often months old,
+#                         so a flashed card is patched before its first boot.
 #   EXTRA_MB=2560         space added to the root filesystem for PitchTribe + Chromium
 #   XZ_LEVEL=6            xz compression level (CI pull requests use a faster one)
 #
@@ -103,6 +107,7 @@ log "Running deploy/install.sh in the image"
 chroot "$MNT" /usr/bin/env -i \
   PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LANG=C.UTF-8 \
   PITCHTRIBE_IMAGE_BUILD=1 PITCHTRIBE_PORTAL="${PITCHTRIBE_PORTAL:-1}" \
+  PITCHTRIBE_NO_OS_UPGRADE="${PITCHTRIBE_NO_OS_UPGRADE:-0}" \
   bash /tmp/pitchtribe/deploy/install.sh
 
 # ------------------------------------------------------------- image defaults
