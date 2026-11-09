@@ -257,6 +257,66 @@ test('HTTPS: the service is told its port, and the certificate lives where it ca
   assert.match(read('app/lib/tls.js'), /path\.join\(dataDir, 'tls'\)/);
 });
 
+test('support access: the expiry timer is installed, enabled and started', () => {
+  // This is what makes "it expires" true rather than a hope. Without the timer
+  // on the card, a support session only ends if somebody opens the dashboard
+  // and taps the button — which is exactly the open-ended access we are
+  // avoiding. All three steps matter: installed, enabled for the next boot,
+  // and started on this one.
+  const install = code('deploy/install.sh');
+  assert.match(install, /pitchtribe-support-expire\.timer" \/etc\/systemd\/system\//, 'the timer file must be installed');
+  assert.match(install, /systemctl enable[^\n]*(\n[^\n]*)*pitchtribe-support-expire\.timer/, 'enable it, or it is gone after a reboot');
+  assert.match(install, /start_now start[^\n]*(\n[^\n]*)*pitchtribe-support-expire\.timer/, 'start it, or expiry waits for a reboot');
+
+  const timer = read('deploy/remote-access/pitchtribe-support-expire.timer');
+  const t = timer.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+  assert.match(t, /Unit=pitchtribe-remote-access@support-expire\.service/, 'it must call the helper action that signs Connect out');
+  assert.match(t, /OnUnitActiveSec=/, 'without a repeat it fires once and never again');
+  assert.match(t, /Persistent=true/, 'a card that was off past its expiry must come back expired, not usable');
+  assert.match(t, /WantedBy=timers\.target/);
+});
+
+test('support access: Raspberry Pi Connect is never run as root', () => {
+  // rpi-connect is a per-user service. Running it as root would both fail and
+  // put a remote shell service in the one account that can change anything, so
+  // every call drops to the club's own login. The unit is root only because it
+  // also switches SSH on and off.
+  const helper = read('app/bin/remote-access.js');
+  // Every invocation is built by connectArgs() and nothing else, so there is
+  // one place to get this right. (`command -v rpi-connect` is a lookup, not an
+  // invocation — asking whether a file is on PATH as root changes nothing.)
+  const built = helper.match(/'rpi-connect'/g) || [];
+  assert.equal(built.length, 1, 'rpi-connect should only ever be invoked through connectArgs()');
+  assert.match(helper, /function connectArgs\(user, args\) {\s*\n\s*return \['-u', user\.name, '--', 'env',/,
+    'connectArgs must drop to the named user');
+  // And both things that run it — the synchronous calls and the detached
+  // signin — hand that argument list to runuser.
+  const runs = helper.match(/o\.(exec|spawn)\(\s*'[^']+'[^\n]*connectArgs\(/g) || [];
+  assert.equal(runs.length, 2, 'expected exactly the exec and spawn call sites');
+  for (const r of runs) assert.match(r, /'runuser'/, `rpi-connect must go through runuser, not root: ${r}`);
+  // And it drops to a real login. The service and kiosk accounts both have
+  // /usr/sbin/nologin, so neither can hold a user session at all — which is why
+  // the user comes from people(), the uid >= 1000 list, and not from a constant.
+  assert.match(helper, /function supportUser\(o\) {[\s\S]*?people\(o\)/, 'the user comes from the login list');
+  assert.match(helper, /loginctl', \['enable-linger'/, 'a user service with nobody logged in needs linger');
+});
+
+test('support access: the image ships Connect off, and the installer never switches it on', () => {
+  // A club card must never arrive with a remote-access client already running.
+  // The image build asserts the state rather than setting it, so that a change
+  // in Raspberry Pi OS Lite fails the build instead of shipping quietly.
+  const img = code('image/build.sh');
+  assert.match(img, /var\/lib\/systemd\/linger/, 'a lingering user would start rpi-connect with nobody logged in');
+  assert.match(img, /rpi-connect/, 'the build must check the Connect state of a fresh card');
+  assert.ok(/die "the image has Raspberry Pi Connect state baked in/.test(img),
+    'signed-in credentials on the image would ship one account to every club');
+  // Nothing anywhere may sign in or switch Connect on at build or install time.
+  for (const f of ['image/build.sh', 'deploy/install.sh']) {
+    assert.ok(!/rpi-connect\s+(on|signin)/.test(code(f)), `${f} must not switch support access on`);
+    assert.ok(!/enable-linger/.test(code(f)), `${f} must not enable linger — only a club turning support access on does that`);
+  }
+});
+
 test('HTTPS: every card makes its own key — none is built into the image', () => {
   // The certificate is made on first start, by the running dashboard. The image
   // build never starts it (start_now is a no-op under IMAGE_BUILD), so no key

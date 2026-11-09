@@ -118,10 +118,31 @@ Chicken &amp; mushroom pie | £7.00 | | sold out</code></pre>
     <tr><td><strong>Widgets</strong></td><td>Your ground’s location for weather (type a town or postcode and tap <strong>Find</strong>), mph or km/h, and optional keys for the bus and train widgets.</td></tr>
     <tr><td><strong>Backups</strong></td><td>Nightly backups to a USB stick, and a backup file to download. See <a href="/docs/updates-backups#backup">Updates and backups</a>.</td></tr>
     <tr><td><strong>Remote access (SSH)</strong></td><td>Switch SSH on or off, and choose its username and password, for updates and guest Wi-Fi from a computer. Needs your dashboard password.</td></tr>
+    <tr><td><strong>Let PitchTribe support connect</strong></td><td>Off until you switch it on, for when you want us to look at the Pi. See <a href="#support-access">Letting PitchTribe support connect</a> below.</td></tr>
+    <tr><td><strong>Secure connection (HTTPS)</strong></td><td>The certificate this Pi made for itself, and whether the dashboard sends you to <code>https</code>.</td></tr>
     <tr><td><strong>Admin password</strong></td><td>Change the dashboard password. Forgotten it? See <a href="/docs/troubleshooting#forgot-password">Troubleshooting</a>.</td></tr>
     <tr><td><strong>About</strong></td><td>The PitchTribe version and the dashboard address.</td></tr>
   </tbody>
 </table>
+
+<h3 id="support-access">Letting PitchTribe support connect</h3>
+<p>If you’ve asked us about a problem and we need to see the Pi itself, you can let us in for a few hours — and only for a few hours. It is <strong>off on every card</strong>, and nothing happens until somebody at the club switches it on with the dashboard password.</p>
+<p>It works through <a href="https://www.raspberrypi.com/documentation/services/connect.html">Raspberry Pi Connect</a>, which Raspberry Pi themselves run. Two things about it are worth understanding, because they are what keeps the club in charge:</p>
+<ul>
+  <li><strong>The device is signed in to the club’s own Raspberry Pi ID</strong>, not to a PitchTribe account. You make that ID at <a href="https://connect.raspberrypi.com">connect.raspberrypi.com</a> if the club hasn’t got one. The Pi appears in <em>your</em> list of devices, and you can remove it from there whenever you like, with or without telling us.</li>
+  <li><strong>Nothing is opened on the club’s router.</strong> The Pi makes an outgoing connection, the same as it does to fetch fixtures. No port forwarding, and no change to the club’s broadband.</li>
+</ul>
+<h4>Switching it on</h4>
+<ol>
+  <li>Open <strong>Settings → Let PitchTribe support connect</strong>.</li>
+  <li>Choose how long — 1, 4, 6, 12 or 24 hours. Six is the usual choice. There is deliberately no “leave it on” option.</li>
+  <li>Type your dashboard password and tap <strong>Turn support access on</strong>.</li>
+  <li>The dashboard shows a link and a code. Open the link on your phone and sign in with the club’s Raspberry Pi ID. That is what actually connects it — until you do, nothing is shared.</li>
+</ol>
+<h4>Switching it off</h4>
+<p><strong>It switches itself off</strong> when the time you chose runs out, whether or not anyone opens the dashboard again — and if the Pi happens to be unplugged when that moment passes, it signs out as soon as it is switched back on. You don’t have to remember.</p>
+<p>To end it sooner, tap <strong>End support access</strong>. The card shows how long is left and whether anyone from support is connected right now, so you can always see where you stand.</p>
+<p>Support access and SSH are separate, and neither switches the other on. SSH on the club’s own network stays the way in for jobs you do yourself, such as guest Wi-Fi.</p>
 
 <h2 id="tips">Tips from clubs</h2>
 <ul>

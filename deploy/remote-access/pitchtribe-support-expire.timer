@@ -1,0 +1,22 @@
+[Unit]
+Description=End PitchTribe support access once it has run out
+# This is what makes the expiry real. The dashboard writes supportExpiresAt and
+# shows a countdown, but a browser tab is not a guarantee of anything: if nobody
+# ever opens the dashboard again, or the Pi is unplugged for a fortnight and
+# comes back with the session still recorded as on, this is what signs Raspberry
+# Pi Connect out anyway. A support session that cannot expire is the whole thing
+# we are avoiding, so it must not depend on a client being there to ask.
+Documentation=https://pitchtribe.media/docs/dashboard.html
+
+[Timer]
+# Soon after boot, because a card that was off past its expiry comes back with
+# the Connect client already lingering, and then every five minutes.
+OnBootSec=15s
+OnUnitActiveSec=5min
+# Catch up on a run missed while the Pi was off.
+Persistent=true
+AccuracySec=30s
+Unit=pitchtribe-remote-access@support-expire.service
+
+[Install]
+WantedBy=timers.target

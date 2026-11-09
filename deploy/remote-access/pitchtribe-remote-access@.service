@@ -1,13 +1,22 @@
 [Unit]
-# %i is status (at boot) or request (pitchtribe-remote-access.path: the
-# dashboard's Settings → Remote access asked to switch SSH on or off).
+# %i is one of:
+#   status          at boot — record whether SSH is on, and the logins
+#   request         pitchtribe-remote-access.path: the dashboard's Settings →
+#                   Remote access asked to switch SSH or support access on or off
+#   support-expire  pitchtribe-support-expire.timer: end a support session that
+#                   has run out, whether or not the dashboard is ever opened again
 Description=PitchTribe remote access (%i)
 After=local-fs.target
 
 [Service]
 Type=oneshot
 Environment=DATA_DIR=/var/lib/pitchtribe
-# Root, because it creates the login and starts or stops SSH.
+# SUPPORT_USER=<login> here names the account Raspberry Pi Connect runs as,
+# when the first login account on the Pi is not the right one. Optional.
+EnvironmentFile=-/etc/default/pitchtribe-remote-access
+# Root, because it creates the login and starts or stops SSH. Raspberry Pi
+# Connect is a *user* service and is never run as root: the helper drops to the
+# club's own login with runuser for every rpi-connect call.
 ExecStart=/usr/bin/env node /opt/pitchtribe/app/bin/remote-access.js %i
 
 [Install]
