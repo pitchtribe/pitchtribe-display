@@ -24,8 +24,11 @@
 #
 # It talks to the dashboard the way the backup helper does, through a file in
 # DATA_DIR:
-#   os-update-status.json   { checkedAt, result, upgraded, packages[],
+#   os-update-status.json   { checkedAt, lastOkAt, result, upgraded, packages[],
 #                             rebootRequired, message }
+# Settings → About shows it (app/lib/os-update.js), which is the only way anyone
+# at a club finds out that a restart is waiting, or that the card has quietly
+# stopped being patched.
 #
 # Tests (app/test/os-updates.test.js) run this with a stub apt-get on PATH.
 set -euo pipefail
@@ -57,6 +60,25 @@ APT=(
 # backslashes and line breaks out of them before they go into JSON.
 json_escape() { printf '%s' "$1" | tr -d '"\\' | tr '\n\r\t' '   '; }
 
+# The last night that *worked*, carried forward from the previous status file.
+# `result` only says how tonight went, and a Pi behind a captive guest network
+# writes a fresh `checkedAt` every morning for a month without installing a
+# thing — so "this card stopped being patched in October" needs its own date.
+# Only timestamp characters are taken out of the old file, so nothing in it can
+# get into the JSON written below.
+last_ok_at() {
+  local result="$1" now="$2" prev
+  if [[ "$result" == ok ]]; then printf '"%s"' "$now"; return 0; fi
+  [[ -f "$STATUS" ]] || { printf 'null'; return 0; }
+  prev="$(sed -n 's/.*"lastOkAt"[[:space:]]*:[[:space:]]*"\([0-9T:Z-]\{1,40\}\)".*/\1/p' "$STATUS" | head -1)"
+  # A status file written before this field existed: its own date will do, if
+  # the night it describes was a good one.
+  if [[ -z "$prev" ]] && grep -q '"result"[[:space:]]*:[[:space:]]*"ok"' "$STATUS"; then
+    prev="$(sed -n 's/.*"checkedAt"[[:space:]]*:[[:space:]]*"\([0-9T:Z-]\{1,40\}\)".*/\1/p' "$STATUS" | head -1)"
+  fi
+  if [[ -n "$prev" ]]; then printf '"%s"' "$prev"; else printf 'null'; fi
+}
+
 # Written only if the data directory is there: install.sh runs this before the
 # directory exists, and an extra-screen Pi has no dashboard to read it.
 # root-owned and world-readable inside DATA_DIR (0750, owned by the dashboard's
@@ -71,10 +93,13 @@ write_status() {
   for p in "${@:1:$MAX_NAMED}"; do
     packages+="${packages:+, }\"$(json_escape "$p")\""
   done
+  local now
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   local tmp="$STATUS.tmp"
   cat >"$tmp" <<EOF
 {
-  "checkedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "checkedAt": "$now",
+  "lastOkAt": $(last_ok_at "$result" "$now"),
   "result": "$result",
   "upgraded": $upgraded,
   "packages": [$packages],

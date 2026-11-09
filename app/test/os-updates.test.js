@@ -46,7 +46,9 @@ function runHelper(apt, env = {}) {
       ...env,
     },
   });
-  const statusFile = path.join(dataDir, 'os-update-status.json');
+  // env.DATA_DIR wins, so a test can run the helper twice over one data
+  // directory and see what it carried forward.
+  const statusFile = path.join(env.DATA_DIR || dataDir, 'os-update-status.json');
   return {
     exit: r.status,
     stdout: r.stdout,
@@ -127,7 +129,52 @@ test('apt output can never break the status file', () => {
   const r = runHelper(stubApt(['a-package" , "injected": [}']));
   assert.equal(r.exit, 0, r.stderr);
   assert.deepEqual(Object.keys(r.status).sort(),
-    ['checkedAt', 'message', 'packages', 'rebootRequired', 'result', 'upgraded']);
+    ['checkedAt', 'lastOkAt', 'message', 'packages', 'rebootRequired', 'result', 'upgraded']);
+});
+
+const OFFLINE_APT = '[[ " $* " == *" update "* ]] && { echo "Could not resolve host" >&2; exit 100; }\nexit 0';
+
+test('a night that fails keeps the date of the last night that worked', () => {
+  // `result` only says how tonight went. A Pi behind a captive guest network
+  // reports `offline` every morning with a fresh `checkedAt` and installs
+  // nothing for a month, so the dashboard needs the date of the last night
+  // something was installed to be able to say that out loud.
+  const first = runHelper(stubApt(['openssl']));
+  assert.equal(first.status.result, 'ok');
+  assert.equal(first.status.lastOkAt, first.status.checkedAt, 'a good night is its own lastOkAt');
+
+  const dataDir = path.join(first.dir, 'data');
+  const offline = runHelper(OFFLINE_APT, { DATA_DIR: dataDir });
+  assert.equal(offline.status.result, 'offline');
+  assert.equal(offline.status.lastOkAt, first.status.checkedAt);
+
+  // And a second bad night carries the same date on, rather than the date of
+  // the failure before it.
+  const failed = runHelper(stubApt(['openssl'], { failUpgrade: true }), { DATA_DIR: dataDir });
+  assert.equal(failed.status.result, 'error');
+  assert.equal(failed.status.lastOkAt, first.status.checkedAt);
+});
+
+test('a card that has never managed an update says so instead of inventing a date', () => {
+  const r = runHelper(OFFLINE_APT);
+  assert.equal(r.status.result, 'offline');
+  assert.equal(r.status.lastOkAt, null);
+});
+
+test('the previous status file cannot break the next one either', () => {
+  // lastOkAt is the one value copied out of a file and back into JSON. The file
+  // is root-owned, but it is still the only input here that this script didn't
+  // write itself, so only timestamp characters are taken out of it.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-os-prev-'));
+  const dataDir = path.join(dir, 'data');
+  fs.mkdirSync(dataDir);
+  fs.writeFileSync(path.join(dataDir, 'os-update-status.json'),
+    '{\n  "checkedAt": "nonsense",\n  "lastOkAt": "x\\" , \\"injected\\": [}",\n  "result": "offline"\n}\n');
+  const r = runHelper(OFFLINE_APT, { DATA_DIR: dataDir });
+  assert.equal(r.exit, 0, r.stderr);
+  assert.deepEqual(Object.keys(r.status).sort(),
+    ['checkedAt', 'lastOkAt', 'message', 'packages', 'rebootRequired', 'result', 'upgraded']);
+  assert.equal(r.status.lastOkAt, null);
 });
 
 test('no data directory yet (the installer runs this first) is not an error', () => {
@@ -220,4 +267,110 @@ test('the helper is valid bash and ships executable', () => {
   assert.equal(r.status, 0, r.stderr);
   // install.sh installs it 0755, and it is also run straight out of a checkout.
   assert.ok(fs.statSync(HELPER).mode & 0o111, 'deploy/update/os-update.sh should be executable');
+});
+
+/* ---------------------------------------------------------------- the dashboard
+   What Settings → About makes of that file (app/lib/os-update.js). The point of
+   these is the judgements the file itself can't make, because they are about
+   today's date: a nightly job that has stopped running, and a Pi that keeps
+   running it and keeps failing. /api/state carrying the result is covered in
+   api.test.js. */
+const { osUpdateView, SILENT_DAYS, UNPATCHED_DAYS } = require('../lib/os-update');
+
+const NOW = Date.parse('2026-11-09T12:00:00Z');
+const daysAgo = (n) => new Date(NOW - n * 86400_000).toISOString();
+
+/** Writes a status file and returns the view of it. */
+function viewOf(status, now = NOW) {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-os-view-'));
+  if (status !== null) fs.writeFileSync(path.join(dataDir, 'os-update-status.json'), typeof status === 'string' ? status : JSON.stringify(status));
+  return osUpdateView(dataDir, now);
+}
+
+const okStatus = (extra = {}) => ({
+  checkedAt: daysAgo(0), lastOkAt: daysAgo(0), result: 'ok', upgraded: 0,
+  packages: [], rebootRequired: false, message: 'already up to date', ...extra,
+});
+
+test('a dashboard that is not on a Pi has nothing to show, and says nothing', () => {
+  // No file at all (a laptop, or docker-compose), and a file caught half
+  // written. Neither is a fault worth putting on a volunteer's screen.
+  assert.deepEqual(viewOf(null), { available: false });
+  assert.deepEqual(viewOf('{ "checkedAt": '), { available: false });
+  assert.deepEqual(viewOf('null'), { available: false });
+  assert.deepEqual(viewOf('[1, 2]').available, false);
+});
+
+test('last night’s run, as the About card shows it', () => {
+  const v = viewOf(okStatus({ upgraded: 2, packages: ['chromium', 'openssl'], message: 'installed 2 update(s)' }));
+  assert.equal(v.available, true);
+  assert.equal(v.result, 'ok');
+  assert.equal(v.upgraded, 2);
+  assert.deepEqual(v.packages, ['chromium', 'openssl']);
+  assert.equal(v.daysSinceCheck, 0);
+  assert.equal(v.daysSincePatched, 0);
+  assert.equal(v.silent, false);
+  assert.equal(v.unpatched, false);
+  assert.equal(v.level, 'ok');
+});
+
+test('a waiting restart is the one thing this has to say', () => {
+  // The helper deliberately never reboots a screen, so an installed kernel fix
+  // does nothing at all until somebody is asked.
+  const v = viewOf(okStatus({ upgraded: 1, packages: ['linux-image-rpi-v8'], rebootRequired: true }));
+  assert.equal(v.rebootRequired, true);
+  assert.equal(v.level, 'due', 'waiting for a person, not broken');
+});
+
+test('one offline night is normal; a fortnight of them is not', () => {
+  const recent = viewOf({ ...okStatus(), result: 'offline', lastOkAt: daysAgo(1), message: 'could not reach the package archive' });
+  assert.equal(recent.unpatched, false);
+  assert.equal(recent.level, 'due');
+
+  const weeks = viewOf({ ...okStatus(), result: 'offline', lastOkAt: daysAgo(UNPATCHED_DAYS + 16) });
+  assert.equal(weeks.unpatched, true, 'nothing installed for a month — the card has stopped being patched');
+  assert.equal(weeks.daysSincePatched, UNPATCHED_DAYS + 16);
+  assert.equal(weeks.silent, false, 'it is running every night; that is what makes it quiet');
+  assert.equal(weeks.level, 'warn');
+
+  // A card that has never once managed it: no date to count from, same answer.
+  const never = viewOf({ ...okStatus(), result: 'offline', lastOkAt: null });
+  assert.equal(never.unpatched, true);
+  assert.equal(never.daysSincePatched, null);
+});
+
+test('a nightly job that has stopped running is not an up-to-date Pi', () => {
+  // The last thing it wrote said "ok", which would read as reassuring — a
+  // clubhouse on a timer switch, or a timer that never got enabled.
+  const v = viewOf(okStatus({ checkedAt: daysAgo(SILENT_DAYS + 3), lastOkAt: daysAgo(SILENT_DAYS + 3) }));
+  assert.equal(v.silent, true);
+  assert.equal(v.daysSinceCheck, SILENT_DAYS + 3);
+  assert.equal(v.level, 'warn');
+  assert.equal(viewOf(okStatus({ checkedAt: daysAgo(1), lastOkAt: daysAgo(1) })).silent, false, 'a missed night is not a fault');
+});
+
+test('an upgrade that stopped half way is shown as a fault, not as 0 updates', () => {
+  const v = viewOf({ ...okStatus(), result: 'error', message: 'apt-get upgrade failed — see journalctl -u pitchtribe-os-update' });
+  assert.equal(v.level, 'warn');
+  assert.match(v.message, /journalctl/);
+});
+
+test('nothing in the status file reaches the dashboard unbounded or untyped', () => {
+  const v = viewOf({
+    checkedAt: 'not a date', lastOkAt: 12345, result: 'something else',
+    upgraded: '7', packages: 'openssl', rebootRequired: 'true', message: 'x'.repeat(5000),
+  });
+  assert.equal(v.checkedAt, null);
+  assert.equal(v.lastOkAt, null);
+  assert.equal(v.result, 'error', 'an unknown result is a fault, not a pass');
+  assert.equal(v.upgraded, 0);
+  assert.deepEqual(v.packages, []);
+  assert.equal(v.rebootRequired, false, 'only a real boolean asks a club to restart a screen');
+  assert.equal(v.message.length, 200);
+  assert.equal(v.daysSinceCheck, null);
+
+  // The first upgrade of an old card can name a hundred packages.
+  const many = viewOf(okStatus({ upgraded: 120, packages: Array.from({ length: 120 }, (_, i) => `pkg-${i}`) }));
+  assert.equal(many.packages.length, 40);
+  assert.equal(many.upgraded, 120, 'the count is what ran, not what is listed');
 });

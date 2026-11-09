@@ -13,6 +13,7 @@ const { DEFAULT_PORTAL, renderSplash, themeCss } = require('./portal-page');
 const { readPortalFiles, writePortalSettings, portalFile } = require('./portal');
 const { mountBackupRoutes } = require('./backup-routes');
 const { mountRemoteAccessRoutes } = require('./remote-access-routes');
+const { osUpdateView } = require('./os-update');
 const { Feeds, LEAGUE_KEY_RE, SHOW_OPTIONS } = require('./feeds');
 const auth = require('./auth');
 const v = require('./validate');
@@ -702,6 +703,10 @@ function createApp(opts = {}) {
       sports: sportsView(),
       widgets: widgetsView(),
       tls: tlsView(),
+      // Settings → About. A few hundred bytes the root helper left behind last
+      // night, read per request so a restart that became due at 03:30 is on the
+      // screen the next time someone opens the dashboard.
+      osUpdate: osUpdateView(dataDir),
     });
   });
 

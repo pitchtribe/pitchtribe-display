@@ -24,7 +24,8 @@
 <p>The Pi restarts and the screen comes back by itself after a minute or two.</p>
 <div class="callout">
   <p class="callout-title">Checking what the nightly update did</p>
-  <p>Over SSH, <code>sudo journalctl -u pitchtribe-os-update</code> shows the last few nights, and <code>/var/lib/pitchtribe/os-update-status.json</code> holds the latest result — when it ran, what it installed, and whether a reboot is waiting. A Pi that's offline simply skips the night and catches up on the next one.</p>
+  <p>The dashboard shows it, under <strong>Settings → About</strong>: when the Pi last checked, how many updates went on, and — the one to watch for — <strong>“a restart is waiting”</strong> when something needs the Pi restarted. It also says so plainly if the Pi has stopped being able to fetch updates, or if the nightly run hasn't happened for days, because both of those are silent otherwise.</p>
+  <p>Over SSH, <code>sudo journalctl -u pitchtribe-os-update</code> shows the last few nights, and <code>/var/lib/pitchtribe/os-update-status.json</code> holds the latest result. A Pi that's offline simply skips the night and catches up on the next one.</p>
 </div>
 
 <h2 id="backup">Backing up to a USB stick</h2>

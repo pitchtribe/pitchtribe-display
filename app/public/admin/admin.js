@@ -1728,13 +1728,68 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       h('h2', {}, 'About'),
       h('dl', { class: 'kv' },
         h('dt', {}, 'Version'), h('dd', {}, state.version),
+        osUpdateRow(),
         h('dt', {}, 'Dashboard'), h('dd', {}, state.dashboardUrls.length ? state.dashboardUrls.join('  ') : location.origin),
         h('dt', {}, 'Content'), h('dd', {}, `${state.assets.length} items · ${fmtBytes(state.assets.reduce((n, a) => n + (a.file?.size || 0), 0))} of media`)),
+      osUpdateNotes(),
       h('p', { class: 'small muted' }, 'PitchTribe is free, open-source software (MIT licence).'));
 
     return shell('settings',
       h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Settings'))),
       h('div', { class: 'stack', style: 'max-width:640px' }, general, sports, widgetSettings, backupsBox, remoteBox, secureBox, pw, about));
+  }
+
+  /* Settings → About: the nightly Raspberry Pi OS update ------------------------------
+     Written by the root helper (deploy/update/os-update.sh) and read into
+     state.osUpdate by app/lib/os-update.js. Until this, finding out whether a
+     card was patched took SSH, so nobody looked: a club sees a restart waiting,
+     or a Pi that quietly stopped being patched, only if it is said here. */
+  function osUpdateRow() {
+    const u = state.osUpdate;
+    if (!u || !u.available) {
+      return [h('dt', {}, 'Raspberry Pi OS'),
+        h('dd', { class: 'muted' }, 'Not checked yet — the nightly update fills this in the first time it runs.')];
+    }
+    const when = u.checkedAt ? ago(Date.parse(u.checkedAt)) : 'at an unknown time';
+    const summary = u.result === 'offline' ? `Couldn’t reach the update service · tried ${when}`
+      : u.result === 'error' ? `Last update didn’t finish · ${when}`
+        : u.upgraded ? `${u.upgraded} update${u.upgraded === 1 ? '' : 's'} installed · ${when}`
+          : `Up to date · checked ${when}`;
+    return [h('dt', {}, 'Raspberry Pi OS'),
+      h('dd', u.level === 'warn' ? { style: 'color:var(--danger)' } : {}, summary)];
+  }
+
+  function osUpdateNotes() {
+    const u = state.osUpdate;
+    if (!u || !u.available) return null;
+    const warn = (...text) => h('p', { class: 'small', style: 'color:var(--danger)' }, '⚠ ', ...text);
+    const out = [];
+    // The one that matters: the helper never restarts a screen by itself, so a
+    // kernel fix sits there installed-but-inert until somebody is told.
+    if (u.rebootRequired) {
+      out.push(warn('A restart is waiting. One of the updates needs the Pi restarted before it takes effect — ',
+        'PitchTribe never does that by itself, in case a match is on. Restart it when it suits the club; the screens come back on their own.'));
+    }
+    if (u.silent) {
+      out.push(warn(`The nightly update hasn’t run for ${u.daysSinceCheck} days. `,
+        'If the Pi has been switched off, that’s nothing to worry about — it catches up on the next night it’s on.'));
+    } else if (u.unpatched) {
+      out.push(u.daysSincePatched === null
+        ? warn('This Pi has never managed to fetch its operating-system updates. Check that it can reach the internet: until it can, it isn’t getting security fixes.')
+        : warn(`Nothing has been installed for ${u.daysSincePatched} days. `,
+          'The Pi tries every night and can’t reach the update service — check its internet connection, because meanwhile the card isn’t getting security fixes.'));
+    } else if (u.result === 'offline') {
+      out.push(h('p', { class: 'small muted' }, 'The Pi couldn’t reach the update service on its last try. That happens — it tries again tonight.'));
+    } else if (u.result === 'error') {
+      out.push(warn(`The last update stopped part way${u.message ? ` (${u.message})` : ''}. `,
+        'It tries again tonight. If it keeps happening, the memory card may be full.'));
+    }
+    if (u.packages.length) {
+      out.push(h('details', { class: 'help' },
+        h('summary', {}, u.upgraded > u.packages.length ? `What was installed (first ${u.packages.length} of ${u.upgraded})` : 'What was installed'),
+        h('p', { class: 'small muted', style: 'margin-top:8px' }, u.packages.join(', '))));
+    }
+    return out;
   }
 
   // Settings → Secure connection -------------------------------------------------------
