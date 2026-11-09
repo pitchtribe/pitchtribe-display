@@ -277,7 +277,7 @@ touching that copy, and keep the date stamp honest.
 
 PitchTribe is a UK sole trader, registered and covered by public liability insurance.
 
-- **Address:** 2 Jubilee Place, Shefford, Bedfordshire, SG17 5JP, United Kingdom
+- **Address:** Bedfordshire, United Kingdom
 - **Sales and installation enquiries:** sales@pitchtribe.media
 - **Press:** press@pitchtribe.media
 
