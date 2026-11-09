@@ -6,7 +6,13 @@
    remote-access-request.json for it and reads remote-access-status.json back.
    Either one gives somebody a shell on the Pi, so both need the dashboard
    password again, and the SSH password is hashed here (SHA-512 crypt, via
-   openssl): the plain password is never written to disk. */
+   openssl): the plain password is never written to disk.
+
+   remote-access-status.json is a mirror the helper writes for this server to
+   read, and nothing here decides anything: how long a support session lasts
+   is bounded by the helper, from a record in root's own directory that this
+   user cannot write. The hours check below is for a useful error message, not
+   for safety — the helper checks again, and so does the expiry timer. */
 const crypto = require('node:crypto');
 const childProcess = require('node:child_process');
 const fs = require('node:fs');

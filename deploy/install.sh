@@ -46,6 +46,11 @@ Use the one-line installer, which fetches one for you:
 
 APP_DIR=/opt/pitchtribe
 DATA_DIR=/var/lib/pitchtribe
+# Root's own, and deliberately not inside DATA_DIR. What bounds a support
+# access session is kept here, because DATA_DIR belongs to SVC_USER — and a
+# backup restore chowns everything in it to SVC_USER as well. The dashboard
+# reads a mirror of the state; it never gets to decide when access ends.
+STATE_DIR=/var/lib/pitchtribe-remote-access
 SVC_USER=pitchtribe
 KIOSK_USER=pitchtribe-kiosk
 PORT="${PITCHTRIBE_PORT:-80}"
@@ -88,6 +93,7 @@ if [[ -z "$SERVER" ]]; then
   log "Installing PitchTribe to $APP_DIR"
   id -u "$SVC_USER" >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin "$SVC_USER"
   install -d -o "$SVC_USER" -g "$SVC_USER" -m 0750 "$DATA_DIR"
+  install -d -o root -g root -m 0700 "$STATE_DIR"
   rm -rf "$APP_DIR.new"
   mkdir -p "$APP_DIR.new/app" "$APP_DIR.new/signage-server"
   cp -a "$SRC_DIR/app/." "$APP_DIR.new/app/"

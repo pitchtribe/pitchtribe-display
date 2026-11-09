@@ -84,9 +84,12 @@
     <tr><td>This Pi has no login account</td><td>The card was written without a username in Raspberry Pi Imager, so there is no account to run it as. Switch SSH on in <strong>Settings → Remote access</strong> and choose a username first — that creates one.</td></tr>
     <tr><td>Connect didn’t offer a sign-in link</td><td>The Pi couldn’t reach the internet. Check it is online (live scores and weather will be blank too), then try again. Nothing is left switched on when this happens.</td></tr>
     <tr><td>It says <em>waiting to be finished</em></td><td>The link has been given out but nobody has signed in at it yet. Open it on a phone and sign in with the club’s Raspberry Pi ID. If the link has gone stale, tap <strong>End support access</strong> and switch it on again for a fresh one.</td></tr>
+    <tr><td>The Pi didn’t open a background session</td><td>Raspberry Pi Connect runs as the club’s own login, and that login’s background session hadn’t started yet. Nothing was switched on. Wait a minute and try again; if it keeps happening, reboot the Pi and try once more.</td></tr>
+    <tr><td>Still reports this Pi as signed in</td><td>The dashboard asked Raspberry Pi Connect to sign out and it didn’t. The Pi keeps trying by itself every few minutes, so this usually clears. To be certain now, remove the device at <a href="https://connect.raspberrypi.com">connect.raspberrypi.com</a> — that works from the club’s side whatever the Pi does.</td></tr>
   </tbody>
 </table>
 <p>To take the Pi away from support at any time, sign in to <a href="https://connect.raspberrypi.com">connect.raspberrypi.com</a> with the club’s own Raspberry Pi ID and remove the device. It is the club’s account, so that always works — you don’t need us, and you don’t need the dashboard.</p>
+<p>Ending a session and removing the device are not the same thing. Ending a session signs the Pi out on the Pi, which is what stops anyone connecting; the device stays in the club’s list at Raspberry Pi Connect, signed out, until you remove it there.</p>
 
 <h3 id="forgot-password">I’ve forgotten the admin password</h3>
 <p>Anyone can reset it from a terminal on the Pi (see <a href="/docs/install-raspberry-pi-os#ssh">connecting with SSH</a> — Remote access has to have been switched on, or a username set in Imager, while you could still sign in). Run:</p>

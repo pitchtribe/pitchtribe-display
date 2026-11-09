@@ -11,6 +11,10 @@ After=local-fs.target
 [Service]
 Type=oneshot
 Environment=DATA_DIR=/var/lib/pitchtribe
+# Root's own, deliberately not inside DATA_DIR: DATA_DIR belongs to the
+# dashboard's user, and a backup restore chowns everything in it. What bounds a
+# support session has to live somewhere that user cannot write.
+Environment=STATE_DIR=/var/lib/pitchtribe-remote-access
 # SUPPORT_USER=<login> here names the account Raspberry Pi Connect runs as,
 # when the first login account on the Pi is not the right one. Optional.
 EnvironmentFile=-/etc/default/pitchtribe-remote-access

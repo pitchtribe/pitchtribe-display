@@ -272,8 +272,42 @@ test('support access: the expiry timer is installed, enabled and started', () =>
   const t = timer.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
   assert.match(t, /Unit=pitchtribe-remote-access@support-expire\.service/, 'it must call the helper action that signs Connect out');
   assert.match(t, /OnUnitActiveSec=/, 'without a repeat it fires once and never again');
-  assert.match(t, /Persistent=true/, 'a card that was off past its expiry must come back expired, not usable');
+  // This, and not Persistent=, is what makes "a card that was off past its
+  // expiry comes back expired" true: nothing is being caught up on, the first
+  // run after boot simply compares the clock to the recorded expiry. (Persistent=
+  // applies to OnCalendar= timers only, so it would be a no-op here — delete
+  // OnBootSec and the guarantee goes with it.)
+  assert.match(t, /OnBootSec=/, 'a card that was off past its expiry must come back expired, not usable');
+  assert.ok(!/Persistent=/.test(t), 'Persistent= does nothing without OnCalendar= and would only mislead');
   assert.match(t, /WantedBy=timers\.target/);
+});
+
+test('support access: what bounds a session is kept where the dashboard cannot write it', () => {
+  /* The status file is in DATA_DIR, which belongs to the dashboard's own user —
+     and app/bin/backup.js chowns everything in DATA_DIR to that user after a
+     restore. If that file were what the expiry timer read, the unprivileged
+     account serving the dashboard could grant itself an endless support
+     session, and losing the file would leave one running invisibly. So the
+     authority lives in root's own directory and the device is asked directly. */
+  const install = code('deploy/install.sh');
+  assert.match(install, /STATE_DIR=\/var\/lib\/pitchtribe-remote-access/, 'a directory of its own, outside DATA_DIR');
+  assert.match(install, /install -d -o root -g root -m 0700 "\$STATE_DIR"/, 'root alone, and not readable by anyone else');
+  assert.match(read('deploy/remote-access/pitchtribe-remote-access@.service'), /Environment=STATE_DIR=\/var\/lib\/pitchtribe-remote-access/);
+
+  const helper = read('app/bin/remote-access.js');
+  // The timer reads the session record, never the mirror in DATA_DIR.
+  const expiry = helper.split('function supportExpire(o) {')[1].split('\n}')[0];
+  assert.match(expiry, /readSession\(o\)/, 'expiry must be decided from the record root owns');
+  assert.ok(!/remote-access-status\.json|file\(o,/.test(expiry), 'the expiry path must not read the status mirror at all');
+  // And the length is bounded again here, because this is the path an edited
+  // or corrupted record walks through — the allow-list on the way in is not it.
+  assert.match(helper, /expires - started > SUPPORT_MAX_MS/, 'a far-future expiry must not buy an unbounded session');
+  assert.match(helper, /const SUPPORT_MAX_MS = Math\.max\(\.\.\.SUPPORT_HOURS\)/);
+  // The mirror is not world-readable: during the sign-in window it holds the
+  // verification code, and pairing the Pi to somebody else's Raspberry Pi ID
+  // instead of the club's is the one thing that code must not allow.
+  assert.match(helper, /writeJson\(f, next, 0o640\)/, 'the status mirror is 0640, not 0644');
+  assert.match(helper, /writeJson\(f, session, 0o600\)/, 'the session record is root-only');
 });
 
 test('support access: Raspberry Pi Connect is never run as root', () => {
@@ -287,13 +321,17 @@ test('support access: Raspberry Pi Connect is never run as root', () => {
   // invocation — asking whether a file is on PATH as root changes nothing.)
   const built = helper.match(/'rpi-connect'/g) || [];
   assert.equal(built.length, 1, 'rpi-connect should only ever be invoked through connectArgs()');
-  assert.match(helper, /function connectArgs\(user, args\) {\s*\n\s*return \['-u', user\.name, '--', 'env',/,
-    'connectArgs must drop to the named user');
-  // And both things that run it — the synchronous calls and the detached
-  // signin — hand that argument list to runuser.
-  const runs = helper.match(/o\.(exec|spawn)\(\s*'[^']+'[^\n]*connectArgs\(/g) || [];
-  assert.equal(runs.length, 2, 'expected exactly the exec and spawn call sites');
+  assert.match(helper, /function userEnv\(user\) {\s*\n\s*return \['-u', user\.name, '--', 'env',/,
+    'userEnv must drop to the named user');
+  assert.match(helper, /function connectArgs\(user, args, wrap = \[\]\) {\s*\n\s*return \[\.\.\.userEnv\(user\), \.\.\.wrap, 'rpi-connect'/,
+    'every rpi-connect call is built on userEnv');
+  // And both things that run it — the synchronous calls and the sign-in unit —
+  // hand that argument list to runuser.
+  const runs = helper.match(/o\.exec\(\s*'[^']+'[^\n]*connectArgs\(/g) || [];
+  assert.equal(runs.length, 2, 'expected exactly the status/on/off and signin call sites');
   for (const r of runs) assert.match(r, /'runuser'/, `rpi-connect must go through runuser, not root: ${r}`);
+  // The user's own systemctl, for the sign-in unit, goes the same way.
+  assert.match(helper, /const userctl = \(o, user, args\) => o\.exec\('runuser', \[\.\.\.userEnv\(user\), 'systemctl', '--user'/);
   // And it drops to a real login. The service and kiosk accounts both have
   // /usr/sbin/nologin, so neither can hold a user session at all — which is why
   // the user comes from people(), the uid >= 1000 list, and not from a constant.

@@ -1903,12 +1903,24 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     }
 
     // Off: the normal state of every card.
+    const stuckEnd = h('button', { class: 'btn', type: 'button', disabled: supportBusy },
+      supportBusy ? 'Working…' : 'Try signing out again');
+    stuckEnd.addEventListener('click', () => act({ support: { enabled: false } }));
     const form = h('form', {
       class: 'card panel-box form-grid',
       onsubmit: (e) => { e.preventDefault(); act({ support: { enabled: true, hours: Number(hours.value) } }); },
     },
       ...head,
       h('p', { class: 'small' }, 'Support access is ', h('strong', {}, 'off'), '.'),
+      // The Pi has no bounded session, and yet Raspberry Pi Connect says it is
+      // signed in. The card tries to sign out by itself every few minutes, but
+      // "off" would be a lie to leave on the screen in the meantime.
+      s.signedIn ? h('div', { class: 'stack', style: 'gap:6px' },
+        h('p', { class: 'small', style: 'color:var(--danger)' },
+          '⚠ Raspberry Pi Connect still reports this Pi as signed in, with no support session behind it. ',
+          'This Pi keeps trying to sign out on its own; to be certain, remove the device at ',
+          h('a', { href: 'https://connect.raspberrypi.com', target: '_blank', rel: 'noopener' }, 'connect.raspberrypi.com'), '.'),
+        h('div', {}, stuckEnd)) : null,
       h('label', { class: 'field' }, 'Let support connect for', hours, h('span', { class: 'hint' }, 'It ends by itself when the time is up — there is no option to leave it on indefinitely.')),
       h('label', { class: 'field' }, 'Your dashboard password', current, h('span', { class: 'hint' }, 'Needed to start support access, because it gives us a shell on this Pi.')),
       remoteInfo.status.last && !remoteInfo.status.last.ok && String(remoteInfo.status.last.action || '').startsWith('support-')

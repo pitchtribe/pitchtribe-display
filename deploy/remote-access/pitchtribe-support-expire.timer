@@ -9,12 +9,13 @@ Description=End PitchTribe support access once it has run out
 Documentation=https://pitchtribe.media/docs/dashboard.html
 
 [Timer]
-# Soon after boot, because a card that was off past its expiry comes back with
-# the Connect client already lingering, and then every five minutes.
+# OnBootSec is what makes "a card that was off past its expiry comes back
+# expired" true: it was off, so no run was due, and nothing is being caught up
+# on — the first run after boot compares the clock to the recorded expiry and
+# signs out. (Persistent= would not help here and is deliberately absent: it
+# only applies to OnCalendar= timers.) Then every five minutes.
 OnBootSec=15s
 OnUnitActiveSec=5min
-# Catch up on a run missed while the Pi was off.
-Persistent=true
 AccuracySec=30s
 Unit=pitchtribe-remote-access@support-expire.service
 
