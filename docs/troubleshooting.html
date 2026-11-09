@@ -76,6 +76,18 @@
   </tbody>
 </table>
 
+<h3 id="support-access">Support access won’t switch on</h3>
+<table>
+  <thead><tr><th>It says</th><th>What to do</th></tr></thead>
+  <tbody>
+    <tr><td>Support access isn’t available on this Pi</td><td>The Raspberry Pi Connect client isn’t installed — usually a Pi set up by hand rather than from a PitchTribe card. Install it over SSH with <code>sudo apt install rpi-connect-lite</code>, then reload the dashboard.</td></tr>
+    <tr><td>This Pi has no login account</td><td>The card was written without a username in Raspberry Pi Imager, so there is no account to run it as. Switch SSH on in <strong>Settings → Remote access</strong> and choose a username first — that creates one.</td></tr>
+    <tr><td>Connect didn’t offer a sign-in link</td><td>The Pi couldn’t reach the internet. Check it is online (live scores and weather will be blank too), then try again. Nothing is left switched on when this happens.</td></tr>
+    <tr><td>It says <em>waiting to be finished</em></td><td>The link has been given out but nobody has signed in at it yet. Open it on a phone and sign in with the club’s Raspberry Pi ID. If the link has gone stale, tap <strong>End support access</strong> and switch it on again for a fresh one.</td></tr>
+  </tbody>
+</table>
+<p>To take the Pi away from support at any time, sign in to <a href="https://connect.raspberrypi.com">connect.raspberrypi.com</a> with the club’s own Raspberry Pi ID and remove the device. It is the club’s account, so that always works — you don’t need us, and you don’t need the dashboard.</p>
+
 <h3 id="forgot-password">I’ve forgotten the admin password</h3>
 <p>Anyone can reset it from a terminal on the Pi (see <a href="/docs/install-raspberry-pi-os#ssh">connecting with SSH</a> — Remote access has to have been switched on, or a username set in Imager, while you could still sign in). Run:</p>
 <pre data-copy><code>sudo pitchtribe-reset-password</code></pre>
