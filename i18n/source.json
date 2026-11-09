@@ -509,5 +509,6 @@
  "back to normal in ten minutes",
  "was £5.48 on 4 November 2026 — and PitchTribe backs everything up to it every night, so the spare card is",
  "— £61.57 each",
- "Each extra indoor access point is about £73 with its cable. The switch powers four; a bigger ground needs an 8-port PoE switch instead. Omada access points are set up once from their own free app without any subscription — the"
+ "Each extra indoor access point is about £73 with its cable. The switch powers four; a bigger ground needs an 8-port PoE switch instead. Omada access points are set up once from their own free app without any subscription — the",
+ "Remote support is the one exception, and it is off on every card: only your club can switch it on, it pairs to your own Raspberry Pi account rather than ours, it is a terminal session with no access to your screen, and it switches itself off again after a time you choose — six hours by default — or the moment you end it."
 ]
