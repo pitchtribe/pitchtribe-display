@@ -42,14 +42,16 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     permissions:
-      contents: write   # only used on tags, to attach the image to the release
+      contents: write     # only used on tags, to attach the image to the release
+      id-token: write     # provenance attestation for the released image
+      attestations: write
     env:
       IMAGE_NAME: pitchtribe-rpi-arm64
       # The release this build is for, if any: a pushed tag, or the Release workflow's.
       RELEASE_TAG: ${{ inputs.release_tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || '' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.release_tag || '' }}
           fetch-depth: 0   # for git describe
@@ -78,7 +80,7 @@ jobs:
 
       - name: Keep the image as an artifact
         if: ${{ env.RELEASE_TAG == '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.IMAGE_NAME }}
           path: out/
@@ -105,3 +107,16 @@ jobs:
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "PitchTribe $TAG" --generate-notes
           gh release upload "$TAG" --clobber \
             out/$IMAGE_NAME.img.xz out/$IMAGE_NAME.img.xz.sha256 out/pitchtribe-imager.json
+
+      # The .sha256 beside the image detects corruption, not tampering: whoever
+      # could replace the image could replace the checksum. This signs the image
+      # against this workflow's own identity, so `gh attestation verify` can say
+      # it was built here, from this commit — see docs/updates-backups.html.
+      #
+      # Deliberately after the upload: if attestation ever fails, the run fails
+      # loudly but the release still has its assets.
+      - name: Attest the image
+        if: ${{ env.RELEASE_TAG != '' }}
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: out/${{ env.IMAGE_NAME }}.img.xz

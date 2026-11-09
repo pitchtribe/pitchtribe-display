@@ -119,9 +119,27 @@ Chicken &amp; mushroom pie | £7.00 | | sold out</code></pre>
     <tr><td><strong>Backups</strong></td><td>Nightly backups to a USB stick, and a backup file to download. See <a href="/docs/updates-backups#backup">Updates and backups</a>.</td></tr>
     <tr><td><strong>Remote access (SSH)</strong></td><td>Switch SSH on or off, and choose its username and password, for updates and guest Wi-Fi from a computer. Needs your dashboard password.</td></tr>
     <tr><td><strong>Admin password</strong></td><td>Change the dashboard password. Forgotten it? See <a href="/docs/troubleshooting#forgot-password">Troubleshooting</a>.</td></tr>
+    <tr><td><strong>Secure connection</strong></td><td>Open the dashboard over <code>https://</code> instead of <code>http://</code>, and check the certificate belongs to your Pi. See <a href="#privacy">below</a>.</td></tr>
     <tr><td><strong>About</strong></td><td>The PitchTribe version and the dashboard address.</td></tr>
   </tbody>
 </table>
+
+<h2 id="privacy">Who can see the dashboard</h2>
+<p>PitchTribe is built for a club’s own network, and that assumption is worth stating plainly rather than leaving you to discover it.</p>
+<ul>
+  <li><strong>Anyone on the club’s Wi-Fi can reach the dashboard address</strong> — they still need the admin password to change anything, and the screens themselves need no password at all, by design, so a TV can come back on its own after a power cut.</li>
+  <li><strong>Guests on the guest Wi-Fi cannot.</strong> The guest network is kept separate from the club network and from the Pi’s dashboard. See <a href="/docs/guest-wifi">Guest Wi-Fi</a>.</li>
+  <li><strong>Over plain <code>http://</code>, your password and your signed-in session travel across the Wi-Fi unencrypted.</strong> On a network where everyone shares one Wi-Fi password, another device that knows that password can read them. For most clubs that is an acceptable trade for a dashboard that needs no setup — but it is a trade, not an oversight.</li>
+</ul>
+
+<h3 id="https">Turning on HTTPS</h3>
+<p>From v0.4.2, the Pi also answers on <code>https://pitchtribe.local</code>, using a certificate it generates for itself on first start. That encrypts the password and the session, so neither can be read off the Wi-Fi. Nothing is forced: <code>http://</code> keeps working unless you switch the redirect on in <strong>Settings → Secure connection</strong>.</p>
+<p>Your browser <strong>will warn you once</strong> — “Not private”, with a tap to continue. That is unavoidable and not a fault: no certificate authority will vouch for a name like <code>pitchtribe.local</code> that means something different on every network. The warning is about the certificate being unvouched-for, not about the connection being unencrypted.</p>
+<div class="callout tip">
+  <p class="callout-title">Make that warning mean something</p>
+  <p><strong>Settings → Secure connection</strong> shows the certificate’s fingerprint. Before you tap “continue”, open the warning’s details in your browser and compare the first few characters. If they match, you are talking to your Pi. If they ever stop matching and nobody reinstalled the Pi, stop and ask. Tapping through without looking is the part worth avoiding.</p>
+</div>
+<p>The TVs stay on <code>http://</code> deliberately. A screen is a browser with no keyboard, so it has no way to dismiss a certificate warning — redirecting the screens would blank every TV in the club at once. They carry nothing private. If a phone will not get past the warning, <code>http://pitchtribe.local/admin/?nossl</code> gets you back.</p>
 
 <h2 id="tips">Tips from clubs</h2>
 <ul>

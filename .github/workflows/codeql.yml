@@ -1,0 +1,43 @@
+name: CodeQL
+
+# Static analysis of the JavaScript that runs on a club's Pi — the dashboard,
+# the guest portal, the root helpers and the signage engine. Weekly as well as
+# on pushes, because a new CodeQL query can find something in code that has not
+# changed.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '41 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyse JavaScript
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@9418214df1f2c4b8128c770156c409013b07d6b9 # v3
+        with:
+          languages: javascript-typescript
+          # security-extended adds the queries worth having here: path traversal
+          # in the archive and USB paths, and command injection around `nft`,
+          # `useradd` and `mount`.
+          queries: security-extended
+
+      - name: Analyse
+        uses: github/codeql-action/analyze@9418214df1f2c4b8128c770156c409013b07d6b9 # v3
+        with:
+          category: /language:javascript-typescript

@@ -1,9 +1,13 @@
+# Strict-Transport-Security carries `preload` so browsers never make the first
+# plaintext request — which is exactly the one a volunteer makes before copying
+# the `curl | sudo bash` install command. Submit the domain at
+# https://hstspreload.org; includeSubDomains is the prerequisite and is set.
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: geolocation=(), microphone=(), camera=(), interest-cohort=()
-  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
   Cross-Origin-Opener-Policy: same-origin
   Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'sha256-Du+OJKJSbdUgz5nrHeWWINvez6XKDDU/tyj/5c2uvwo='; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; upgrade-insecure-requests
 

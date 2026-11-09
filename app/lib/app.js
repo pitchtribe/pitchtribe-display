@@ -508,12 +508,34 @@ function createApp(opts = {}) {
   }
 
   // ---------- Player (screens) — no login, LAN only ----------
+  /**
+   * Drop registrations that were never a screen.
+   *
+   * Any address on the club's network can register a screen id by asking for a
+   * manifest, up to MAX_SCREENS, after which a real screen coming back from a
+   * reboot is told "too many screens" — a cheap way to leave a clubhouse TV
+   * blank. A real screen polls its manifest every minute, so one that asked
+   * once, ten minutes ago, and was never renamed, never was one.
+   */
+  function pruneUnusedScreens() {
+    const cutoff = Date.now() - 10 * 60_000;
+    store.touch((d) => {
+      d.screens = d.screens.filter((s) => {
+        const unused = (s.fetches || 0) <= 1 && s.name === s.id && Date.parse(s.createdAt || 0) < cutoff;
+        return !unused || hub.isConnected(s.id);
+      });
+    }, { immediate: true });
+  }
+
   function screenFor(req, { register }) {
     const id = req.params.screenId;
     if (!v.SCREEN_ID_RE.test(id)) throw v.bad('Invalid screen id');
     let screen = data().screens.find((s) => s.id === id);
     if (!screen && register) {
-      if (data().screens.length >= MAX_SCREENS) throw new v.HttpError(429, 'Too many screens');
+      if (data().screens.length >= MAX_SCREENS) {
+        pruneUnusedScreens();
+        if (data().screens.length >= MAX_SCREENS) throw new v.HttpError(429, 'Too many screens');
+      }
       screen = store.touch(
         (d) => {
           const s = {
@@ -523,6 +545,7 @@ function createApp(opts = {}) {
             rotation: 0,
             createdAt: new Date().toISOString(),
             lastSeen: Date.now(),
+            fetches: 1,
           };
           d.screens.push(s);
           return s;
@@ -536,6 +559,7 @@ function createApp(opts = {}) {
       store.touch(() => {
         screen.lastSeen = Date.now();
         screen.ip = req.ip;
+        screen.fetches = (screen.fetches || 0) + 1;
         screen.userAgent = v.str(req.get('user-agent'), { max: 300 }).slice(0, 300);
         if (w && h) screen.resolution = `${w}×${h}`;
       });

@@ -69,6 +69,20 @@
   <p>That file can be restored from the dashboard like any downloaded backup. The USB backups themselves are plain folders, readable on any computer: <code>PitchTribe-backups/&lt;hostname&gt;/snapshots/</code> holds each night’s settings, and <code>media/</code> the photos and videos.</p>
 </details>
 
+<h2 id="verify">Checking a download is genuine</h2>
+<p>You don’t have to do any of this — but if you want to be sure the card image you downloaded is the one we built, here is how.</p>
+<p>Every release carries the image, a <code>.sha256</code> checksum, and a <strong>build attestation</strong>. The checksum proves the file arrived intact; the attestation proves <em>we</em> built it, because it is signed by the build itself and cannot be replaced by whoever replaces the file. With the <a href="https://cli.github.com/">GitHub CLI</a> installed:</p>
+<pre data-copy><code>gh attestation verify pitchtribe-rpi-arm64.img.xz --repo pitchtribe/pitchtribe-display</code></pre>
+<p>It prints the commit the image was built from. To check the checksum alone, on macOS or Linux:</p>
+<pre data-copy><code>shasum -a 256 -c pitchtribe-rpi-arm64.img.xz.sha256</code></pre>
+<p>The one-line installer installs the latest <strong>release</strong>, not the newest code, and stops rather than guessing if it cannot work out which release that is. To install a particular version, or the development branch:</p>
+<pre data-copy><code>curl -sSL https://pitchtribe.media/install.sh | sudo PITCHTRIBE_REF=v0.4.2 bash</code></pre>
+
+<div class="callout tip">
+  <p class="callout-title">What is in a backup</p>
+  <p>A backup contains the whole club: notices, photos and videos, screens, the dashboard <strong>password</strong> (hashed, not readable), your saved API keys, and every email address collected by the guest Wi-Fi sign-in. Treat the file and the USB stick like the club’s membership list — those emails are personal data. A backup never contains the key that signs dashboard logins, so an old backup cannot be used to get back into a dashboard.</p>
+</div>
+
 <div class="callout tip">
   <p class="callout-title">Memory cards wear out</p>
   <p>A good-quality A2 card in a Pi that runs all day usually lasts years, but cheap cards can fail sooner. With a USB backup, a spare card with the PitchTribe image already on it, kept in the club office, gets you back up in ten minutes.</p>
