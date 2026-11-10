@@ -498,3 +498,65 @@ test('HTTPS: every card makes its own key — none is built into the image', () 
     assert.ok(!/openssl\s+req/.test(code(f)), `${f} must not generate a certificate at build time`);
   }
 });
+
+test('guest portal: its own user, one writable directory, and no sight of db.json', () => {
+  const pairs = serviceDirectives(read('deploy/portal/pitchtribe-portal.service'));
+
+  // This is the one process guests on an untrusted network can reach. In
+  // DATA_DIR, writing a single file is by design a root account: the
+  // remote-access helper acts on remote-access-request.json appearing and runs
+  // useradd --groups sudo. So the portal must not be the dashboard's user, and
+  // must not have the dashboard's writable path.
+  assert.deepEqual(directive(pairs, 'User'), ['pitchtribe-portal'],
+    'running the portal as "pitchtribe" makes any write flaw in it a sudo account');
+  assert.deepEqual(directive(pairs, 'ReadWritePaths'), ['/var/lib/pitchtribe/portal'],
+    'the portal must not be able to write remote-access-request.json or backup-request.json');
+  assert.deepEqual(directive(pairs, 'ReadOnlyPaths'), ['/var/lib/pitchtribe']);
+
+  // It reads its settings from its own directory, never from db.json, which
+  // holds the password hash, the session signing secret and every API key.
+  const portal = read('app/lib/portal.js');
+  assert.ok(!/db\.json/.test(portal.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')),
+    'the portal process must not open db.json');
+  assert.match(portal, /path\.join\(portalDir, 'settings\.json'\)/);
+  assert.match(read('app/lib/app.js'), /writePortalSettings\(dataDir/,
+    'the dashboard publishes what the sign-in page needs');
+
+  // The sandbox, matched to the dashboard's. nft talks netlink; without
+  // AF_NETLINK a guest accepting the terms never comes online.
+  for (const key of ['NoNewPrivileges', 'ProtectSystem', 'PrivateDevices', 'ProtectKernelTunables',
+    'ProtectKernelLogs', 'ProtectClock', 'ProtectHostname', 'ProtectProc', 'RestrictNamespaces',
+    'RestrictRealtime', 'RemoveIPC', 'KeyringMode', 'SystemCallFilter', 'SystemCallArchitectures', 'UMask']) {
+    assert.equal(directive(pairs, key).length, 1, `${key} is missing from the most exposed service`);
+  }
+  assert.deepEqual(directive(pairs, 'AmbientCapabilities'), ['CAP_NET_ADMIN'],
+    'without CAP_NET_ADMIN the portal cannot let a guest online at all');
+  assert.match(directive(pairs, 'RestrictAddressFamilies')[0], /AF_NETLINK/);
+  // Deliberately absent: /proc/net/arp is how a guest's device is recognised.
+  assert.deepEqual(directive(pairs, 'ProcSubset'), []);
+
+  // The installer makes the user and the directory, and moves an existing
+  // club's guest list across rather than appearing to lose it.
+  const install = code('deploy/install.sh');
+  assert.match(install, /PORTAL_USER=pitchtribe-portal/);
+  assert.match(install, /useradd --system[\s\S]{0,120}"\$PORTAL_USER"/);
+  assert.match(install, /install -d -o "\$PORTAL_USER" -g "\$SVC_USER" -m 2770 "\$DATA_DIR\/portal"/);
+  assert.match(install, /mv "\$DATA_DIR\/\$f" "\$DATA_DIR\/portal\/\$f"/);
+});
+
+test('the backup key stays root’s, and the recovery code stays 0600', () => {
+  // Encryption is worth nothing if a `chown -R` from an older restore, or a
+  // volunteer following half a forum post, leaves the key readable by the
+  // network-facing dashboard. The installer re-asserts both on every run.
+  const install = read('deploy/install.sh');
+  assert.match(install, /chown root:root "\$DATA_DIR\/backup-key"/);
+  assert.match(install, /chmod 0600 "\$DATA_DIR\/backup-key"/);
+  assert.match(install, /chown "\$SVC_USER:\$SVC_USER" "\$DATA_DIR\/backup-recovery\.json"/);
+  assert.match(install, /chmod 0600 "\$DATA_DIR\/backup-recovery\.json"/);
+
+  // And neither file is in the set that gets copied to a stick or into the
+  // downloaded .tar.gz. A key carried inside what it protects is not a key.
+  const { DATA_FILES } = require('../lib/backup');
+  const enc = require('../lib/backup-crypto');
+  assert.ok(!DATA_FILES.includes(enc.KEY_FILE) && !DATA_FILES.includes(enc.RECOVERY_FILE), DATA_FILES.join(' '));
+});

@@ -71,7 +71,12 @@ class Store extends EventEmitter {
   writeNow(data = this.data) {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     const tmp = `${this.file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    // 0600 explicitly, not by umask: this file holds the password hash, the
+    // session signing secret and every third-party API key, and the helpers
+    // that rewrite it (password reset, USB restore) run as root with a laxer
+    // umask than the service's.
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
+    fs.chmodSync(tmp, 0o600);
     fs.renameSync(tmp, this.file);
   }
 
@@ -102,7 +107,12 @@ class Store extends EventEmitter {
     const revision = Math.max(this.data.revision || 0, next.revision || 0) + 1;
     clearTimeout(this.saveTimer);
     this.saveTimer = null;
-    this.writeNow({ ...next, revision });
+    // A fresh signing secret, never the backup's. Sessions are stateless
+    // signed cookies with a 30-day life, so restoring an old secret brings
+    // every cookie issued under it back to life — including after a password
+    // change, which is supposed to sign everyone out.
+    const settings = { ...next.settings, sessionSecret: crypto.randomBytes(32).toString('hex') };
+    this.writeNow({ ...next, settings, revision });
     this.data = this.load();
     this.emit('change', this.data.revision);
   }

@@ -7,6 +7,10 @@ import { createMcpHandler } from '../src/mcp.js';
 
 const quiet = () => {};
 const config = { timezone: 'Europe/London', weather: { place: 'Leeds', latitude: 53.8, longitude: -1.55, provider: 'openmeteo' }, widgets: { wikipedia: true } };
+// Outbound widget fetches resolve the address and refuse private ones, so the
+// stubbed network here needs a stub resolver too; otherwise these tests would
+// depend on DNS.
+const lookup = async () => [{ address: '93.184.216.34', family: 4 }];
 
 const openMeteo = {
   current: { temperature_2m: 11.6, weather_code: 61, wind_speed_10m: 9.2, is_day: 1 },
@@ -30,7 +34,7 @@ function fakeFetch(calls = []) {
 }
 
 test('bundled packs: day-stable selection, club extras first', () => {
-  const w = createWidgets({ config, fetchImpl: fakeFetch(), log: quiet });
+  const w = createWidgets({ config, fetchImpl: fakeFetch(), log: quiet, lookup });
   const now = new Date('2026-11-03T12:00:00Z');
   const a = w.peek('joke', {}, now);
   const b = w.peek('joke', {}, new Date('2026-11-03T20:00:00Z'));
@@ -51,7 +55,7 @@ test('bundled packs: day-stable selection, club extras first', () => {
 
 test('sporting history: day, widening to week/month, Wikipedia extras', async () => {
   const calls = [];
-  const w = createWidgets({ config, fetchImpl: fakeFetch(calls), log: quiet });
+  const w = createWidgets({ config, fetchImpl: fakeFetch(calls), log: quiet, lookup });
   // 30 July: England 1966.
   const d = w.peek('history', { scope: 'day' }, new Date('2026-07-30T12:00:00Z'));
   assert.equal(d.scopeUsed, 'day');
@@ -71,7 +75,7 @@ test('sporting history: day, widening to week/month, Wikipedia extras', async ()
 
 test('weather: live fetch, caching, update event, offline fallback', async () => {
   const calls = [];
-  const w = createWidgets({ config, fetchImpl: fakeFetch(calls), log: quiet });
+  const w = createWidgets({ config, fetchImpl: fakeFetch(calls), log: quiet, lookup });
   let updates = 0;
   w.on('update', () => { updates += 1; });
   assert.match(w.peek('weather', { days: 3 }).error, /Loading/);
@@ -85,9 +89,9 @@ test('weather: live fetch, caching, update event, offline fallback', async () =>
   await w.get('weather', { days: 3 });
   assert.equal(calls.filter((u) => u.includes('open-meteo')).length, 1, 'cached for 15 minutes');
 
-  const none = createWidgets({ config: { timezone: 'Europe/London' }, fetchImpl: fakeFetch(), log: quiet });
+  const none = createWidgets({ config: { timezone: 'Europe/London' }, fetchImpl: fakeFetch(), log: quiet, lookup });
   assert.match(none.peek('weather').error, /No location/);
-  const down = createWidgets({ config, fetchImpl: async () => { throw new Error('offline'); }, log: quiet });
+  const down = createWidgets({ config, fetchImpl: async () => { throw new Error('offline'); }, log: quiet, lookup });
   assert.match((await down.get('weather')).error, /unavailable/);
 
   assert.deepEqual(describeWeather(0, false), { text: 'Clear sky', icon: '🌙', cond: 'clear' });
@@ -101,7 +105,7 @@ test('sample() is deterministic and unbiased enough', () => {
 });
 
 test('widget HTTP routes and MCP tool', async (t) => {
-  const widgets = createWidgets({ config, fetchImpl: fakeFetch(), log: quiet });
+  const widgets = createWidgets({ config, fetchImpl: fakeFetch(), log: quiet, lookup });
   const store = { on() {}, snapshot: () => ({ leagues: [] }), updatedAt: null, hasLive: () => false };
   const mcp = createMcpHandler({ store, config, push: async () => [], widgets });
   const handler = createRequestHandler({ store, config, push: async () => [], mcp, widgets, log: quiet });
@@ -123,7 +127,7 @@ test('widget HTTP routes and MCP tool', async (t) => {
 });
 
 test('topics: film & TV, music, geography, culture and mixed packs', () => {
-  const w = createWidgets({ config, fetchImpl: fakeFetch(), log: quiet });
+  const w = createWidgets({ config, fetchImpl: fakeFetch(), log: quiet, lookup });
   const now = new Date('2026-11-03T12:00:00Z');
   for (const topic of ['sport', 'film-tv', 'music', 'geography', 'culture']) {
     const quiz = w.peek('quiz', { topic }, now);
@@ -140,7 +144,7 @@ test('topics: film & TV, music, geography, culture and mixed packs', () => {
 });
 
 test('history topics: sport, TV/film/music and both', () => {
-  const w = createWidgets({ config, fetchImpl: fakeFetch(), log: quiet });
+  const w = createWidgets({ config, fetchImpl: fakeFetch(), log: quiet, lookup });
   const nov23 = new Date('2026-11-23T12:00:00Z'); // Doctor Who 1963
   const ent = w.peek('history', { scope: 'day', topic: 'entertainment' }, nov23);
   assert.equal(ent.scopeUsed, 'day');
@@ -153,7 +157,7 @@ test('history topics: sport, TV/film/music and both', () => {
 });
 
 test('emoji quiz, flags & capitals, country of the day', () => {
-  const w = createWidgets({ config, fetchImpl: fakeFetch(), log: quiet });
+  const w = createWidgets({ config, fetchImpl: fakeFetch(), log: quiet, lookup });
   const now = new Date('2026-11-03T12:00:00Z');
   const emoji = w.peek('emoji', {}, now);
   assert.equal(emoji.items.length, 20);

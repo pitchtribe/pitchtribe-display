@@ -21,10 +21,10 @@ jobs:
         working-directory: app
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -42,4 +42,4 @@ jobs:
 
       - name: Check deploy scripts
         working-directory: deploy
-        run: bash -n install.sh && bash -n bootstrap.sh && bash -n reset-password.sh && bash -n kiosk.sh && bash -n ../image/build.sh && bash -n ../image/harden-cmdline.sh && bash -n portal/portal-apply.sh && node --check ../app/lib/portal-hw.js && node --check ../app/bin/backup.js && node --check ../app/bin/remote-access.js
+        run: bash -n install.sh && bash -n bootstrap.sh && bash -n reset-password.sh && bash -n kiosk.sh && bash -n update/os-update.sh && bash -n ../image/build.sh && bash -n ../image/harden-cmdline.sh && bash -n portal/portal-apply.sh && node --check ../app/lib/portal-hw.js && node --check ../app/bin/backup.js && node --check ../app/bin/remote-access.js

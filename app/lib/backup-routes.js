@@ -20,25 +20,59 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const zlib = require('node:zlib');
-const { Readable } = require('node:stream');
+const { Readable, Transform, pipeline: pipelineStream } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { tarChunks, readTar } = require('./tar');
 const { DATA_FILES, SAFE_NAME, SNAPSHOT_ID, mediaFiles } = require('./backup');
+const enc = require('./backup-crypto');
 const v = require('./validate');
 
 const UUID_RE = /^[A-Za-z0-9-]{1,64}$/;
 
-function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, onRestored, version = '', hostname = os.hostname() }) {
+/* How much a restore is allowed to write.
+ *
+ * Restoring means unpacking an archive onto the SD card, and on a freshly
+ * flashed card it needs no password. A .tar.gz of mostly photos and video
+ * barely compresses; a file of zeros compresses a thousandfold. So a small
+ * upload can fill the card, and a Pi behind a bar with a full root filesystem
+ * does not recover on its own.
+ *
+ * Two bounds, both documented in docs/updates-backups.html:
+ *   - expansion: what comes out may not exceed RESTORE_RATIO times what went
+ *     in, once past a floor that lets small text-heavy backups through.
+ *   - headroom: stop before the card is full, whatever the ratio.
+ */
+const RESTORE_RATIO = 100;
+const RESTORE_RATIO_FLOOR = 64 * 1024 * 1024;
+const RESTORE_RESERVE_BYTES = 256 * 1024 * 1024;
+const MAX_DATA_ENTRY_BYTES = 64 * 1024 * 1024; // db.json and friends are text
+
+/** Bytes a restore may write before it would leave the card with no room. */
+function headroom(dir) {
+  try {
+    const { bsize, bavail } = fs.statfsSync(dir);
+    return Math.max(0, bsize * bavail - RESTORE_RESERVE_BYTES);
+  } catch {
+    return Infinity; // can't tell (not Linux, or a sandbox): the ratio bound still applies
+  }
+}
+
+function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, onRestored, version = '', hostname = os.hostname(), maxUploadBytes = Infinity, maxRestoreBytes }) {
   const file = (name) => path.join(dataDir, name);
   const readJson = (name) => { try { return JSON.parse(fs.readFileSync(file(name), 'utf8')); } catch { return null; } };
 
   /** What the root helper last reported, or null if it isn't installed (e.g. a dev machine). */
   const status = () => readJson('backup-status.json');
 
+  /* 0600 because a restore request can carry the recovery code the club typed
+     on the first-run screen. The root helper takes it back out once it has been
+     used (bin/backup.js), so it does not sit in DATA_DIR afterwards. */
   function request(action, extra = {}) {
     const req = { id: crypto.randomBytes(8).toString('hex'), action, at: new Date().toISOString(), ...extra };
-    fs.writeFileSync(`${file('backup-request.json')}.tmp`, `${JSON.stringify(req, null, 2)}\n`);
-    fs.renameSync(`${file('backup-request.json')}.tmp`, file('backup-request.json'));
+    const tmp = `${file('backup-request.json')}.tmp`;
+    fs.writeFileSync(tmp, `${JSON.stringify(req, null, 2)}\n`, { mode: 0o600 });
+    fs.chmodSync(tmp, 0o600);
+    fs.renameSync(tmp, file('backup-request.json'));
     return req.id;
   }
 
@@ -46,10 +80,16 @@ function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, 
   function setupInfo() {
     const s = status();
     if (!s) return { usb: [], running: null, last: null };
+    // `encrypted` and `locked` are what the screen needs to decide whether to
+    // ask for the recovery code before it can restore anything.
     const usb = (s.sticks || []).filter((k) => (k.backups || []).length).map((k) => ({
       uuid: k.uuid,
       label: k.label,
-      backups: k.backups.map((b) => ({ host: b.host, snapshots: b.snapshots.map(({ id, at, club, counts }) => ({ id, at, club, counts })) })),
+      backups: k.backups.map((b) => ({
+        host: b.host,
+        locked: Boolean(b.locked),
+        snapshots: b.snapshots.map(({ id, at, club, counts, encrypted }) => ({ id, at, club, counts, encrypted: Boolean(encrypted) })),
+      })),
     }));
     return { usb, running: s.running || null, last: s.last || null, lastRequestId: s.lastRequestId || null };
   }
@@ -63,7 +103,13 @@ function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, 
     if (!s) throw new v.HttpError(503, 'USB backups need PitchTribe to be installed on a Raspberry Pi');
     const found = (s.sticks || []).find((k) => k.uuid === uuid)?.backups?.find((b) => b.host === host)?.snapshots?.some((x) => x.id === snapshot);
     if (!found) throw v.bad('That backup isn’t on a plugged-in USB stick any more');
-    return request('restore', { uuid, host, snapshot });
+    // Checked here rather than in the root helper, so a mistyped code comes
+    // back while the club is still looking at the box they typed it into.
+    let recoveryCode;
+    if (body.recoveryCode !== undefined && String(body.recoveryCode).trim() !== '') {
+      try { recoveryCode = enc.normalizeCode(String(body.recoveryCode).slice(0, 200)); } catch (err) { throw v.bad(err.message); }
+    }
+    return request('restore', { uuid, host, snapshot, ...(recoveryCode ? { recoveryCode } : {}) });
   }
 
   /** Reads an uploaded .tar.gz backup and makes it the current data. */
@@ -71,21 +117,52 @@ function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, 
     const work = fs.mkdtempSync(path.join(dataDir, '.restore-'));
     try {
       const names = new Set();
+      const budget = maxRestoreBytes ?? headroom(dataDir);
+      let packed = 0;
+      let unpacked = 0;
+      // Counts what the upload is, before gunzip...
+      const countPacked = new Transform({
+        transform(chunk, _enc, cb) { packed += chunk.length; cb(null, chunk); },
+      });
+      // ...and what it turns into, after. Either bound stops it mid-stream, so
+      // peak bytes written stay bounded however big the request claims to be.
+      const countUnpacked = new Transform({
+        transform(chunk, _enc, cb) {
+          unpacked += chunk.length;
+          if (unpacked > budget) {
+            cb(new v.HttpError(413, 'That backup is too big to restore — this card hasn’t room for it.'));
+            return;
+          }
+          if (unpacked > RESTORE_RATIO_FLOOR && unpacked > packed * RESTORE_RATIO) {
+            cb(v.bad('That isn’t a PitchTribe backup file. Choose the .tar.gz file from “Download backup”.'));
+            return;
+          }
+          cb(null, chunk);
+        },
+      });
       try {
-        await readTar(req.pipe(zlib.createGunzip()), (name) => {
-          const m = /^media\/([^/]+)$/.exec(name);
-          if (m && SAFE_NAME.test(m[1])) {
-            fs.mkdirSync(path.join(work, 'media'), { recursive: true });
-            names.add(name);
-            return path.join(work, 'media', m[1]);
+        await readTar(
+          // Callback form: it destroys the whole chain on error, so a corrupt
+          // gzip or a tripped bound surfaces where we read it rather than hanging.
+          pipelineStream(req, countPacked, zlib.createGunzip(), countUnpacked, () => {}),
+          (name, size) => {
+            const m = /^media\/([^/]+)$/.exec(name);
+            if (m && SAFE_NAME.test(m[1])) {
+              if (size > maxUploadBytes) throw new v.HttpError(413, 'That backup has a photo or video in it that is too large.');
+              fs.mkdirSync(path.join(work, 'media'), { recursive: true });
+              names.add(name);
+              return path.join(work, 'media', m[1]);
+            }
+            if (DATA_FILES.includes(name) || name === 'manifest.json') {
+              if (size > MAX_DATA_ENTRY_BYTES) throw new v.HttpError(413, `That backup’s ${name} is far larger than a club’s settings should be.`);
+              names.add(name);
+              return path.join(work, name);
+            }
+            return null; // anything else in the archive is ignored
           }
-          if (DATA_FILES.includes(name) || name === 'manifest.json') {
-            names.add(name);
-            return path.join(work, name);
-          }
-          return null; // anything else in the archive is ignored
-        });
+        );
       } catch (err) {
+        if (err.status) throw err;
         throw v.bad(/incorrect header check|unexpected end/i.test(err.message) || !err.message
           ? 'That isn’t a PitchTribe backup file. Choose the .tar.gz file from “Download backup”.'
           : err.message);
@@ -141,13 +218,22 @@ function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, 
 
   api.post('/backup/request', wrap((req, res) => {
     const b = req.body || {};
-    const action = v.oneOf(b.action, ['use', 'stop', 'now', 'restore'], null);
+    const action = v.oneOf(b.action, ['use', 'stop', 'now', 'restore', 'encrypt'], null);
     if (!action) throw v.bad('Unknown backup action');
     if (!status()) throw new v.HttpError(503, 'USB backups need PitchTribe to be installed on a Raspberry Pi');
     if (action === 'restore') return res.json({ requestId: requestUsbRestore(b) });
     if (action === 'use' && !UUID_RE.test(String(b.uuid || ''))) throw v.bad('Choose a USB stick');
-    res.json({ requestId: request(action, action === 'use' ? { uuid: String(b.uuid) } : {}) });
+    const extra = { use: () => ({ uuid: String(b.uuid), encrypt: b.encrypt !== false }), encrypt: () => ({ on: b.on !== false }) }[action];
+    res.json({ requestId: request(action, extra ? extra() : {}) });
   }));
+
+  /* The printed card goes missing. A signed-in admin can be shown the code
+     again — they can already download the whole club as one file, so this is
+     not a new way in, and a club that cannot find the code has no backup. */
+  api.get('/backup/recovery', (req, res) => {
+    const code = enc.readRecoveryCode(dataDir);
+    res.set('Cache-Control', 'no-store').json({ code: code || null, formatted: code ? enc.formatCode(code) : null });
+  });
 
   api.post('/backup/restore-file', wrap(async (req, res) => {
     res.json(await restoreFromFile(req));
@@ -159,9 +245,14 @@ function mountBackupRoutes({ app, api, dataDir, mediaDir, store, setupRequired, 
     const media = mediaFiles(dataDir);
     const day = new Date().toISOString().slice(0, 10);
     const manifest = { format: 1, at: new Date().toISOString(), hostname, version, club: d.settings.clubName || '', media };
+    // The session signing secret stays out of the file. A restore mints a new
+    // one anyway, so keeping it would only mean a backup emailed to a committee
+    // member carried something that could sign admin cookies.
+    const settings = { ...d.settings };
+    delete settings.sessionSecret;
     const entries = [
       { name: 'manifest.json', buffer: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`) },
-      { name: 'db.json', buffer: Buffer.from(JSON.stringify(d, null, 2)) },
+      { name: 'db.json', buffer: Buffer.from(JSON.stringify({ ...d, settings }, null, 2)) },
       ...DATA_FILES.filter((f) => f !== 'db.json' && fs.existsSync(file(f))).map((f) => ({ name: f, file: file(f) })),
       ...media.map((f) => ({ name: `media/${f}`, file: path.join(mediaDir, f) })),
     ];

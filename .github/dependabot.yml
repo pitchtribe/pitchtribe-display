@@ -1,0 +1,38 @@
+# Nothing was watching for a vulnerable dependency or a stale action pin.
+# `npm audit` is clean today; this is what notices when it stops being.
+#
+# Actions are pinned by commit SHA (a moved tag is how a token leaks), and
+# Dependabot updates the SHA and the trailing version comment together.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for routine bumps; security updates still come on their own.
+      dev-dependencies:
+        dependency-type: development
+
+  - package-ecosystem: npm
+    directory: /app
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /signage-server
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5

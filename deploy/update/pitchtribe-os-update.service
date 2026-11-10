@@ -1,0 +1,25 @@
+[Unit]
+Description=PitchTribe: install Raspberry Pi OS updates
+Documentation=https://pitchtribe.media/docs/updates-backups/
+# apt needs a working connection, and "the network is up" is not the same thing
+# as "a route out of the club". The helper treats being offline as a quiet skip.
+Wants=network-online.target
+After=network-online.target local-fs.target
+
+[Service]
+Type=oneshot
+Environment=DATA_DIR=/var/lib/pitchtribe
+# Root, because it installs packages. No sandboxing directives: dpkg writes all
+# over the filesystem by definition, and a ProtectSystem= here would only mean
+# a card that quietly stops patching itself.
+ExecStart=/usr/local/bin/pitchtribe-os-update
+# Keep out of the screen's way, exactly like the backup it runs in front of.
+Nice=10
+IOSchedulingClass=idle
+# A first upgrade on an old card, over a club's broadband, is slow but finite.
+TimeoutStartSec=2h
+
+# No [Install] section on purpose: this unit is pulled in by the nightly backup
+# (pitchtribe-backup@nightly.service.d/10-os-update.conf) on a full PitchTribe,
+# and by pitchtribe-os-update.timer on an extra-screen Pi that has no backup.
+# Enabling it as well would patch the card twice a night.

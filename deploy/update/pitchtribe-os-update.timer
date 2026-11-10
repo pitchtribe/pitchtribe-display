@@ -1,0 +1,18 @@
+[Unit]
+Description=Nightly Raspberry Pi OS updates
+# Only installed on an extra-screen Pi (PITCHTRIBE_SERVER=…), which has no
+# nightly backup to run in front of. A full PitchTribe gets its nightly run
+# from pitchtribe-backup@nightly.service.d/10-os-update.conf instead — if both
+# were in place the card would patch itself twice a night.
+
+[Timer]
+# Half an hour before a full PitchTribe would back up, for the same reason:
+# the small hours, and nobody watching the screen.
+OnCalendar=*-*-* 03:00
+RandomizedDelaySec=20min
+# A Pi that was off at 03:00 updates soon after it next starts.
+Persistent=true
+Unit=pitchtribe-os-update.service
+
+[Install]
+WantedBy=timers.target

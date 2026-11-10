@@ -4,8 +4,14 @@ After=network.target hostapd.service
 
 [Service]
 Type=simple
-User=pitchtribe
-Group=pitchtribe
+# Its own user, not the dashboard's. This is the one process guests on an
+# untrusted network can reach, and in DATA_DIR writing a single file is by
+# design a root account: the dashboard's remote-access helper acts on
+# remote-access-request.json appearing. Running as `pitchtribe` meant any
+# arbitrary-write flaw here was a sudo account and SSH on, reached from the
+# guest bridge. Now it can write one directory and nothing else.
+User=pitchtribe-portal
+Group=pitchtribe-portal
 WorkingDirectory=/opt/pitchtribe/app
 Environment=NODE_ENV=production
 Environment=DATA_DIR=/var/lib/pitchtribe
@@ -18,15 +24,47 @@ RestartSec=3
 # Only privilege: adding guests to the nftables "allowed" set.
 AmbientCapabilities=CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_ADMIN
+
+# ---------------------------------------------------------------- hardening
+# The club's data is read-only here, and DATA_DIR/portal — its own sessions,
+# stats and guest list — is the only thing it can write. It never opens
+# db.json, which holds the dashboard password hash, the session signing secret
+# and every API key; the dashboard publishes what the sign-in page needs
+# (portal/settings.json and a copy of the logo) instead.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
+ReadOnlyPaths=/var/lib/pitchtribe
+ReadWritePaths=/var/lib/pitchtribe/portal
 PrivateTmp=true
-ReadWritePaths=/var/lib/pitchtribe
+PrivateDevices=true
+ProtectKernelTunables=true
 ProtectKernelModules=true
+ProtectKernelLogs=true
 ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
 RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
 LockPersonality=true
+RemoveIPC=true
+KeyringMode=private
+# 0640: the guest list and session stats are read by the dashboard, which is in
+# the `pitchtribe` group. The files are written with an explicit mode too, so
+# this is a backstop rather than the mechanism.
+UMask=0027
+# AF_NETLINK is what `nft` talks to the kernel over. Without it a guest
+# accepting the terms gets "something went wrong" and never comes online.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# ProcSubset=pid is deliberately NOT set: recognising a guest's device reads
+# /proc/net/arp (app/lib/portal.js), which that directive hides.
+# MemoryDenyWriteExecute is deliberately NOT set: V8 cannot map its JIT pages
+# and Node exits on start.
 
 [Install]
 WantedBy=multi-user.target

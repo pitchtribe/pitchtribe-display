@@ -1,10 +1,17 @@
 'use strict';
 /* Guest Wi-Fi captive portal — the only part of PitchTribe guests can reach.
 
-   Runs as its own process (portal-server.js, systemd unit pitchtribe-portal)
-   with CAP_NET_ADMIN so it can add a guest's address to the nftables set that
-   lets them online. It reads the dashboard's settings from DATA_DIR/db.json
-   (read-only) and keeps its own session/guest files.
+   Runs as its own process and its own user (portal-server.js, systemd unit
+   pitchtribe-portal, user pitchtribe-portal) with CAP_NET_ADMIN so it can add
+   a guest's address to the nftables set that lets them online.
+
+   Everything it touches lives in DATA_DIR/portal, the one directory it can
+   write, and it never opens db.json. That matters because this is the process
+   exposed to an untrusted network: writing a single file in DATA_DIR is by
+   design a root account (see remote-access), and db.json holds the dashboard
+   password hash, the session signing secret and every API key. So the
+   dashboard hands the portal what it needs — DATA_DIR/portal/settings.json and
+   a copy of the club's logo — instead of the portal reaching in for it.
 
    Unapproved guests' web traffic is redirected here by nftables. Any request
    for another host gets a redirect to the portal, which is what makes phones
@@ -17,6 +24,14 @@ const { DEFAULT_PORTAL, renderSplash, renderConnected, renderMessage, themeCss }
 
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 const EMAIL = /^[^\s@<>"']{1,64}@[^\s@<>"']{1,190}\.[a-z]{2,}$/i;
+
+const SESSIONS = 'portal-sessions.json';
+const GUESTS = 'portal-guests.jsonl';
+/** The portal's own directory: the only place it may write. */
+const portalPath = (dataDir) => path.join(dataDir, 'portal');
+// Group-readable (0640), so the dashboard can read the guest list and stats
+// without the two services sharing a user or a writable directory.
+const SHARED_MODE = 0o640;
 
 /** Allow a guest IP through the firewall for `minutes` (nftables set with timeout). */
 function nftAllow(ip, minutes) {
@@ -46,25 +61,26 @@ function createPortalApp({
   now = () => Date.now(),
   log = console.error,
 } = {}) {
-  const dbFile = path.join(dataDir, 'db.json');
-  const sessionsFile = path.join(dataDir, 'portal-sessions.json');
-  const guestsFile = path.join(dataDir, 'portal-guests.jsonl');
+  const portalDir = portalPath(dataDir);
+  const settingsFile = path.join(portalDir, 'settings.json');
+  const logoFile = path.join(portalDir, 'logo');
+  const sessionsFile = path.join(portalDir, SESSIONS);
+  const guestsFile = path.join(portalDir, GUESTS);
   const publicDir = path.join(__dirname, '..', 'public', 'portal');
+  try { fs.mkdirSync(portalDir, { recursive: true, mode: 0o770 }); } catch (err) { log('[portal]', err.message); }
 
-  // ---- settings (re-read when the dashboard saves db.json)
+  // ---- settings (re-read when the dashboard rewrites them)
   let cache = { mtime: 0, data: null };
   function state() {
     try {
-      const st = fs.statSync(dbFile);
-      if (st.mtimeMs !== cache.mtime) cache = { mtime: st.mtimeMs, data: JSON.parse(fs.readFileSync(dbFile, 'utf8')) };
+      const st = fs.statSync(settingsFile);
+      if (st.mtimeMs !== cache.mtime) cache = { mtime: st.mtimeMs, data: JSON.parse(fs.readFileSync(settingsFile, 'utf8')) };
     } catch (err) {
       if (!cache.data) log('[portal] cannot read settings:', err.message);
     }
     const d = cache.data || {};
-    const settings = d.settings || {};
-    const portal = { ...DEFAULT_PORTAL, ...(settings.portal || {}) };
-    const logo = portal.logoAssetId ? (d.assets || []).find((a) => a.id === portal.logoAssetId && a.type === 'image' && a.file) : null;
-    return { club: settings.clubName || 'Our club', portal, logo };
+    const portal = { ...DEFAULT_PORTAL, ...(d.portal || {}) };
+    return { club: d.club || 'Our club', portal, logo: fs.existsSync(logoFile) };
   }
 
   // ---- sessions (mirrors the nftables set so pages can say "you're online")
@@ -81,7 +97,8 @@ function createPortalApp({
     const keepFrom = new Date(t - 60 * 86400000).toISOString().slice(0, 10);
     for (const day of Object.keys(stats.days)) if (day < keepFrom) delete stats.days[day];
     const tmp = `${sessionsFile}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ updatedAt: new Date(t).toISOString(), sessions, stats }, null, 1));
+    fs.writeFileSync(tmp, JSON.stringify({ updatedAt: new Date(t).toISOString(), sessions, stats }, null, 1), { mode: SHARED_MODE });
+    fs.chmodSync(tmp, SHARED_MODE);
     fs.renameSync(tmp, sessionsFile);
   }
   const heartbeat = setInterval(() => { try { persist(); } catch (err) { log('[portal]', err.message); } }, 60_000);
@@ -126,10 +143,11 @@ function createPortalApp({
   app.get('/portal.css', (req, res) => res.type('text/css').sendFile(path.join(publicDir, 'portal.css')));
   app.get('/theme.css', (req, res) => res.type('text/css').send(themeCss(state().portal.accent)));
   app.get('/logo', (req, res) => {
-    const { logo } = state();
-    if (!logo) return res.status(404).end();
+    if (!state().logo) return res.status(404).end();
     res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
-    res.sendFile(path.join(dataDir, 'media', path.basename(logo.file.filename)));
+    // The dashboard puts a copy here; the portal has no access to the media
+    // folder, and should not need it to show a crest on the sign-in page.
+    res.sendFile(logoFile);
   });
 
   const pageOpts = (s) => ({ club: s.club, portal: s.portal, logoUrl: s.logo ? '/logo' : null, css });
@@ -163,7 +181,7 @@ function createPortalApp({
     const day = new Date(t).toISOString().slice(0, 10);
     stats.days[day] = (stats.days[day] || 0) + 1;
     if (wantsEmail && values.email) {
-      fs.appendFileSync(guestsFile, `${JSON.stringify({ at: new Date(t).toISOString(), email: values.email, consent: values.consent })}\n`);
+      fs.appendFileSync(guestsFile, `${JSON.stringify({ at: new Date(t).toISOString(), email: values.email, consent: values.consent })}\n`, { mode: SHARED_MODE });
     }
     try { persist(); } catch (err) { log('[portal]', err.message); }
     res.send(renderConnected({ ...pageOpts(s), minutesLeft: minutes }));
@@ -181,14 +199,27 @@ function createPortalApp({
   return { app, close, sessions, stats, persist };
 }
 
+/**
+ * Where one of the portal's files is. Cards set up before the portal had its
+ * own user keep theirs in DATA_DIR itself, and an upgrade must not look like
+ * the guest list was lost, so the old place is still read if the new one is
+ * empty. deploy/install.sh moves them across.
+ */
+function portalFile(dataDir, name) {
+  const now = path.join(portalPath(dataDir), name);
+  if (fs.existsSync(now)) return now;
+  const legacy = path.join(dataDir, name);
+  return fs.existsSync(legacy) ? legacy : now;
+}
+
 /** Read the portal's files for the dashboard (stats, active sessions, guest list). */
 function readPortalFiles(dataDir, now = Date.now()) {
   let saved = {};
-  try { saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'portal-sessions.json'), 'utf8')); } catch { /* not running yet */ }
+  try { saved = JSON.parse(fs.readFileSync(portalFile(dataDir, SESSIONS), 'utf8')); } catch { /* not running yet */ }
   const sessions = Object.values(saved.sessions || {}).filter((s) => s.expires > now);
   let guests = [];
   try {
-    guests = fs.readFileSync(path.join(dataDir, 'portal-guests.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    guests = fs.readFileSync(portalFile(dataDir, GUESTS), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
   } catch { /* none yet */ }
   const days = (saved.stats && saved.stats.days) || {};
   const today = new Date(now).toISOString().slice(0, 10);
@@ -203,4 +234,42 @@ function readPortalFiles(dataDir, now = Date.now()) {
   };
 }
 
-module.exports = { createPortalApp, readPortalFiles, nftAllow };
+/**
+ * The dashboard's half of the arrangement: hand the portal exactly what its
+ * sign-in page needs, so it never reads db.json.
+ *
+ * Called whenever the club name, the guest Wi-Fi settings or the chosen logo
+ * change. Writing only on a change keeps the portal's mtime check cheap and
+ * the SD card quiet.
+ */
+function writePortalSettings(dataDir, { club, portal, logoPath = null }) {
+  const dir = portalPath(dataDir);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o770 });
+  const file = path.join(dir, 'settings.json');
+  const next = `${JSON.stringify({ club, portal }, null, 2)}\n`;
+  let old = null;
+  try { old = fs.readFileSync(file, 'utf8'); } catch { /* first time */ }
+  if (old !== next) {
+    fs.writeFileSync(`${file}.tmp`, next, { mode: SHARED_MODE });
+    fs.chmodSync(`${file}.tmp`, SHARED_MODE);
+    fs.renameSync(`${file}.tmp`, file);
+  }
+
+  // A copy of the logo, not a path into the media folder: the portal user has
+  // no business reading the club's media, and uploads are 0600 anyway.
+  const logo = path.join(dir, 'logo');
+  if (logoPath && fs.existsSync(logoPath)) {
+    const from = fs.statSync(logoPath);
+    let to = null;
+    try { to = fs.statSync(logo); } catch { /* no copy yet */ }
+    if (!to || to.size !== from.size || to.mtimeMs < from.mtimeMs) {
+      fs.copyFileSync(logoPath, `${logo}.tmp`);
+      fs.chmodSync(`${logo}.tmp`, SHARED_MODE);
+      fs.renameSync(`${logo}.tmp`, logo);
+    }
+  } else {
+    fs.rmSync(logo, { force: true });
+  }
+}
+
+module.exports = { createPortalApp, readPortalFiles, writePortalSettings, portalPath, portalFile, nftAllow, PORTAL_FILES: [SESSIONS, GUESTS] };

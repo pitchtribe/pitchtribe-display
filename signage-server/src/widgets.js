@@ -13,6 +13,7 @@ import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
 import { ROOT } from './config.js';
 import { createSources, BANK_HOLIDAY_DIVISIONS } from './sources.js';
+import { createSafeFetch } from './egress.js';
 
 export const WIDGET_KINDS = [
   { kind: 'clock', name: 'Clock', description: 'Digital or analogue clock, or a countdown to kick-off', source: 'screen' },
@@ -55,6 +56,7 @@ const pack = (name) => (packs[name] ??= JSON.parse(readFileSync(resolve(PACK_DIR
 const WEATHER_TTL = 15 * 60_000;
 const HISTORY_TTL = 12 * 3600_000;
 const RETRY_MS = 2 * 60_000;
+const MAX_CACHE_KEYS = 200;
 const UA = 'PitchTribe-Signage/1.0 (club digital signage; https://pitchtribe.media)';
 
 // ---------------------------------------------------------------- helpers
@@ -120,23 +122,25 @@ export function describeWeather(code, isDay = true) {
 }
 
 // ----------------------------------------------------------------- widget set
-export function createWidgets({ config = {}, fetchImpl = fetch, log = console.error } = {}) {
+export function createWidgets({ config = {}, fetchImpl = fetch, log = console.error, lookup } = {}) {
   const emitter = new EventEmitter();
   const cache = new Map(); // key -> { data, fetchedAt, inflight, error, hash }
+  // Every outbound widget fetch is checked against the Pi's own network first.
+  const safeFetch = createSafeFetch({ fetchImpl, ...(lookup ? { lookup } : {}) });
   const tz = config.timezone || 'Europe/London';
   const weatherCfg = config.weather || null;
   const wikipedia = config.widgets?.wikipedia !== false;
   const provider = weatherCfg?.provider === 'openmeteo' ? 'openmeteo' : 'metno';
 
   async function getJson(url) {
-    const res = await fetchImpl(url, { headers: { accept: 'application/json', 'user-agent': UA }, signal: AbortSignal.timeout(15_000) });
+    const res = await safeFetch(url, { headers: { accept: 'application/json', 'user-agent': UA }, signal: AbortSignal.timeout(15_000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }
 
   /** Text body (RSS, iCal) with a 2 MB cap. */
   async function getText(url) {
-    const res = await fetchImpl(url, { headers: { accept: 'application/rss+xml, application/atom+xml, text/calendar, text/xml, */*', 'user-agent': UA }, signal: AbortSignal.timeout(15_000) });
+    const res = await safeFetch(url, { headers: { accept: 'application/rss+xml, application/atom+xml, text/calendar, text/xml, */*', 'user-agent': UA }, signal: AbortSignal.timeout(15_000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
     if (text.length > 2_000_000) throw new Error('Feed too large');
@@ -146,7 +150,22 @@ export function createWidgets({ config = {}, fetchImpl = fetch, log = console.er
   /** Cached remote value; refreshes in the background once stale. */
   function remote(key, ttl, fetcher) {
     let e = cache.get(key);
-    if (!e) { e = { data: null, fetchedAt: 0, inflight: null, error: null, hash: '' }; cache.set(key, e); }
+    if (!e) {
+      // Bounded: keys include feed addresses, and an unbounded Map keyed on
+      // those is a slow memory leak on a Pi that runs for months. Oldest
+      // untouched entry goes first; a live widget re-fetches on its next tick.
+      if (cache.size >= MAX_CACHE_KEYS) {
+        let oldestKey = null;
+        let oldestAt = Infinity;
+        for (const [k, v] of cache) {
+          if (v.inflight) continue;
+          if (v.fetchedAt < oldestAt) { oldestAt = v.fetchedAt; oldestKey = k; }
+        }
+        if (oldestKey !== null) cache.delete(oldestKey);
+      }
+      e = { data: null, fetchedAt: 0, inflight: null, error: null, hash: '' };
+      cache.set(key, e);
+    }
     const age = Date.now() - e.fetchedAt;
     const stale = e.error ? age > RETRY_MS : age > ttl;
     if (stale && !e.inflight) {

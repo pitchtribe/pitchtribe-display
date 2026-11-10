@@ -20,3 +20,6 @@ systemctl stop pitchtribe.service
 trap 'systemctl start pitchtribe.service' EXIT
 PT_PASSWORD="$p1" node "$APP_DIR/app/bin/reset-password.js" "$DATA_DIR/db.json"
 chown pitchtribe:pitchtribe "$DATA_DIR/db.json"
+# The file holds the password hash, the session signing secret and every API
+# key. reset-password.js writes it 0600; this is the belt to that braces.
+chmod 600 "$DATA_DIR/db.json"

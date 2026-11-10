@@ -36,6 +36,10 @@ data.settings.adminHash = auth.hashPassword(password);
 data.settings.sessionSecret = crypto.randomBytes(32).toString('hex');
 
 const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`);
-fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+// 0600, set explicitly: this runs as root, where the umask would leave the file
+// holding the new password hash, the signing secret and every API key readable
+// by anyone else with an account on the Pi. The service itself writes it 0600.
+fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
+fs.chmodSync(tmp, 0o600);
 fs.renameSync(tmp, file);
 console.log('Password changed. Everyone signed in to the dashboard has been signed out.');

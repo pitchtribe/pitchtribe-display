@@ -10,18 +10,26 @@
                          back up now, or restore a backup
 
    It talks to the dashboard through files in DATA_DIR:
-     backup-request.json   written by the server: { id, action, uuid?, host?, snapshot? }
-     backup-config.json    the stick backups go to: { uuid, label }
+     backup-request.json   written by the server: { id, action, uuid?, host?, snapshot?, recoveryCode? }
+     backup-config.json    the stick backups go to: { uuid, label, encrypt }
      backup-status.json    sticks found, their backups, the last result
+     backup-key            this Pi's backup key: root, 0600, never backed up
+     backup-recovery.json  this club's recovery code, so an admin can be shown it again
 
    A stick is mounted only while it is being read or written, so pulling it
    out, or a power cut, is unlikely to damage it. Sticks formatted FAT32, exFAT
-   or ext4 work; the disk the Pi boots from is never touched. */
+   or ext4 work; the disk the Pi boots from is never touched.
+
+   With `encrypt` set, this helper holds the keys: it is the only part of
+   PitchTribe running as root, and the backup key has to stay out of reach of
+   the network-facing dashboard. See lib/backup-crypto.js for why there are
+   two keys rather than one. */
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { backup, restore, listBackups, BackupError, SAFE_NAME, SNAPSHOT_ID } = require('../lib/backup');
+const { backup, restore, listBackups, hostDirFor, BackupError, SAFE_NAME, SNAPSHOT_ID } = require('../lib/backup');
+const enc = require('../lib/backup-crypto');
 
 const FILESYSTEMS = ['vfat', 'exfat', 'ext4'];
 const SYSTEM_MOUNTS = ['/', '/boot', '/boot/firmware'];
@@ -70,7 +78,12 @@ function listSticks(exec) {
 function withMount(o, stick, { readOnly }, fn) {
   if (stick.mountpoint) return fn(stick.mountpoint);
   fs.mkdirSync(o.mountDir, { recursive: true });
-  o.exec('mount', ['-o', readOnly ? 'ro,noatime' : 'noatime', stick.path, o.mountDir]);
+  // nosuid,nodev,noexec: plugging a stick in is enough to get it mounted here,
+  // by root, and the stick belongs to whoever walked up to the Pi. A read-only
+  // mount does not suppress the setuid bit, so without nosuid a setuid-root
+  // binary on the stick would be live for as long as it is mounted. We only
+  // ever read and write files on these, never run them.
+  o.exec('mount', ['-o', `${readOnly ? 'ro,' : ''}noatime,nosuid,nodev,noexec`, stick.path, o.mountDir]);
   try {
     return fn(o.mountDir);
   } finally {
@@ -99,7 +112,10 @@ function scan(o, status = readStatus(o)) {
         try { const st = fs.statfsSync(dir); free = st.bavail * st.bsize; } catch { /* unknown */ }
         const backups = listBackups(dir).map((b) => ({
           host: b.host,
-          snapshots: b.snapshots.map(({ id, at, club, version, counts, bytes }) => ({ id, at, club, version, counts, bytes })),
+          // Whether this Pi can open the stick on its own, which is what decides
+          // if the first-run screen has to ask for the recovery code.
+          locked: Boolean(enc.readStickKeys(hostDirFor(dir, b.host))) && !enc.readMachineKey(o.dataDir),
+          snapshots: b.snapshots.map(({ id, at, club, version, counts, bytes, encrypted }) => ({ id, at, club, version, counts, bytes, encrypted: Boolean(encrypted) })),
         }));
         sticks.push({ uuid: s.uuid, label: s.label, fstype: s.fstype, size: s.size, free, backups });
       });
@@ -108,13 +124,46 @@ function scan(o, status = readStatus(o)) {
       console.error(`could not read ${s.path}: ${err.message}`);
     }
   }
-  const next = { ...status, running: null, config: readConfig(o), sticks };
+  const next = { ...status, running: null, config: readConfig(o), sticks, encryption: encryptionState(o) };
   writeStatus(o, next);
   return next;
 }
 
+/** What the dashboard needs to know about keys — never the keys themselves. */
+function encryptionState(o) {
+  const config = readConfig(o);
+  return {
+    on: Boolean(config && config.encrypt),
+    machineKey: Boolean(enc.readMachineKey(o.dataDir)),
+    recoveryCode: Boolean(enc.readRecoveryCode(o.dataDir)),
+  };
+}
+
 function findStick(o, uuid) {
   return listSticks(o.exec).find((s) => s.uuid === uuid) || null;
+}
+
+const plainMessage = (err, what) =>
+  (err instanceof BackupError || err instanceof enc.CryptoError ? err.message : `${what} failed: ${err.message}`);
+
+/**
+ * The key to write this stick with, or null when the club has not switched
+ * encryption on. Makes this Pi's backup key and the club's recovery code the
+ * first time, and puts the machine wrap back on a stick that only the recovery
+ * code could open — which is how the night after a restore works unattended.
+ */
+function stickKey(o, config, dir) {
+  if (!config.encrypt) return null;
+  const machineKey = enc.ensureMachineKey(o.dataDir);
+  const recoveryCode = enc.ensureRecoveryCode(o.dataDir, o.now());
+  ownRecoveryCode(o);
+  return enc.ensureStickKeys({ hostDir: hostDirFor(dir, o.hostname), machineKey, recoveryCode }).smk;
+}
+
+/* The dashboard has to be able to show the code again, so the service user owns
+   it; the backup key stays root's. Both are 0600 either way. */
+function ownRecoveryCode(o) {
+  try { o.exec('chown', [`${o.serviceUser}:${o.serviceUser}`, enc.recoveryPath(o.dataDir)]); } catch { /* not on a Pi */ }
 }
 
 /** Backs up to the chosen stick and records the result. */
@@ -131,10 +180,10 @@ function runBackup(o, status) {
       writeStatus(o, { ...status, running: 'backup' });
       try {
         const m = withMount(o, stick, { readOnly: false }, (dir) =>
-          backup({ dataDir: o.dataDir, stickDir: dir, hostname: o.hostname, version: o.version, now: o.now() }));
+          backup({ dataDir: o.dataDir, stickDir: dir, hostname: o.hostname, version: o.version, now: o.now(), smk: stickKey(o, config, dir) }));
         last = { action: 'backup', at: m.at, ok: true, message: 'Backed up', snapshot: m.id };
       } catch (err) {
-        last = { action: 'backup', at: o.now().toISOString(), ok: false, message: err instanceof BackupError ? err.message : `Backup failed: ${err.message}` };
+        last = { action: 'backup', at: o.now().toISOString(), ok: false, message: plainMessage(err, 'Backup') };
       }
     }
   }
@@ -150,20 +199,59 @@ function runRestore(o, status, req) {
   if (!stick) return scan(o, { ...status, last: { action: 'restore', at, ok: false, message: 'The USB stick isn’t plugged in any more' } });
   writeStatus(o, { ...status, running: 'restore' });
   let last;
+  // The code the club typed on the first-run screen, or the one this Pi already
+  // holds when the card is still the card that wrote the stick.
+  let given = null;
+  try {
+    given = req.recoveryCode ? enc.normalizeCode(req.recoveryCode) : null;
+  } catch (err) {
+    return scan(o, { ...status, last: { action: 'restore', at, ok: false, message: err.message } });
+  }
+  const code = given || enc.readRecoveryCode(o.dataDir);
   o.exec('systemctl', ['stop', 'pitchtribe.service']);
   try {
-    const m = withMount(o, stick, { readOnly: true }, (dir) =>
-      restore({ stickDir: dir, host: req.host, id: req.snapshot, dataDir: o.dataDir }));
+    const { m, via } = withMount(o, stick, { readOnly: true }, (dir) => {
+      // Read-only on purpose: a restore must not be able to damage the one copy
+      // of the club's data. The stick's machine wrap is repaired on the next
+      // backup instead, from the code stored below.
+      const opened = enc.openStick({ hostDir: hostDirFor(dir, req.host), machineKey: enc.readMachineKey(o.dataDir), recoveryCode: code });
+      return {
+        m: restore({ stickDir: dir, host: req.host, id: req.snapshot, dataDir: o.dataDir, smk: opened && opened.smk }),
+        via: opened && opened.via,
+      };
+    });
     o.exec('chown', ['-R', `${o.serviceUser}:${o.serviceUser}`, o.dataDir]);
-    // Keep backing up to the stick the club restored from.
-    writeJson(file(o, 'backup-config.json'), { uuid: stick.uuid, label: stick.label });
+    // A fresh card opened the stick with the printed code. Give this Pi a key of
+    // its own and remember the code, so 03:30 runs unattended from tonight and
+    // an admin can be shown the code again. Written after the chown above, and
+    // the key handed back to root, so the dashboard's user never holds it.
+    if (via) {
+      writeJson(file(o, 'backup-config.json'), { uuid: stick.uuid, label: stick.label, encrypt: true });
+      enc.ensureMachineKey(o.dataDir);
+      try { o.exec('chown', ['root:root', enc.machineKeyPath(o.dataDir)]); } catch { /* not on a Pi */ }
+      fs.chmodSync(enc.machineKeyPath(o.dataDir), 0o600);
+      if (code) enc.writeRecoveryCode(o.dataDir, code, o.now());
+      ownRecoveryCode(o);
+    } else {
+      // Keep backing up to the stick the club restored from.
+      writeJson(file(o, 'backup-config.json'), { uuid: stick.uuid, label: stick.label, encrypt: Boolean((readConfig(o) || {}).encrypt) });
+    }
     last = { action: 'restore', at, ok: true, message: `Restored the backup from ${new Date(m.at).toUTCString()}`, snapshot: m.id };
   } catch (err) {
-    last = { action: 'restore', at, ok: false, message: err instanceof BackupError ? err.message : `Restore failed: ${err.message}` };
+    last = { action: 'restore', at, ok: false, message: plainMessage(err, 'Restore') };
   } finally {
     o.exec('systemctl', ['start', 'pitchtribe.service']);
   }
   return scan(o, { ...status, last });
+}
+
+/* A restore request can carry the recovery code the club typed. Once it has
+   been used there is no reason for it to sit in a file in DATA_DIR, so it is
+   taken back out — the dashboard's request id is what dedupes, not the code. */
+function scrubRequest(o, req) {
+  if (!req.recoveryCode) return;
+  const { recoveryCode, ...rest } = req;
+  try { writeJson(file(o, 'backup-request.json'), rest); } catch { /* best effort */ }
 }
 
 /** Does what the dashboard asked, once per request id. */
@@ -177,16 +265,32 @@ function handleRequest(o) {
     case 'use': {
       const stick = findStick(o, req.uuid);
       if (!stick) return scan(o, { ...base, last: { action: 'use', at: o.now().toISOString(), ok: false, message: 'That USB stick isn’t plugged in any more' } });
-      writeJson(file(o, 'backup-config.json'), { uuid: stick.uuid, label: stick.label });
+      // On unless the club says otherwise: a stick nobody ever switched
+      // encryption on for is a stick that is never encrypted.
+      writeJson(file(o, 'backup-config.json'), { uuid: stick.uuid, label: stick.label, encrypt: req.encrypt !== false });
       return runBackup(o, base);
     }
     case 'stop':
       fs.rmSync(file(o, 'backup-config.json'), { force: true });
       return scan(o, { ...base, last: { action: 'stop', at: o.now().toISOString(), ok: true, message: 'Backups to the USB stick are switched off' } });
+    case 'encrypt': {
+      const config = readConfig(o);
+      if (!config) return scan(o, { ...base, last: { action: 'encrypt', at: o.now().toISOString(), ok: false, message: 'Choose a USB stick to back up to first' } });
+      const on = req.on !== false;
+      writeJson(file(o, 'backup-config.json'), { ...config, encrypt: on });
+      // Backing up straight away rather than waiting for 03:30: the club has
+      // just been shown a recovery code, and the stick should match it now.
+      const next = runBackup(o, base);
+      return { ...next, last: { ...next.last, action: 'encrypt', message: next.last.ok ? (on ? 'Backups on this stick are encrypted' : 'Encryption switched off') : next.last.message } };
+    }
     case 'now':
       return runBackup(o, base);
     case 'restore':
-      return runRestore(o, base, req);
+      try {
+        return runRestore(o, base, req);
+      } finally {
+        scrubRequest(o, req);
+      }
     default:
       return scan(o, base);
   }

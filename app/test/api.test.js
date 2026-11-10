@@ -488,6 +488,35 @@ test('screen language: club default, per-screen override, validation', async (t)
   assert.equal((await s.call('GET', '/api/state')).body.settings.language, 'en', 'unknown codes fall back to English');
 });
 
+test('Settings → About: the nightly OS update reaches the dashboard', async (t) => {
+  // The root helper's status file is the only record of whether the card is
+  // patched, and it took SSH to read it. The judgements it carries are tested
+  // in os-updates.test.js; this is the wire between the two.
+  const s = await startServer();
+  t.after(s.stop);
+  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+
+  // A dashboard that isn't on a Pi (or a card whose first night hasn't come
+  // round) says nothing rather than looking broken.
+  assert.deepEqual((await s.call('GET', '/api/state')).body.osUpdate, { available: false });
+
+  fs.writeFileSync(path.join(s.dataDir, 'os-update-status.json'), JSON.stringify({
+    checkedAt: new Date(Date.now() - 3600_000).toISOString(),
+    lastOkAt: new Date(Date.now() - 3600_000).toISOString(),
+    result: 'ok',
+    upgraded: 1,
+    packages: ['linux-image-rpi-v8'],
+    rebootRequired: true,
+    message: 'installed 1 update(s)',
+  }));
+  const u = (await s.call('GET', '/api/state')).body.osUpdate;
+  assert.equal(u.available, true);
+  assert.equal(u.upgraded, 1);
+  assert.equal(u.rebootRequired, true, 'the restart nobody would otherwise hear about');
+  assert.equal(u.level, 'due');
+  assert.equal(u.silent, false);
+});
+
 test('guest wi-fi: the dashboard says whether this Pi can actually broadcast it', async (t) => {
   // Saving guest Wi-Fi settings on a Pi without the helper looks exactly like
   // success, and the club waits for a network that never appears. The settings

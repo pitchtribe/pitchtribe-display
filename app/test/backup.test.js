@@ -166,12 +166,18 @@ test('helper: choose a stick, back up nightly, then restore onto a fresh card', 
   let s = helper.main('scan', o);
   assert.equal(s.sticks.length, 1);
   assert.equal(s.config, null);
-  assert.ok(sys.calls.some((c) => c.startsWith('mount -o ro,noatime /dev/sda1')), 'scans mount read-only');
+  assert.ok(
+    sys.calls.some((c) => c.startsWith('mount -o ro,noatime,nosuid,nodev,noexec /dev/sda1')),
+    'scans mount read-only, and nosuid/nodev/noexec: the stick belongs to whoever walked up to the Pi, '
+      + 'and read-only does not suppress the setuid bit'
+  );
   assert.equal(fs.existsSync(o.mountDir), false, 'and unmount afterwards');
 
-  fs.writeFileSync(path.join(data, 'backup-request.json'), JSON.stringify({ id: 'r1', action: 'use', uuid: 'AAAA-1111' }));
+  // encrypt: false — the plain stick this file is about. Encrypted sticks, and
+  // the fact that new installs encrypt by default, are in backup-crypto.test.js.
+  fs.writeFileSync(path.join(data, 'backup-request.json'), JSON.stringify({ id: 'r1', action: 'use', uuid: 'AAAA-1111', encrypt: false }));
   s = helper.main('request', o);
-  assert.deepEqual(s.config, { uuid: 'AAAA-1111', label: 'CLUB' });
+  assert.deepEqual(s.config, { uuid: 'AAAA-1111', label: 'CLUB', encrypt: false });
   assert.equal(s.last.ok, true, s.last.message);
   assert.equal(s.sticks[0].backups[0].host, 'bar-tv');
   const again = helper.main('request', o);
@@ -191,7 +197,7 @@ test('helper: choose a stick, back up nightly, then restore onto a fresh card', 
   assert.ok(sys.calls.includes('systemctl stop pitchtribe.service'));
   assert.ok(sys.calls.includes(`chown -R pitchtribe:pitchtribe ${fresh}`));
   assert.equal(sys.calls.filter((c) => c === 'systemctl start pitchtribe.service').length, 1);
-  assert.deepEqual(s.config, { uuid: 'AAAA-1111', label: 'CLUB' }, 'keeps backing up to the same stick');
+  assert.deepEqual(s.config, { uuid: 'AAAA-1111', label: 'CLUB', encrypt: false }, 'keeps backing up to the same stick');
 });
 
 test('helper: a missing or full stick is reported in plain English', () => {

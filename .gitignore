@@ -31,3 +31,6 @@ app/data/
 
 # Signage server local config (may contain tokens)
 signage-server/config.json
+
+# Agent tooling, local to whoever is working on the repo
+.claude/

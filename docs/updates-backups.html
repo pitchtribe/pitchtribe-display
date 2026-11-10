@@ -13,12 +13,23 @@
 </div>
 
 <h2 id="os-updates">Updating Raspberry Pi OS</h2>
-<p>Raspberry Pi OS gets security fixes regularly. Every few months, connect to the Pi and run:</p>
+<p>This one looks after itself. PitchTribe installs the operating system's security fixes when you first install it, and then every night at about three o'clock, just before the backup — so the Pi is patched and the night's backup is taken from an up-to-date card.</p>
+<p>Two things it deliberately leaves alone, because nobody is in the building at three in the morning:</p>
+<ul>
+  <li><strong>It never removes software</strong>, so the screen can't lose Chromium overnight. The handful of updates that need something uninstalled wait for you.</li>
+  <li><strong>It never restarts the Pi.</strong> A new kernel takes effect the next time the Pi reboots — no rush; the fix is installed either way.</li>
+</ul>
+<p>So once or twice a year, when it suits the club, connect to the Pi and finish the job by hand:</p>
 <pre data-copy><code>sudo apt update &amp;&amp; sudo apt full-upgrade -y &amp;&amp; sudo reboot</code></pre>
 <p>The Pi restarts and the screen comes back by itself after a minute or two.</p>
+<div class="callout">
+  <p class="callout-title">Checking what the nightly update did</p>
+  <p>The dashboard shows it, under <strong>Settings → About</strong>: when the Pi last checked, how many updates went on, and — the one to watch for — <strong>“a restart is waiting”</strong> when something needs the Pi restarted. It also says so plainly if the Pi has stopped being able to fetch updates, or if the nightly run hasn't happened for days, because both of those are silent otherwise.</p>
+  <p>Over SSH, <code>sudo journalctl -u pitchtribe-os-update</code> shows the last few nights, and <code>/var/lib/pitchtribe/os-update-status.json</code> holds the latest result. A Pi that's offline simply skips the night and catches up on the next one.</p>
+</div>
 
 <h2 id="backup">Backing up to a USB stick</h2>
-<p>Everything that makes your PitchTribe yours — content, photos and videos, playlists, screens, settings, guest Wi-Fi sign-ups and the password — can be copied to a USB stick plugged into the Pi, automatically, every night. If the memory card ever fails, you flash a new one, plug the stick in, and tap <strong>Restore</strong>.</p>
+<p>Everything that makes your PitchTribe yours — content, photos and videos, playlists, screens, settings, guest Wi-Fi sign-ups and the password — can be copied to a USB stick plugged into the Pi, automatically, every night. If the memory card ever fails, you flash a new one, plug the stick in, and tap <strong>Restore</strong>. What goes on the stick is <a href="#encryption">encrypted</a>, so a stick that walks off doesn’t take the club’s guest list with it — which means there is one code to print and keep safe.</p>
 <ol class="steps">
   <li>
     <h3>Plug a USB stick into the Pi</h3>
@@ -26,7 +37,11 @@
   </li>
   <li>
     <h3>Choose it in the dashboard</h3>
-    <p>Open <strong>Settings → Backups</strong>. The stick appears within a few seconds. Tap <strong>Use this stick for backups</strong> — the first backup starts straight away.</p>
+    <p>Open <strong>Settings → Backups</strong>. The stick appears within a few seconds. Tap <strong>Use this stick for backups</strong> — the first backup starts straight away, and it is encrypted.</p>
+  </li>
+  <li>
+    <h3>Print the recovery code</h3>
+    <p>The dashboard shows you a code of 24 letters and numbers, in groups of four, like <code>ABCD-EFGH-JKMN-PQRS-TVWX-Y123</code>. Tap <strong>Print</strong>, or write it down, and keep it <strong>somewhere other than with the stick</strong> — the club office folder, not the drawer the stick lives in. It is the one thing that gets your backups back if the Pi’s memory card fails. You can see it again any time from <strong>Settings → Backups → Show recovery code</strong>.</p>
   </li>
   <li>
     <h3>Leave it there</h3>
@@ -36,6 +51,19 @@
 <div class="callout">
   <p class="callout-title">Don’t see Backups in Settings?</p>
   <p>USB backups arrived in PitchTribe 0.2. Check your version under <strong>Settings → About</strong>, and <a href="#update">update</a> if it’s older.</p>
+</div>
+
+<h2 id="encryption">Why the backups are encrypted</h2>
+<p>A backup stick holds the whole club: every guest Wi-Fi email address, every photo and video, and the dashboard password’s hash. A stick is small, it lives in a cupboard in a building lots of people walk through, and it is easy to pocket. So PitchTribe encrypts what it writes. A stick that goes missing gives away nothing but the club’s name and the dates the backups were taken.</p>
+<p>Two things can unlock it, and you need only one of them:</p>
+<ul>
+  <li><strong>The Pi itself.</strong> A key kept on the memory card, readable only by the system, never included in any backup. This is what lets the Pi back up at half past three in the morning with nobody there, and it is why restoring onto the <em>same</em> Pi never asks you for anything.</li>
+  <li><strong>The printed recovery code.</strong> For the day the memory card is the thing that died. A new card knows nothing, so the code is what proves you are the club.</li>
+</ul>
+<p>Encryption arrived in PitchTribe 0.4.3. A stick set up from that version onwards is encrypted from its first backup. If the club was already backing up before then, nothing changes until you ask it to: open <strong>Settings → Backups</strong> and tap <strong>Encrypt these backups</strong>, which generates the code and shows it to you straight away. Switching it on doesn’t change the old backups — they stay as they are, readable. The next night’s backup, and every one after it, is encrypted. You can turn it off again from <strong>Settings → Backups → Stop encrypting</strong>; backups already written stay encrypted, and PitchTribe can still read either kind.</p>
+<div class="callout warn">
+  <p class="callout-title">Lose both and the backups are gone</p>
+  <p>This is the one new way encryption can bite, and it is worth being plain about. If the memory card fails <em>and</em> nobody can find the recovery code, the backups on the stick cannot be opened — not by the club, not by a computer shop, not by us. There is no master key and no way to ask for one. That is what makes the stick safe to leave in a cupboard, and it is exactly why the code is printable: put it in the folder the club keeps its other paperwork in, the same day you set the stick up. A <a href="#backup-file">downloaded backup file</a> kept on the club laptop is a good second string.</p>
 </div>
 
 <h2 id="restore">Restoring after a memory card fails</h2>
@@ -49,8 +77,12 @@
     <p>Open the dashboard on your phone as usual. Instead of setting it up, look under <strong>Restoring after a new memory card?</strong>: the backups on the stick are listed, newest first.</p>
   </li>
   <li>
+    <h3>Type the recovery code</h3>
+    <p>Because the card the backups were written from is gone, the screen asks for the printed code — the one from <a href="#backup">setting the stick up</a>. Type it in; dashes, spaces and lower case are all fine, and there is no O, I, L or U in a code, so nothing can be mistaken for a 0 or a 1. A backup made before the club switched encryption on doesn’t ask for anything.</p>
+  </li>
+  <li>
     <h3>Tap Restore from USB stick</h3>
-    <p>Everything comes back as it was at that backup — content, screens, settings and the old password — and the Pi carries on backing up to the same stick. The screen goes blank for a moment; with a lot of video, allow a few minutes. Then sign in with the club’s usual password.</p>
+    <p>Everything comes back as it was at that backup — content, screens, settings and the old password — and the Pi carries on backing up to the same stick, encrypted, with the same recovery code as before. The screen goes blank for a moment; with a lot of video, allow a few minutes. Then sign in with the club’s usual password.</p>
   </li>
 </ol>
 <p>You can also restore an older backup while signed in, from <strong>Settings → Backups → Restore from the USB stick</strong> — useful to undo a big mistake. Changes made since that backup are lost.</p>
@@ -66,8 +98,23 @@
   <summary>Doing it from a terminal instead</summary>
   <p>Everything lives in one folder on the Pi, <code>/var/lib/pitchtribe</code>. To copy it by hand, connect with <a href="/docs/install-raspberry-pi-os#ssh">SSH</a> and run:</p>
   <pre data-copy><code>sudo tar czf ~/pitchtribe-backup.tar.gz -C /var/lib/pitchtribe db.json media</code></pre>
-  <p>That file can be restored from the dashboard like any downloaded backup. The USB backups themselves are plain folders, readable on any computer: <code>PitchTribe-backups/&lt;hostname&gt;/snapshots/</code> holds each night’s settings, and <code>media/</code> the photos and videos.</p>
+  <p>That file can be restored from the dashboard like any downloaded backup, and it is <strong>not</strong> encrypted — you made it, so look after it accordingly.</p>
+  <p>The USB stick keeps its ordinary folder layout whether or not it is encrypted — <code>PitchTribe-backups/&lt;hostname&gt;/snapshots/</code> for each night’s settings, <code>media/</code> for the photos and videos — so any computer can see the stick and copy it. The <em>contents</em> of those files are encrypted (AES-256-GCM, a key per file), so copying the stick is useful as a second copy, but you can’t read it without going through PitchTribe. Each snapshot’s <code>manifest.json</code> stays readable on purpose: it is what lets the set-up screen list the backups before anyone has signed in or typed a code. Alongside it, <code>keys.json</code> holds the stick’s key wrapped twice over — once to this Pi, once to the recovery code — and never in the clear. Delete it and every snapshot on that stick becomes unreadable, so leave it alone.</p>
 </details>
+
+<h2 id="verify">Checking a download is genuine</h2>
+<p>You don’t have to do any of this — but if you want to be sure the card image you downloaded is the one we built, here is how.</p>
+<p>Every release carries the image, a <code>.sha256</code> checksum, and a <strong>build attestation</strong>. The checksum proves the file arrived intact; the attestation proves <em>we</em> built it, because it is signed by the build itself and cannot be replaced by whoever replaces the file. With the <a href="https://cli.github.com/">GitHub CLI</a> installed:</p>
+<pre data-copy><code>gh attestation verify pitchtribe-rpi-arm64.img.xz --repo pitchtribe/pitchtribe-display</code></pre>
+<p>It prints the commit the image was built from. To check the checksum alone, on macOS or Linux:</p>
+<pre data-copy><code>shasum -a 256 -c pitchtribe-rpi-arm64.img.xz.sha256</code></pre>
+<p>The one-line installer installs the latest <strong>release</strong>, not the newest code, and stops rather than guessing if it cannot work out which release that is. To install a particular version, or the development branch:</p>
+<pre data-copy><code>curl -sSL https://pitchtribe.media/install.sh | sudo PITCHTRIBE_REF=v0.4.2 bash</code></pre>
+
+<div class="callout tip">
+  <p class="callout-title">What is in a backup</p>
+  <p>A backup contains the whole club: notices, photos and videos, screens, the dashboard <strong>password</strong> (hashed, not readable), your saved API keys, and every email address collected by the guest Wi-Fi sign-in. Those emails are personal data, which is why the USB stick is <a href="#encryption">encrypted</a> — but a <a href="#backup-file">downloaded backup file</a> is not, so treat that one like the club’s membership list. A backup never contains the key that signs dashboard logins, so an old backup cannot be used to get back into a dashboard; nor does it ever contain the Pi’s own backup key or the recovery code, so a stolen stick can’t be unlocked with anything written on it.</p>
+</div>
 
 <div class="callout tip">
   <p class="callout-title">Memory cards wear out</p>

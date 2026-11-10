@@ -20,12 +20,16 @@
 #   - avahi so the dashboard is reachable at http://<hostname>.local
 #   - USB stick backups: pitchtribe-backup.{path,timer} and pitchtribe-backup@.service
 #   - remote access (SSH on/off from the dashboard): pitchtribe-remote-access.path
+#   - Raspberry Pi OS updates: installed now, then every night in front of the
+#     backup (pitchtribe-os-update.service, deploy/update/os-update.sh)
 #
 # Options (environment variables):
 #   PITCHTRIBE_NO_KIOSK=1         server only (e.g. a headless "hub" Pi)
 #   PITCHTRIBE_SERVER=http://hub.local   kiosk only: show a screen from another PitchTribe server
 #   PITCHTRIBE_PORT=80            dashboard port
 #   PITCHTRIBE_HTTPS_PORT=443     HTTPS port; 0 serves plain http only
+#   PITCHTRIBE_NO_OS_UPGRADE=1    don't install the waiting OS updates during this
+#                                 run (the nightly update is set up either way)
 #   PITCHTRIBE_PORTAL=1           also set up the guest Wi-Fi captive portal on wlan0
 #                                 (the Pi must be connected to the club router by cable)
 #   PITCHTRIBE_IMAGE_BUILD=1      used by image/build.sh: install into a mounted SD card
@@ -52,6 +56,7 @@ DATA_DIR=/var/lib/pitchtribe
 # reads a mirror of the state; it never gets to decide when access ends.
 STATE_DIR=/var/lib/pitchtribe-remote-access
 SVC_USER=pitchtribe
+PORTAL_USER=pitchtribe-portal
 # The group the remote access status file is readable as, with one member:
 # SVC_USER. Not group pitchtribe — that one is wider than the dashboard (the
 # captive portal's user is in it, to reach DATA_DIR/portal), and while a support
@@ -76,6 +81,30 @@ IMAGE_BUILD="${PITCHTRIBE_IMAGE_BUILD:-0}"
 # Start or restart a unit now — except when building an image, where nothing runs
 # until the card boots (the units are enabled, so they start then).
 start_now() { [[ "$IMAGE_BUILD" == 1 ]] || systemctl "$@"; }
+
+# --------------------------------------------------------- Raspberry Pi OS updates
+# A club flashes a card and leaves it on a wall for a season, so PitchTribe
+# patches the OS itself: once now — the base image can be months old, and
+# everything below installs on top of it — and then every night in front of the
+# nightly backup. deploy/update/os-update.sh says what it does and does not do.
+log "Updating Raspberry Pi OS"
+install -m 0755 "$SRC_DIR/deploy/update/os-update.sh" /usr/local/bin/pitchtribe-os-update
+install -m 0644 "$SRC_DIR/deploy/update/pitchtribe-os-update.service" /etc/systemd/system/
+if [[ "${PITCHTRIBE_NO_OS_UPGRADE:-0}" == 1 ]]; then
+  log "Skipped the upgrade for now (PITCHTRIBE_NO_OS_UPGRADE=1) — the nightly one still runs"
+else
+  # Never fatal. A club on a slow or half-blocked connection should still end up
+  # with a working PitchTribe, and tonight's run picks the updates up.
+  /usr/local/bin/pitchtribe-os-update || log "The OS update didn't finish — carrying on, tonight's run will pick it up"
+fi
+if [[ -n "$SERVER" ]]; then
+  # An extra-screen Pi has no nightly backup to run in front of, so it gets its
+  # own timer. A full PitchTribe uses the backup's schedule, below.
+  install -m 0644 "$SRC_DIR/deploy/update/pitchtribe-os-update.timer" /etc/systemd/system/
+  start_now daemon-reload
+  systemctl enable pitchtribe-os-update.timer
+  start_now start pitchtribe-os-update.timer
+fi
 
 if [[ -z "$SERVER" ]]; then
   # ---------------------------------------------------------------- server
@@ -168,6 +197,22 @@ If that is deliberate, re-run with PITCHTRIBE_ALLOW_MIRROR_GROUP_MEMBERS=\"$(ech
   install -m 0644 "$SRC_DIR/deploy/backup/pitchtribe-backup@.service" "$SRC_DIR/deploy/backup/pitchtribe-backup.path" \
     "$SRC_DIR/deploy/backup/pitchtribe-backup.timer" /etc/systemd/system/
   install -m 0644 "$SRC_DIR/deploy/backup/91-pitchtribe-backup.rules" /etc/udev/rules.d/
+  # The key that encrypts those backups belongs to root, not to the dashboard's
+  # user: the dashboard is the part of this that faces the network, and the
+  # helper is the only thing that needs to read it. The recovery code beside it
+  # does go to the service user, because Settings → Backups shows it on request.
+  # Asserted on every run: a `chown -R` from an older restore, or a volunteer
+  # following half an old forum post, should not leave either one readable.
+  # Neither file is created here — the helper makes them when a club switches
+  # encryption on — and neither is ever written to a backup.
+  if [[ -f "$DATA_DIR/backup-key" ]]; then
+    chown root:root "$DATA_DIR/backup-key"
+    chmod 0600 "$DATA_DIR/backup-key"
+  fi
+  if [[ -f "$DATA_DIR/backup-recovery.json" ]]; then
+    chown "$SVC_USER:$SVC_USER" "$DATA_DIR/backup-recovery.json"
+    chmod 0600 "$DATA_DIR/backup-recovery.json"
+  fi
   # Remote access (Settings → Remote access): a root helper that switches SSH on
   # or off and sets its login, and switches support access (Raspberry Pi Connect)
   # on or off, when the dashboard asks. The timer ends a support session that has
@@ -175,6 +220,14 @@ If that is deliberate, re-run with PITCHTRIBE_ALLOW_MIRROR_GROUP_MEMBERS=\"$(ech
   install -m 0644 "$SRC_DIR/deploy/remote-access/pitchtribe-remote-access@.service" \
     "$SRC_DIR/deploy/remote-access/pitchtribe-remote-access.path" \
     "$SRC_DIR/deploy/remote-access/pitchtribe-support-expire.timer" /etc/systemd/system/
+  # The nightly OS update runs in front of the nightly backup, as one job: the
+  # backup timer is the schedule for both. See deploy/update/10-os-update.conf.
+  install -d -m 0755 /etc/systemd/system/pitchtribe-backup@nightly.service.d
+  install -m 0644 "$SRC_DIR/deploy/update/10-os-update.conf" /etc/systemd/system/pitchtribe-backup@nightly.service.d/
+  # A card that was an extra screen before has a timer of its own for this; the
+  # backup chain replaces it, and two of them would patch the card twice.
+  systemctl disable pitchtribe-os-update.timer 2>/dev/null || true
+  rm -f /etc/systemd/system/pitchtribe-os-update.timer
   [[ "$IMAGE_BUILD" == 1 ]] || udevadm control --reload 2>/dev/null || true
   sed -e "s|@PORT@|$PORT|g" -e "s|@HTTPS_PORT@|$HTTPS_PORT|g" "$SRC_DIR/deploy/pitchtribe.service" >/etc/systemd/system/pitchtribe.service
   start_now daemon-reload
@@ -195,6 +248,35 @@ if [[ "${PITCHTRIBE_PORTAL:-0}" == 1 ]]; then
     die "the guest Wi-Fi needs the Pi's network cable (eth0) for its internet connection"
   fi
   apt-get install -y -q hostapd dnsmasq nftables
+
+  # The portal gets its own user and its own directory. It is the one process
+  # guests can reach, and in DATA_DIR a single written file is by design a root
+  # account (the remote-access helper acts on remote-access-request.json
+  # appearing), so it must not share the dashboard's user or its writable path.
+  #
+  # Group `pitchtribe` as a supplementary group so it can traverse DATA_DIR
+  # (0750) to reach its own directory; db.json is 0600 and stays unreadable to
+  # it. The directory is group-writable and setgid so the dashboard can publish
+  # the sign-in page's settings into it and clear the guest list, and both
+  # sides' files keep the shared group.
+  # The group normally exists already (the dashboard's user owns it), but this
+  # block also runs on a portal-only Pi with PITCHTRIBE_SERVER set elsewhere.
+  getent group "$SVC_USER" >/dev/null || groupadd --system "$SVC_USER"
+  id -u "$PORTAL_USER" >/dev/null 2>&1 \
+    || useradd --system --home "$DATA_DIR/portal" --shell /usr/sbin/nologin "$PORTAL_USER"
+  usermod --append --groups "$SVC_USER" "$PORTAL_USER"
+  install -d -o "$PORTAL_USER" -g "$SVC_USER" -m 2770 "$DATA_DIR/portal"
+  # Upgrades: cards installed before the split keep the guest list and session
+  # stats in DATA_DIR itself. Move them, so the club does not open the
+  # dashboard to an empty guest list.
+  for f in portal-sessions.json portal-guests.jsonl; do
+    if [[ -f "$DATA_DIR/$f" && ! -f "$DATA_DIR/portal/$f" ]]; then
+      mv "$DATA_DIR/$f" "$DATA_DIR/portal/$f"
+      log "moved $f into $DATA_DIR/portal (the portal has its own user now)"
+    fi
+  done
+  chown -R "$PORTAL_USER:$SVC_USER" "$DATA_DIR/portal"
+  chmod 640 "$DATA_DIR/portal/"* 2>/dev/null || true
   # pitchtribe-portal-apply tells NetworkManager to leave the guest radio, the
   # access-point port and the guest bridge alone, whichever ones are in use.
   # The default dnsmasq config must not grab every interface.
