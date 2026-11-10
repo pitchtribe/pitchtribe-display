@@ -158,10 +158,13 @@ function encryptBuffer(buffer, to, smk, label, opts) {
 }
 
 function openEncrypted(from, smk, label) {
-  const size = fs.statSync(from).size;
-  if (size < OVERHEAD) throw new CryptoError('That backup file is damaged');
+  // Size the descriptor we are about to read, not the path. If the file were
+  // swapped between a statSync and the open, the tag would be read at the
+  // wrong offset and a perfectly good backup would come back "damaged".
   const fd = fs.openSync(from, 'r');
   try {
+    const size = fs.fstatSync(fd).size;
+    if (size < OVERHEAD) throw new CryptoError('That backup file is damaged');
     const head = Buffer.alloc(HEADER_BYTES);
     fs.readSync(fd, head, 0, HEADER_BYTES, 0);
     if (!head.subarray(0, MAGIC.length).equals(MAGIC)) throw new CryptoError('That backup file is damaged');
