@@ -12,7 +12,14 @@
    read, and nothing here decides anything: how long a support session lasts
    is bounded by the helper, from a record in root's own directory that this
    user cannot write. The hours check below is for a useful error message, not
-   for safety — the helper checks again, and so does the expiry timer. */
+   for safety — the helper checks again, and so does the expiry timer.
+
+   That mirror is 0640 root:pitchtribe-dashboard, a group whose only member is
+   this server's own user, because while a support sign-in is waiting to be
+   finished it holds the Raspberry Pi Connect verification code — and whoever
+   opens that link first is who the Pi gets added to. So this is the only
+   process on the card that may read it, and it stops holding the code as soon
+   as the device is signed in. */
 const crypto = require('node:crypto');
 const childProcess = require('node:child_process');
 const fs = require('node:fs');

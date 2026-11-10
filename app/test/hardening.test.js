@@ -296,18 +296,101 @@ test('support access: what bounds a session is kept where the dashboard cannot w
 
   const helper = read('app/bin/remote-access.js');
   // The timer reads the session record, never the mirror in DATA_DIR.
-  const expiry = helper.split('function supportExpire(o) {')[1].split('\n}')[0];
-  assert.match(expiry, /readSession\(o\)/, 'expiry must be decided from the record root owns');
-  assert.ok(!/remote-access-status\.json|file\(o,/.test(expiry), 'the expiry path must not read the status mirror at all');
+  const expiry = helper.split('function supportExpire(o,')[1].split('\n}')[0];
+  assert.match(expiry, /readSessionRecord\(o\)/, 'expiry must be decided from the record root owns');
+  assert.ok(!/remote-access-status\.json/.test(expiry), 'the expiry must not be decided from the status mirror');
+  // And it is decided before anything in DATA_DIR is so much as looked at.
+  assert.ok(!/file\(o,/.test(expiry.split('supportOff(')[0]), 'nothing in DATA_DIR may be read before the session is judged');
   // And the length is bounded again here, because this is the path an edited
   // or corrupted record walks through — the allow-list on the way in is not it.
   assert.match(helper, /expires - started > SUPPORT_MAX_MS/, 'a far-future expiry must not buy an unbounded session');
   assert.match(helper, /const SUPPORT_MAX_MS = Math\.max\(\.\.\.SUPPORT_HOURS\)/);
-  // The mirror is not world-readable: during the sign-in window it holds the
-  // verification code, and pairing the Pi to somebody else's Raspberry Pi ID
-  // instead of the club's is the one thing that code must not allow.
-  assert.match(helper, /writeJson\(f, next, 0o640\)/, 'the status mirror is 0640, not 0644');
-  assert.match(helper, /writeJson\(f, session, 0o600\)/, 'the session record is root-only');
+  // A clock that falls behind the record is bounded too: without this, a
+  // one-hour session stays valid for as long as the clock sits before its end,
+  // and a Pi with no RTC boots with a stale one.
+  assert.match(helper, /t < started - CLOCK_SLACK_MS/, 'the clock must be checked against the start, not only the expiry');
+  // The mirror is not world-readable, and not readable by group pitchtribe
+  // either: during the sign-in window it holds the verification code, and
+  // pairing the Pi to somebody else's Raspberry Pi ID instead of the club's is
+  // the one thing that code must not allow. The captive portal's user is in
+  // group pitchtribe, so the mirror gets a group whose only member is the
+  // dashboard — see the install.sh assertions below.
+  assert.match(helper, /writeJson\(f, next, \{ mode: 0o640, gid \}\)/, 'the status mirror is 0640, to a group it is given');
+  assert.match(helper, /writeJson\(f, session, \{ mode: 0o600 \}\)/, 'the session record is root-only');
+});
+
+test('support access: nothing in DATA_DIR can steer a write root makes', () => {
+  /* The authority moved out of DATA_DIR, but root still wrote *through* a path
+     in DATA_DIR to maintain the mirror — and the dashboard's own user can
+     create names there. A symlink at `remote-access-status.json.tmp` had root
+     write a forged session into STATE_DIR on its behalf, which put the bound
+     back in the hands of the one account this whole arrangement distrusts (and
+     pointed anywhere else, let it clobber any file on the card as root).
+     Both halves of the fix are asserted here: the write cannot be redirected,
+     and the mirror's content cannot be chosen. */
+  const helper = read('app/bin/remote-access.js');
+  const writeJson = helper.split('function writeJson(')[1].split('\n}')[0];
+  assert.match(writeJson, /fs\.rmSync\(tmp, \{ force: true \}\)/, 'unlink a link at that name rather than following it');
+  assert.match(writeJson, /O_EXCL/, 'write only a file we have just created ourselves');
+  assert.match(writeJson, /O_NOFOLLOW/, 'and never through a link planted in the moment in between');
+  assert.match(writeJson, /fs\.fchmodSync\(fd, mode\)/, 'mode on the descriptor: a path can change meaning between two calls');
+  assert.match(writeJson, /fs\.fchownSync\(fd, 0, gid\)/, 'and so can the owner');
+  assert.ok(!/fs\.chmodSync\(tmp/.test(writeJson), 'no path-based chmod');
+  assert.ok(!/'chgrp'/.test(helper), 'no path-based chgrp either');
+  assert.ok(!/openSync\(tmp, 'w'/.test(writeJson), "'w' keeps somebody else's inode and ignores the mode it is given");
+  // The mirror is untrusted input, so only named keys come back out of it.
+  assert.ok(!/\.\.\.prev,/.test(helper), 'the mirror’s keys must not be spread back into what root writes');
+  assert.match(helper, /function keepFromMirror\(prev\) \{/);
+  assert.match(helper, /\.\.\.keepFromMirror\(prev\),/);
+});
+
+test('support access: the expiry is not gated on anything that can fail', () => {
+  /* A lock the helper could not create — a full card, or a filesystem
+     remounted read-only, which is what a signage Pi that is unplugged rather
+     than shut down eventually does — used to stop the expiry run before it
+     looked at whether a session had run out. Signing out is a few D-Bus calls
+     and an unlink; it does not need the lock, and "support access stopped
+     expiring because of ENOSPC" is the one failure this feature must not have. */
+  const helper = read('app/bin/remote-access.js');
+  const main = helper.split('function main(command, o = defaults()) {')[1].split('\n}')[0];
+  assert.match(main, /takeLock\(o\)/);
+  assert.match(main, /support-expire'\) return supportExpire\(o, \{ locked: Boolean\(release\) \}\)/,
+    'the expiry runs whether or not the lock was taken');
+  assert.ok(!/throw/.test(helper.split('function takeLock(o) {')[1].split('\n}')[0]),
+    'taking the lock must not throw: every errno has to end up as "could not take it"');
+  // And the lock is only ever stolen from a holder old enough to be dead.
+  assert.match(helper, /if \(age > stale\) \{ fs\.rmSync\(lock/, 'steal on staleness');
+  assert.match(helper, /if \(Date\.now\(\) >= deadline\) return null;/, 'and give up on the deadline, rather than stealing');
+  assert.match(helper, /if \(lockPid\(o\) === process\.pid\) fs\.rmSync\(lock/, 'release our own lock and nobody else’s');
+});
+
+test('support access: the verification code is readable by the dashboard and nothing else', () => {
+  /* 0644 was world-readable. 0640 root:pitchtribe was not enough either: the
+     captive portal's user joins group pitchtribe to reach DATA_DIR/portal, and
+     that is the one process guests on an untrusted network can reach. There is
+     no mode that distinguishes two members of one group, so the mirror gets a
+     group of its own with one member in it. */
+  const install = code('deploy/install.sh');
+  assert.match(install, /MIRROR_GROUP=pitchtribe-dashboard/, 'a group of its own for the status mirror');
+  assert.match(install, /groupadd --system "\$MIRROR_GROUP"/);
+  assert.match(install, /usermod -a -G "\$MIRROR_GROUP" "\$SVC_USER"/, 'with the dashboard’s user in it');
+  assert.match(install, /\[\[ "\$mirror_members" == "\$SVC_USER" \|\| -z "\$mirror_members" \]\]/,
+    'and a check that nothing else ever joins it — group pitchtribe was narrow once too');
+  assert.match(read('deploy/remote-access/pitchtribe-remote-access@.service'), /Environment=MIRROR_GROUP=pitchtribe-dashboard/);
+
+  const helper = read('app/bin/remote-access.js');
+  // A used code does not outlive its use, and never reaches `last`, which the
+  // mirror keeps long after the session has ended.
+  assert.match(helper, /if \(next\.signedIn\) next\.signin = null;/, 'the code goes once it has been used');
+  const message = helper.split("action: 'support-enable',")[1].split('},')[0];
+  assert.ok(!/signin\.url/.test(message), 'and the link does not go into last.message, which persists');
+  // The sign-in output is root's file to name, in root's own directory.
+  assert.match(helper, /signinDir: process\.env\.SIGNIN_DIR \|\| '\/run\/pitchtribe-remote-access'/);
+  assert.match(read('deploy/remote-access/pitchtribe-remote-access@.service'),
+    /Environment=SIGNIN_DIR=\/run\/pitchtribe-remote-access/);
+  const reader = helper.split('function readSigninLog(log) {')[1].split('\n}')[0];
+  assert.match(reader, /O_NOFOLLOW/, 'the sign-in log is read without following a link');
+  assert.match(reader, /fs\.fstatSync\(fd\)\.uid === log\.owner/, 'and only if it is still the file we handed over');
 });
 
 test('support access: Raspberry Pi Connect is never run as root', () => {

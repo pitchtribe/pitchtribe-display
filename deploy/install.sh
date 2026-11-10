@@ -52,6 +52,14 @@ DATA_DIR=/var/lib/pitchtribe
 # reads a mirror of the state; it never gets to decide when access ends.
 STATE_DIR=/var/lib/pitchtribe-remote-access
 SVC_USER=pitchtribe
+# The group the remote access status file is readable as, with one member:
+# SVC_USER. Not group pitchtribe — that one is wider than the dashboard (the
+# captive portal's user is in it, to reach DATA_DIR/portal), and while a support
+# access sign-in is waiting to be finished that file holds the Raspberry Pi
+# Connect verification code. Whoever gets to that code first pairs this Pi to
+# their own Raspberry Pi ID instead of the club's, so it does not get to share a
+# group with anything a guest on an untrusted network can reach.
+MIRROR_GROUP=pitchtribe-dashboard
 KIOSK_USER=pitchtribe-kiosk
 PORT="${PITCHTRIBE_PORT:-80}"
 HTTPS_PORT="${PITCHTRIBE_HTTPS_PORT:-443}"
@@ -94,6 +102,16 @@ if [[ -z "$SERVER" ]]; then
   id -u "$SVC_USER" >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin "$SVC_USER"
   install -d -o "$SVC_USER" -g "$SVC_USER" -m 0750 "$DATA_DIR"
   install -d -o root -g root -m 0700 "$STATE_DIR"
+  getent group "$MIRROR_GROUP" >/dev/null || groupadd --system "$MIRROR_GROUP"
+  usermod -a -G "$MIRROR_GROUP" "$SVC_USER"
+  # A tripwire, not a formality: the whole value of this group is that it has
+  # one member. Group pitchtribe used to be narrow too, and then the captive
+  # portal joined it. Adding somebody here is how that happens again.
+  mirror_members="$(getent group "$MIRROR_GROUP" | cut -d: -f4)"
+  [[ "$mirror_members" == "$SVC_USER" || -z "$mirror_members" ]] \
+    || die "group $MIRROR_GROUP must contain only $SVC_USER, and contains: $mirror_members.
+Whatever is in it can read $DATA_DIR/remote-access-status.json, which holds the
+Raspberry Pi Connect verification code while support access is being switched on."
   rm -rf "$APP_DIR.new"
   mkdir -p "$APP_DIR.new/app" "$APP_DIR.new/signage-server"
   cp -a "$SRC_DIR/app/." "$APP_DIR.new/app/"

@@ -15,6 +15,16 @@ Environment=DATA_DIR=/var/lib/pitchtribe
 # dashboard's user, and a backup restore chowns everything in it. What bounds a
 # support session has to live somewhere that user cannot write.
 Environment=STATE_DIR=/var/lib/pitchtribe-remote-access
+# The group the status file is readable as, and it has one member: the
+# dashboard's own user. Not group pitchtribe, which the captive portal's user is
+# also in — while a sign-in is waiting to be finished that file holds the
+# Raspberry Pi Connect verification code, and whoever reads it can pair this Pi
+# to their own Raspberry Pi ID instead of the club's.
+Environment=MIRROR_GROUP=pitchtribe-dashboard
+# Root's own directory for the sign-in output. The club user's /run/user/<uid>
+# is theirs, so a log kept there could be replaced with a link between root
+# creating it and root reading the verification URL out of it.
+Environment=SIGNIN_DIR=/run/pitchtribe-remote-access
 # SUPPORT_USER=<login> here names the account Raspberry Pi Connect runs as,
 # when the first login account on the Pi is not the right one. Optional.
 EnvironmentFile=-/etc/default/pitchtribe-remote-access
