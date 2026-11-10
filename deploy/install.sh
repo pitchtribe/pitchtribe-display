@@ -107,11 +107,23 @@ if [[ -z "$SERVER" ]]; then
   # A tripwire, not a formality: the whole value of this group is that it has
   # one member. Group pitchtribe used to be narrow too, and then the captive
   # portal joined it. Adding somebody here is how that happens again.
-  mirror_members="$(getent group "$MIRROR_GROUP" | cut -d: -f4)"
-  [[ "$mirror_members" == "$SVC_USER" || -z "$mirror_members" ]] \
-    || die "group $MIRROR_GROUP must contain only $SVC_USER, and contains: $mirror_members.
+  #
+  # It stops the install rather than warning, because a warning in installer
+  # output on a Pi nobody is watching is not a control. But it is recoverable
+  # without editing this script: PITCHTRIBE_ALLOW_MIRROR_GROUP_MEMBERS is a
+  # space-separated list of accounts somebody has decided on purpose may read
+  # the verification code. Going through it is a decision; not noticing is not.
+  mirror_allowed="$SVC_USER ${PITCHTRIBE_ALLOW_MIRROR_GROUP_MEMBERS:-}"
+  mirror_members="$(getent group "$MIRROR_GROUP" | cut -d: -f4 | tr ',' ' ')"
+  mirror_extra=""
+  for m in $mirror_members; do
+    [[ " $mirror_allowed " == *" $m "* ]] || mirror_extra="$mirror_extra $m"
+  done
+  [[ -z "$mirror_extra" ]] \
+    || die "group $MIRROR_GROUP must contain only $SVC_USER, and also contains:$mirror_extra.
 Whatever is in it can read $DATA_DIR/remote-access-status.json, which holds the
-Raspberry Pi Connect verification code while support access is being switched on."
+Raspberry Pi Connect verification code while support access is being switched on.
+If that is deliberate, re-run with PITCHTRIBE_ALLOW_MIRROR_GROUP_MEMBERS=\"$(echo "$mirror_extra" | xargs)\"."
   rm -rf "$APP_DIR.new"
   mkdir -p "$APP_DIR.new/app" "$APP_DIR.new/signage-server"
   cp -a "$SRC_DIR/app/." "$APP_DIR.new/app/"

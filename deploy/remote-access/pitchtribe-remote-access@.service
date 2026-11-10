@@ -10,6 +10,21 @@ After=local-fs.target
 
 [Service]
 Type=oneshot
+# Type=oneshot disables TimeoutStartSec= by default — systemd.service(5) says so
+# in as many words — so without this line the unit has *no* overall bound and a
+# single hung syscall keeps it `activating` for ever. That mattered rather more
+# than it sounds: while this unit is active, OnUnitActiveSec= on the expiry timer
+# never starts the next run, so a helper wedged inside DATA_DIR (a FIFO at the
+# request file's name used to do it) stopped support access expiring at all.
+# The helper closed that hole at the read, and this is the backstop under it.
+#
+# 600s is above the worst *legitimate* run, not a guess: up to 60s waiting for
+# the lock, then one rpi-connect call per login on the card at EXEC_TIMEOUT_MS
+# (30s) each against a wedged rpi-connectd, plus the 10s runtime-directory wait
+# and the 30s sign-in wait — around 430s on a card with three logins. Every run
+# here is retried (the path unit on the next write, the timer in five minutes),
+# so being killed is recoverable and hanging is not.
+TimeoutStartSec=600
 Environment=DATA_DIR=/var/lib/pitchtribe
 # Root's own, deliberately not inside DATA_DIR: DATA_DIR belongs to the
 # dashboard's user, and a backup restore chowns everything in it. What bounds a

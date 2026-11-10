@@ -52,7 +52,22 @@
    that owns DATA_DIR can do there is put a symlink in the way of a name root is
    about to write. status() carries keys forward from the mirror by name for the
    same reason: spreading whatever else is in that file back out again makes it
-   a way of choosing the content of root's next write. */
+   a way of choosing the content of root's next write.
+
+   And the half of that which is easier still to miss: what the owner of a
+   directory chooses about a name is not only whether it is a *link*, but what
+   kind of *object* it is. A FIFO at the request file's name made root's own
+   read block for ever — and Type=oneshot has no start timeout by default, so
+   the unit stayed activating, OnUnitActiveSec= never started another run, and
+   support access carried on indefinitely. A bounded session that never ends is
+   the one failure this feature exists to prevent, and it was reachable by
+   running `mkfifo`. A directory at the mirror's temporary name made every
+   status run throw instead.
+
+   So nothing here opens a name in DATA_DIR by path and takes what it finds on
+   trust: readJsonStat() opens O_NOFOLLOW|O_NONBLOCK and refuses anything that
+   is not a regular file, which is one answer to the symlink, the FIFO, the
+   directory and the device node alike. */
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -76,14 +91,49 @@ const SUPPORT_HOURS_DEFAULT = 6;
 const SUPPORT_MAX_MS = Math.max(...SUPPORT_HOURS) * 3600_000;
 // A session that simply reached its end, as opposed to one that never made sense.
 const RAN_OUT = 'support access ran out';
-/* A minute of slack on *the clock*, and nowhere else. A Pi has no real-time
-   clock: it boots with fake-hwclock's last-shutdown time and systemd-timesyncd
-   steps it some seconds later, so a run can legitimately see a clock a little
-   behind where the session says it is. It cannot legitimately see one hours
-   behind — see sessionBounds(). */
+// The actions whose job is to make support access stop. None of them may be
+// reported as having worked while the device still says it is signed in.
+const OFF_ACTIONS = new Set(['support-disable', 'support-expire', 'support-reconcile']);
+const STILL_SIGNED_IN = 'Support access could not be ended: Raspberry Pi Connect still reports this Pi as signed in. Remove the device at connect.raspberrypi.com.';
+/* A minute of slack on *the clock*, and only once the clock is known good.
+   A Pi has no real-time clock: it boots with fake-hwclock's last-shutdown time
+   and systemd-timesyncd steps it some seconds later, so a run can legitimately
+   see a clock a little behind where the session says it is.
+
+   A minute was the wrong scale for an untrusted clock, and the first run after
+   boot is both the one most likely to see one and the one this check was
+   written for. fake-hwclock saves hourly and on clean shutdown; a signage card
+   is unplugged rather than shut down, so it comes back with a clock behind real
+   time by however long it had been up since the last save — up to an hour. Ten
+   minutes into a twelve-hour session, a power cut would therefore have ended
+   the session and signed the Pi out, in the middle of the support call it was
+   switched on for. So the ordering judgement is not made at all until the clock
+   is known good, and slack covers only the seconds between a run and timesyncd
+   stepping a clock that was already close — see clockTrusted(). */
 const CLOCK_SLACK_MS = 60_000;
-// The verification URL `rpi-connect signin` prints, and the code at the end of it.
-const SIGNIN_URL_RE = /https:\/\/connect\.raspberrypi\.com\/verify\/[A-Za-z0-9][A-Za-z0-9-]{3,31}/;
+/* systemd-timesyncd writes this once it has stepped the clock from the network.
+   Its absence means "no reliable clock yet", which is a different thing from
+   "the clock really has moved", and only the second is a session to end. */
+const TIMESYNC_MARKER = '/run/systemd/timesync/synchronized';
+/* How long a request may sit unread and still be acted on. Nothing reads the
+   `at` the dashboard puts in it, so a request stranded by a busy helper used to
+   be executed whenever something next looked — which, now that the expiry run
+   picks up strays (PathChanged= does not fire for a file that was already there
+   when the path unit started), means the next boot. A request written in
+   November switched SSH on, with a sudo account and a password the club typed
+   three months earlier, when the card came back from the close season in
+   February. This is comfortably longer than the slowest legitimate pickup
+   (TimeoutStartSec= on the unit, below) and far shorter than a season. */
+const REQUEST_MAX_AGE_MS = 15 * 60_000;
+/* The verification URL `rpi-connect signin` prints, and the code at the end of
+   it. The trailing newline is required rather than incidental: without it a
+   line still being written matched as soon as the first few characters of the
+   code had landed, and this returns on the first match — so a half-written
+   code could be handed to the club as the link to open. We are polling a file
+   somebody else is appending to, and the only evidence that a line is finished
+   is the end of it. `stdbuf -oL` on the sign-in is what makes a line arrive
+   whole; this is what makes it safe if it doesn't. */
+const SIGNIN_URL_RE = /https:\/\/connect\.raspberrypi\.com\/verify\/[A-Za-z0-9][A-Za-z0-9-]{3,31}(?=\r?\n)/g;
 // How long to wait for that URL to appear before giving up on the sign-in.
 const SIGNIN_WAIT_MS = 30_000;
 /* The sign-in runs as a named transient unit of the club user's own systemd,
@@ -94,7 +144,19 @@ const RUNTIME_WAIT_MS = 10_000;
 /* The path unit and the expiry timer are separate instances of the same
    template and can run at the same time, read-modify-writing the same files. */
 const LOCK_WAIT_MS = 60_000;
-const LOCK_STALE_MS = 150_000;
+/* The backstop, for a lock file whose pid we cannot read. It has to sit *above*
+   the longest legitimate hold, not below it: a helper makes one rpi-connect
+   call per login on the card and each can sit on EXEC_TIMEOUT_MS, so a
+   support-enable on a card with three logins against a wedged rpi-connectd can
+   legitimately hold the lock for around seven minutes. 150s was under that, so
+   the old rule stole a *live* holder's lock and let two helpers interleave over
+   the session record. Liveness is decided by the holder's pid now; this is only
+   for when there isn't one to ask about. */
+const LOCK_STALE_MS = 15 * 60_000;
+/* ...and the grace before a lock with no readable pid is treated as nobody's,
+   which covers the moment between creating the file and writing the pid into
+   it. */
+const LOCK_GRACE_MS = 5_000;
 /* Nothing here is worth waiting on for ever. A wedged rpi-connectd would
    otherwise hold the lock indefinitely — and liveSessions() makes one call per
    login on the card, so there are several chances for it on every run. */
@@ -137,6 +199,9 @@ function defaults() {
        which is inherent in delegating to them; they cannot choose which file
        it is. */
     signinDir: process.env.SIGNIN_DIR || '/run/pitchtribe-remote-access',
+    /* Whether the clock can be used to decide that time has moved *backwards*
+       — see CLOCK_SLACK_MS and sessionBounds(). */
+    clockSynced: () => fs.existsSync(TIMESYNC_MARKER),
     hasRuntimeDir: (uid) => fs.existsSync(`/run/user/${uid}`),
     runtimeWaitMs: RUNTIME_WAIT_MS,
     signinWaitMs: SIGNIN_WAIT_MS,
@@ -152,7 +217,70 @@ const isRoot = () => typeof process.getuid === 'function' && process.getuid() ==
 
 const file = (o, name) => path.join(o.dataDir, name);
 const stateFile = (o, name) => path.join(o.stateDir, name);
-function readJson(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } }
+
+/** Read a file root did not create, in a directory root does not own, and take
+    nothing about it on trust but the name.
+
+    This is the one read primitive in this file, and every part of it answers
+    something the owner of DATA_DIR can choose about a name there:
+
+      O_NOFOLLOW   refuses a symlink, rather than reading whatever it points at
+                   — which was a way of reading a file in STATE_DIR (0700 root)
+                   through root's eyes and having keepFromMirror() copy parts of
+                   it back out into the group-readable mirror.
+      O_NONBLOCK   opens a FIFO instead of waiting for a writer that never
+                   comes. `readFileSync` on a FIFO blocks for ever and has no
+                   timeout, and Type=oneshot has no start timeout by default, so
+                   the expiry unit stayed `activating`, OnUnitActiveSec= never
+                   started another run, and support access carried on
+                   indefinitely. `mkfifo` was all it took.
+      isFile()     and then refuses the FIFO anyway, along with a directory, a
+                   socket and a device node. O_NONBLOCK only matters because it
+                   lets us get far enough to say no.
+
+    Returns null for anything that is not a regular file we could read, which
+    every caller already had to handle. mtimeMs comes back with the text because
+    it is the one timestamp about a request the dashboard's user cannot choose
+    while still writing the file. */
+function readFileStrict(f) {
+  let fd = null;
+  try {
+    fd = fs.openSync(f, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  } catch { return null; }
+  try {
+    const st = fs.fstatSync(fd);
+    if (!st.isFile()) return null;
+    return { text: fs.readFileSync(fd, 'utf8'), mtimeMs: st.mtimeMs };
+  } catch { return null; } finally { fs.closeSync(fd); }
+}
+
+function readJson(f) {
+  const read = readFileStrict(f);
+  if (!read) return null;
+  try { return JSON.parse(read.text); } catch { return null; }
+}
+
+/** Clear anything at a name root is about to write that is not a regular file.
+    rename(2) will not replace a directory, and `rmSync` without `recursive`
+    throws on one, so a single `mkdir` at either of root's names in DATA_DIR
+    otherwise broke every status run until somebody with root removed it. This
+    only ever removes something that cannot be what we put there, and it lstats
+    rather than stats, so it cannot be pointed out of DATA_DIR. */
+function clearObstruction(o, f) {
+  let st;
+  try { st = fs.lstatSync(f); } catch { return; }
+  if (st.isFile()) return;
+  o.warn(`${f} is not a regular file (${fileKind(st)}) — removing it`);
+  try { fs.rmSync(f, { force: true, recursive: true }); } catch { /* root's to fail at */ }
+}
+
+function fileKind(st) {
+  if (st.isSymbolicLink()) return 'a symlink';
+  if (st.isDirectory()) return 'a directory';
+  if (st.isFIFO()) return 'a FIFO';
+  if (st.isSocket()) return 'a socket';
+  return 'a device or special file';
+}
 
 /** Write-then-rename, with the write actually on the card before the rename,
     onto a temporary file this process certainly created itself.
@@ -160,7 +288,11 @@ function readJson(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } ca
     The mirror's temporary file lands in DATA_DIR, where the dashboard's own
     user can create names. So every part of this is deliberate:
 
-      rmSync      unlinks a symlink left at that name rather than following it.
+      rmSync      unlinks a symlink left at that name rather than following it,
+                  and `recursive` so that it unlinks a *directory* left there
+                  too: without it `rmSync` threw EISDIR and O_EXCL then got
+                  EEXIST, so one `mkdir` at this name broke every status and
+                  request run from then on — persistently, with no race to win.
       O_EXCL      we write only a file we have just created — never one somebody
                   else pre-made, which with 'w' would have kept their inode and
                   their mode, and with it their ownership of the renamed file.
@@ -172,16 +304,23 @@ function readJson(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } ca
     had partly chosen into whatever it pointed at — including the session record
     that bounds support access, in a directory this user otherwise cannot reach.
     `f` itself being a symlink stops mattering once tmp is a real file, because
-    rename() replaces the link instead of following it.
+    rename() replaces the link instead of following it; it being a *directory*
+    does matter, because rename() will not replace one, hence clearObstruction.
+
+    The rename is inside the `try` for a small reason worth keeping: a failure
+    there used to strand a `.tmp` that is group-readable and, during a sign-in,
+    has the verification code in it.
 
     The fsyncs are a different concern: without them a power cut mid-write can
     leave a zero-length file, and a signage Pi is unplugged rather than shut
     down as a matter of routine. */
-function writeJson(f, value, { mode = 0o600, gid = null } = {}) {
+function writeJson(o, f, value, { mode = 0o600, gid = null } = {}) {
   const tmp = `${f}.tmp`;
-  fs.rmSync(tmp, { force: true });
+  clearObstruction(o, f);
+  fs.rmSync(tmp, { force: true, recursive: true });
   const fd = fs.openSync(tmp, fs.constants.O_WRONLY | fs.constants.O_CREAT
     | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, mode);
+  let open = true;
   try {
     fs.writeFileSync(fd, `${JSON.stringify(value, null, 2)}\n`);
     // 'w'-style modes apply on create only; this one applies full stop.
@@ -190,13 +329,14 @@ function writeJson(f, value, { mode = 0o600, gid = null } = {}) {
       try { fs.fchownSync(fd, 0, gid); } catch (err) { if (isRoot()) throw err; }
     }
     fs.fsyncSync(fd);
-  } catch (err) {
     fs.closeSync(fd);
-    fs.rmSync(tmp, { force: true });
+    open = false;
+    fs.renameSync(tmp, f);
+  } catch (err) {
+    if (open) fs.closeSync(fd);
+    fs.rmSync(tmp, { force: true, recursive: true });
     throw err;
   }
-  fs.closeSync(fd);
-  fs.renameSync(tmp, f);
   try {
     const dir = fs.openSync(path.dirname(f), 'r');
     try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
@@ -234,14 +374,24 @@ function writeStatus(o, next) {
        visible and recoverable; a verification code the wrong account can read
        is neither. */
     o.warn(`group ${o.mirrorGroup} does not exist — keeping ${f} root-only; re-run the PitchTribe installer`);
-    writeJson(f, next, { mode: 0o600 });
+    writeJson(o, f, next, { mode: 0o600 });
     return;
   }
-  writeJson(f, next, { mode: 0o640, gid });
+  writeJson(o, f, next, { mode: 0o640, gid });
 }
 
 const lockFile = (o) => stateFile(o, 'support.lock');
 const lockPid = (o) => { try { return Number(String(fs.readFileSync(lockFile(o), 'utf8')).trim()) || 0; } catch { return 0; } };
+
+/** Is the process that wrote the lock still there? Signal 0 checks for
+    existence without delivering anything; EPERM means it exists and is not
+    ours, which on this card it always is, but "exists" is the answer either
+    way. */
+function pidAlive(o, pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (o.pidAlive) return o.pidAlive(pid);
+  try { process.kill(pid, 0); return true; } catch (err) { return err.code === 'EPERM'; }
+}
 
 /** One helper at a time: the path unit and the expiry timer are separate
     instances of the same template and would otherwise interleave over the same
@@ -266,14 +416,30 @@ function takeLock(o) {
       if (err.code !== 'EEXIST') return null;
       let age = Infinity;
       try { age = Date.now() - fs.statSync(lock).mtimeMs; } catch { continue; /* just went */ }
-      /* Steal only a lock old enough to belong to nobody. A support-enable
-         legitimately holds it for the runtime-directory wait plus the sign-in
-         wait, ~40s, comfortably under this; STATE_DIR is 0700 root, so nothing
-         else can keep the mtime fresh. Waiting a long time is *not* evidence
-         of a dead holder — it is evidence of a slow one — so the deadline
-         gives up instead, and running two helpers over the same files at once
-         is exactly what this exists to prevent. */
-      if (age > stale) { fs.rmSync(lock, { force: true }); continue; }
+      /* Steal only a lock that belongs to nobody, and ask the kernel rather
+         than the clock. Age alone was the wrong question: the reasoning behind
+         it said a support-enable holds the lock for "the runtime-directory wait
+         plus the sign-in wait, ~40s", but a helper makes one rpi-connect call
+         per login on the card and each can sit on EXEC_TIMEOUT_MS, so a wedged
+         rpi-connectd legitimately holds it for minutes — the very case that
+         timeout exists for. A *live* holder's lock being stolen puts two
+         helpers over the session record at once, which is the one thing this
+         exists to prevent.
+
+         So: the holder's pid is in the file and is checked. The mtime stays as
+         a backstop for a lock whose pid we cannot read — a holder killed
+         between creating the file and writing to it — and it is now set above
+         the sum of the internal timeouts rather than below it.
+
+         Waiting a long time is still not evidence of a dead holder, so the
+         deadline gives up rather than stealing. */
+      const holder = lockPid(o);
+      if (!pidAlive(o, holder) && age > LOCK_GRACE_MS) { fs.rmSync(lock, { force: true }); continue; }
+      if (age > stale) {
+        o.warn(`stealing the remote access lock from pid ${holder || 'unknown'} after ${Math.round(age / 1000)}s`);
+        fs.rmSync(lock, { force: true });
+        continue;
+      }
       if (Date.now() >= deadline) return null;
       o.sleep(250);
     }
@@ -353,6 +519,16 @@ function status(o, extra = {}) {
      not more. "It is off" is the one claim here that must never be a guess. */
   if (acted && acted.signedIn && !next.support.signedIn) next.support = { ...next.support, signedIn: true };
   if (refreshed.last && !extra.last) next.last = refreshed.last;
+  /* And the mirror may not contradict itself. A switch-off that found nothing
+     to switch off reports a cheerful "Support access is off", and the reconcile
+     in the same run can then find a client signed in under another login — so
+     the file ended up with last.ok true and "off" on one line and
+     support.signedIn true on the next. The ⚠ in the dashboard is driven by the
+     second, so the page was right and the sentence under it was wrong. The
+     sentence is what a club reads, and it must not be the reassuring one. */
+  if (next.support.signedIn && next.last && next.last.ok && OFF_ACTIONS.has(next.last.action)) {
+    next.last = { ...next.last, ok: false, message: STILL_SIGNED_IN };
+  }
   writeStatus(o, next);
   return next;
 }
@@ -449,11 +625,25 @@ function readSessionRecord(o) {
   return { session, writtenAtMs };
 }
 
+/** Has anything stepped this card's clock from the network yet? Never throws:
+    an unreadable /run means "not yet", which is the cautious answer. */
+function clockSynced(o) {
+  try { return Boolean(o.clockSynced()); } catch { return false; }
+}
+
+/** The record, and whether it is one the card may still be running — read and
+    judged together, because every caller needs both and the clock question is
+    easy to leave out of one of them. */
+function sessionState(o) {
+  const { session, writtenAtMs } = readSessionRecord(o);
+  return { session, bounds: sessionBounds(session, o.now(), writtenAtMs, clockSynced(o)) };
+}
+
 function writeSession(o, session) {
   ensureStateDir(o);
   const f = stateFile(o, 'support-session.json');
-  if (!session) { fs.rmSync(f, { force: true }); return null; }
-  writeJson(f, session, { mode: 0o600 });
+  if (!session) { fs.rmSync(f, { force: true, recursive: true }); return null; }
+  writeJson(o, f, session, { mode: 0o600 });
   return session;
 }
 
@@ -464,7 +654,7 @@ function writeSession(o, session) {
     all come out the same way — not valid, so sign out. The hours allow-list on
     the way in is not enough on its own, because it is not the allow-list the
     timer reads. */
-function sessionBounds(session, now, writtenAtMs = NaN) {
+function sessionBounds(session, now, writtenAtMs = NaN, clockSynced = true) {
   if (!session || !session.user) return { valid: false, why: 'no support session is recorded' };
   const started = Date.parse(session.startedAt);
   const expires = Date.parse(session.expiresAt);
@@ -479,13 +669,24 @@ function sessionBounds(session, now, writtenAtMs = NaN) {
   if (t >= expires) return { valid: false, why: RAN_OUT };
   /* The clock has fallen behind the session. Checking `now` against the expiry
      but never against the start left a well-formed one-hour session valid for
-     as long as the clock sat before its end — and the realistic way for that
-     to happen is the first run of all: a Pi has no RTC, boots with
-     fake-hwclock's last-shutdown time, and OnBootSec=15s can fire before
-     timesyncd has stepped it. `now` before `startedAt` is not an ambiguous
-     state, it is a positive signal that this has happened, and it was being
-     thrown away. */
-  if (t < started - CLOCK_SLACK_MS) return { valid: false, why: 'the clock has moved behind the support session' };
+     as long as the clock sat before its end.
+
+     But only once the clock is worth believing about *ordering*, which is a
+     stricter thing than being worth believing about an expiry. A clock behind
+     real time makes a session last longer, which the expiry above and the
+     mtime witness below both still catch; a clock behind the session *start*
+     ends it immediately, and the realistic cause of that is not tampering at
+     all — it is a power cut. fake-hwclock saves hourly and on clean shutdown,
+     and a signage card is unplugged rather than shut down, so it comes back up
+     to an hour behind; OnBootSec=15s is designed to run at exactly that
+     moment. Ten minutes into a twelve-hour session, a power cut would
+     therefore have signed the Pi out in the middle of the support call it was
+     switched on for.
+
+     So the judgement waits for timesyncd's marker. "No reliable clock yet" and
+     "the clock really has moved" are different states, and only the second is
+     a session to end — which is the one this check was written for. */
+  if (clockSynced && t < started - CLOCK_SLACK_MS) return { valid: false, why: 'the clock has moved behind the support session' };
   // And the second witness: however the recorded clock reads, root wrote this
   // record when the session began, and that cannot have been a day ago.
   if (Number.isFinite(writtenAtMs) && t - writtenAtMs > SUPPORT_MAX_MS) {
@@ -506,8 +707,7 @@ function refreshSupport(o, prev, { reconcile = true } = {}) {
   let installed = Boolean(base.installed);
   try { installed = supportInstalled(o); } catch { /* leave what we knew */ }
 
-  const { session, writtenAtMs } = readSessionRecord(o);
-  const bounds = sessionBounds(session, o.now(), writtenAtMs);
+  const { session, bounds } = sessionState(o);
   // base is the mirror, so even the one thing carried over from it is checked.
   const was = Number.isFinite(Date.parse(base.lastConnection)) ? base.lastConnection : null;
   const next = { ...SUPPORT_OFF, installed, lastConnection: was };
@@ -575,12 +775,26 @@ function readSigninLog(log) {
   } catch { return ''; } finally { fs.closeSync(fd); }
 }
 
-/** Read the verification URL out of the sign-in unit's output. */
+/** Read the verification URL out of the sign-in unit's output.
+
+    The sign-in runs as the club's own login, so that account writes this file
+    and can put anything in it — which is inherent in delegating the sign-in to
+    them, and on a stock card they are in `sudo` and can already do strictly
+    more than lie to us. What is worth not accepting quietly is the *ambiguous*
+    case: two different verification URLs in one log means somebody has written
+    one alongside rpi-connect's, and "whichever matched first wins" is a silent
+    choice between the club's pairing and someone else's. A URL has a fixed
+    shape, so disagreement is detectable; refuse it and leave nothing on. */
 function awaitSigninUrl(o, log) {
   const deadline = Date.now() + (o.signinWaitMs === undefined ? SIGNIN_WAIT_MS : o.signinWaitMs);
   for (;;) {
     const out = readSigninLog(log);
-    const url = (out.match(SIGNIN_URL_RE) || [])[0];
+    const urls = [...new Set(out.match(SIGNIN_URL_RE) || [])];
+    if (urls.length > 1) {
+      o.warn(`support sign-in: ${urls.length} different verification URLs in one log — refusing to choose`);
+      throw new Error('Raspberry Pi Connect offered more than one sign-in link, so none was used. Switch support access on again, and tell PitchTribe if it happens twice.');
+    }
+    const url = urls[0];
     if (url) return { url, code: url.split('/').pop() };
     // Signing in needs somebody at a browser, so a clear failure is worth
     // repeating rather than sitting on until the wait runs out. What it said
@@ -754,7 +968,7 @@ function supportOff(o, action, prev, why, { clearSession = true } = {}) {
   if (clearSession) { try { writeSession(o, null); } catch { /* tried again next run */ } }
   let message = 'Support access is off';
   if (signedIn) {
-    message = 'Support access could not be ended: Raspberry Pi Connect still reports this Pi as signed in. Remove the device at connect.raspberrypi.com.';
+    message = STILL_SIGNED_IN;
   } else if (action === 'support-expire') {
     message = why === RAN_OUT ? 'Support access ran out and has ended' : `Support access has ended — ${why}`;
   } else if (action === 'support-reconcile') {
@@ -771,14 +985,20 @@ function supportOff(o, action, prev, why, { clearSession = true } = {}) {
     of the state happens to say, since that is not what is read here. Does
     nothing the rest of the time, beyond the device check every status does. */
 function supportExpire(o, { locked = true } = {}) {
-  const { session, writtenAtMs } = readSessionRecord(o);
-  const bounds = sessionBounds(session, o.now(), writtenAtMs);
+  const { session, bounds } = sessionState(o);
   if (session && !bounds.valid) return mirror(o, supportOff(o, 'support-expire', session, bounds.why));
   /* A request the path unit could not pick up, because a helper was already
      running when it fired. PathChanged= only fires again on the next write, so
      without this it would sit there until somebody pressed the button a second
-     time; the id/lastRequestId check makes a second look at it harmless. */
-  if (locked && fs.existsSync(file(o, 'remote-access-request.json'))) {
+     time; the id/lastRequestId check makes a second look at it harmless.
+
+     The sign-out above comes first and unconditionally, which is the ordering
+     that matters: an errand on the dashboard's own file must never be able to
+     stand between a session that has run out and the end of it. That used to be
+     a bound on what could *fail* here; it now also has to be a bound on what
+     can *hang*, which is why handleRequest reads through readFileStrict and the
+     unit has a TimeoutStartSec=. */
+  if (locked) {
     // And nothing about that errand may stop the expiry run finishing.
     try { return handleRequest(o); } catch (err) { o.warn(`could not pick up the pending request: ${err.message}`); }
   }
@@ -833,18 +1053,59 @@ function endable(o, prev) {
   return live ? { user: live.user.name, lingeredByUs: false } : { user: null };
 }
 
+/** How old is this request, by the most pessimistic reading available?
+
+    `at` is put there by the dashboard, so the account that writes the file
+    chooses it; the mtime is set by the kernel as a side effect of writing, so
+    that account cannot choose it while still writing a file. Taking the
+    *older* of the two means a forged `at` can only ever make a request look
+    staler than it is, which fails in the safe direction. An `at` we cannot
+    parse falls back to the mtime alone. */
+function requestAgeMs(o, req, mtimeMs) {
+  const at = Date.parse((req && req.at) || '');
+  const stamp = Number.isFinite(at) ? Math.min(at, mtimeMs) : mtimeMs;
+  return o.now().getTime() - stamp;
+}
+
 function handleRequest(o) {
   const requestFile = file(o, 'remote-access-request.json');
-  let raw = null;
-  try { raw = fs.readFileSync(requestFile, 'utf8'); } catch { /* nothing asked */ }
+  /* Not readFileSync: the dashboard's own user owns this directory and chooses
+     not only whether this name is a link but what kind of object it is. A FIFO
+     here made this read block for ever, and with it the expiry run that now
+     comes through to pick up strays — a bounded support session that never
+     ended, for the price of one `mkfifo`. See readFileStrict. */
+  const read = readFileStrict(requestFile);
   /* The request may hold a password hash, so it goes as soon as it is read —
      before anything is decided about it. A malformed one and a replayed one
      are read too, and must not be left lying about either. */
-  if (raw !== null) fs.rmSync(requestFile, { force: true });
+  if (read) fs.rmSync(requestFile, { force: true });
+  else clearObstruction(o, requestFile);
   let req = null;
-  try { req = JSON.parse(raw); } catch { /* not ours to act on */ }
+  if (read) { try { req = JSON.parse(read.text); } catch { /* not ours to act on */ } }
   const prev = readJson(file(o, 'remote-access-status.json')) || {};
   if (!req || !req.id || req.id === prev.lastRequestId) return status(o);
+  /* A request has to be recent as well as unseen. id/lastRequestId cannot help
+     here, because a request that was never picked up never had its id recorded
+     — and the window for one to sit unread used to be "until the next write to
+     this file", which the expiry run's stray pickup turned into "until the next
+     boot", because PathChanged= does not fire for a file that was already there
+     when the path unit started. A request written in November would otherwise
+     have switched SSH on with a sudo account, from a password the club typed
+     before the close season, when the card came back in February. The
+     timestamp to check was already in the file and nothing read it. */
+  const age = requestAgeMs(o, req, read.mtimeMs);
+  if (age > REQUEST_MAX_AGE_MS) {
+    o.warn(`ignoring a ${Math.round(age / 60_000)} minute old ${req.action} request`);
+    return status(o, {
+      lastRequestId: req.id,
+      last: {
+        action: req.action || 'request',
+        at: o.now().toISOString(),
+        ok: false,
+        message: 'That request sat unread for too long and was not carried out. Try again.',
+      },
+    });
+  }
   try {
     if (req.action === 'enable') return status(o, { lastRequestId: req.id, ...enable(o, req) });
     if (req.action === 'disable') {

@@ -24,6 +24,15 @@ function fakePi({
      after switching support access on: the link is up, nobody has used it yet. */
   completeSignin = true,
   mirrorGroup = 'pitchtribe-dashboard',
+  /* Whether systemd-timesyncd has stepped the clock from the network yet. True
+     is an ordinary card; false is the fifteen seconds after a cold boot, when
+     the clock is fake-hwclock's last save and nothing about the *order* of two
+     timestamps can be believed. */
+  clockSynced = true,
+  /* Whether the process whose pid is in the lock file is still running. The
+     lock is stolen from a holder that is gone, not from one that is slow, so
+     the tests have to be able to say which this is. */
+  pidAlive = () => false,
 } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-ra-'));
   // Root's own directory, outside the one the dashboard's user owns.
@@ -123,17 +132,25 @@ function fakePi({
     now: () => now,
     exec,
     hasRuntimeDir: () => runtimeDir,
+    clockSynced: () => clockSynced,
+    pidAlive,
     // The real waits are 10s and 30s; there is nothing to wait for here.
     runtimeWaitMs: 20,
     signinWaitMs: 20,
-    // The real ones are 60s and 150s, for a ~40s worst-case hold.
+    /* The real ones are 60s to give up waiting and 15 minutes before a lock
+       with no readable pid is nobody's — which has to be above the longest
+       legitimate hold (one rpi-connect call per login at 30s each against a
+       wedged rpi-connectd, so minutes), not below it. */
     lockWaitMs: 30,
     lockStaleMs: 200,
     sleep: () => {},
     warn: (m) => warnings.push(m),
   };
+  /* `at` is in it because the real route puts it there and the helper now reads
+     it: a request has to be recent as well as unseen. Taken from the fake clock
+     so that moving the clock moves the request's age with it. */
   const ask = (req) => {
-    fs.writeFileSync(path.join(dir, 'remote-access-request.json'), JSON.stringify(req));
+    fs.writeFileSync(path.join(dir, 'remote-access-request.json'), JSON.stringify({ at: now.toISOString(), ...req }));
     return helper.main('request', o);
   };
   const ran = (re) => calls.filter((c) => re.test(c.cmd)).map((c) => c.cmd);
@@ -157,6 +174,16 @@ function fakePi({
     statusFile: path.join(dir, 'remote-access-status.json'),
     requestFile: path.join(dir, 'remote-access-request.json'),
     at: (iso) => { now = new Date(iso); },
+    /* A request written at a given moment and then left unread — `at` as the
+       dashboard writes it, and the mtime to match, because the helper takes the
+       older of the two and neither alone is enough to say how old it is. */
+    strand: (req, iso) => {
+      const f = path.join(dir, 'remote-access-request.json');
+      fs.writeFileSync(f, JSON.stringify({ at: iso, ...req }));
+      const when = new Date(iso);
+      fs.utimesSync(f, when, when);
+      return f;
+    },
   };
 }
 
@@ -929,4 +956,312 @@ test('remote access: a request is off the disk as soon as it is read, whatever i
   const s = helper.main('request', replay.o);
   assert.ok(!fs.existsSync(requestFile(replay)), 'a replayed request does not stay on disk either');
   assert.equal(s.sshActive, true, 'and it is still ignored');
+});
+
+/* ---------------------------------------------------------------------------
+   What the owner of DATA_DIR chooses about a name there is not only whether it
+   is a symlink. It is what *kind of object* it is — and readFileSync, existsSync
+   and rmSync all used to take that on trust.
+   --------------------------------------------------------------------------- */
+
+const mkfifo = (p) => execFileSync('mkfifo', [p]);
+
+test('support access: a FIFO where the request file goes cannot stop the expiry', () => {
+  /* The one that mattered. `open(O_RDONLY)` on a FIFO with no writer blocks,
+     `readFileSync` has no timeout, and Type=oneshot has no TimeoutStartSec= by
+     default — so the expiry unit stayed `activating` for ever, OnUnitActiveSec=
+     never started the next run because the unit it triggers was already active,
+     and a bounded support session carried on until somebody rebooted the card.
+     Which a signage Pi in a clubhouse does not do for months.
+
+     `mkfifo` was the whole exploit, available to the account the design assumes
+     may be hostile. This test hangs for ever against a readFileSync. */
+  // While the session is still valid, which is the run that reaches the
+  // request file at all — and so the run the proof of concept wedged.
+  const live = fakePi({ users: ['dan'] });
+  live.ask({ id: 's1', action: 'support-enable', hours: 1 });
+  mkfifo(live.requestFile);
+  live.at('2026-11-04T14:05:00Z');
+
+  const still = helper.main('support-expire', live.o);
+  assert.equal(still.support.enabled, true, 'the run returned, and the session has time left');
+  assert.ok(!fs.existsSync(live.requestFile), 'and the thing that is not a request is gone');
+  assert.ok(live.warnings.some((w) => /not a regular file \(a FIFO\)/.test(w)), 'with a line in the journal saying so');
+
+  // And the run that has a session to end gets to the end of it.
+  live.at('2026-11-04T15:00:01Z');
+  mkfifo(live.requestFile);
+  const s = helper.main('support-expire', live.o);
+  assert.equal(s.support.enabled, false, 'the session ended on time regardless');
+  assert.equal(live.pi.signedIn, false, 'and the device was signed out');
+  assert.equal(live.session(), null);
+});
+
+test('support access: a FIFO where the mirror goes does not wedge a status run either', () => {
+  // Same primitive at the other name. `status` and `request` both read the
+  // mirror to carry three keys forward, so the same mkfifo wedged those too —
+  // and then every expiry run after it, inside mirror().
+  const pi = fakePi({ users: ['dan'] });
+  mkfifo(pi.statusFile);
+  const s = helper.main('status', pi.o);
+  assert.deepEqual(s.users, ['dan']);
+  assert.equal(fs.statSync(pi.statusFile).isFile(), true, 'and the mirror is a file again');
+});
+
+test('support access: a directory in the way is cleared rather than breaking every run', () => {
+  /* `rmSync(path, { force: true })` throws ERR_FS_EISDIR on a directory, and
+     O_EXCL then gets EEXIST, so a single `mkdir` at the mirror's temporary name
+     made every status and request run throw — persistently, with no race to
+     win. It failed closed, but the club lost all feedback: a support-enable
+     through it wrote a real session with the verification URL in it and then
+     died before the mirror carried it, so the session was on and the link was
+     unreachable. */
+  // completeSignin: false is the real state of a Pi in the moments after
+  // switching support access on — the link is up, nobody has been to it yet,
+  // which is exactly when losing the mirror costs the club the link.
+  const pi = fakePi({ users: ['dan'], completeSignin: false });
+  fs.mkdirSync(`${pi.statusFile}.tmp`);
+
+  const s = pi.ask({ id: 's1', action: 'support-enable', hours: 6 });
+  assert.equal(s.last.ok, true, s.last.message);
+  assert.ok(s.support.signin.url, 'and the club can see the link it has to open');
+  assert.equal(JSON.parse(fs.readFileSync(pi.statusFile, 'utf8')).support.signin.url, s.support.signin.url,
+    'in the mirror, which is the only place the dashboard reads it from');
+
+  // And a directory where the mirror itself goes: rename(2) will not replace
+  // one, so this broke the write at the other end of the same function.
+  const other = fakePi({ users: ['dan'] });
+  fs.mkdirSync(other.statusFile);
+  assert.deepEqual(helper.main('status', other.o).users, ['dan']);
+  assert.equal(fs.statSync(other.statusFile).isFile(), true);
+
+  // And at the request file's name, where it stopped the helper rather than a
+  // write: rmSync threw before anything was read.
+  const asked = fakePi({ users: ['dan'] });
+  fs.mkdirSync(asked.requestFile);
+  assert.deepEqual(helper.main('request', asked.o).users, ['dan']);
+  assert.ok(!fs.existsSync(asked.requestFile), 'and it is cleared out of the way');
+});
+
+test('support access: a symlink at the mirror is not a way of reading root’s own files', () => {
+  /* The read half of the same class. Point the mirror at a file in STATE_DIR
+     (0700 root) and root reads it on the club user's behalf, with
+     keepFromMirror() copying `username` and `last.message` straight out into
+     the 0640 group-readable mirror it writes next. Nothing root-only on the
+     card is JSON with those keys today — but that is a property of today's key
+     names, not of the mechanism. */
+  const pi = fakePi({ users: ['dan'] });
+  const secret = path.join(pi.stateDir, 'secret.json');
+  fs.writeFileSync(secret, JSON.stringify({ username: 'leaked', last: { message: 'root-only' } }), { mode: 0o600 });
+  fs.symlinkSync(secret, pi.statusFile);
+
+  helper.main('status', pi.o);
+  const mirror = JSON.parse(fs.readFileSync(pi.statusFile, 'utf8'));
+  assert.equal(mirror.username, undefined, 'nothing was read through the link');
+  assert.equal(mirror.last, undefined);
+  assert.equal(JSON.parse(fs.readFileSync(secret, 'utf8')).username, 'leaked', 'and the file it pointed at is untouched');
+  assert.equal(fs.lstatSync(pi.statusFile).isSymbolicLink(), false, 'the link was replaced by a real file');
+});
+
+/* ------------------------------------------- the clock, and what it is for */
+
+test('support access: a power cut does not end a session the club is in the middle of', () => {
+  /* The lower bound on the clock was right in intent and wrong in scale. A Pi
+     has no RTC: fake-hwclock saves hourly and on clean shutdown, and a signage
+     card is unplugged rather than shut down, so it comes back up to an hour
+     behind — and OnBootSec=15s aims the first run at exactly that moment.
+     Ten minutes into a twelve-hour session, a power cut would have signed the
+     Pi out in the middle of the support call it was switched on for. */
+  const pi = fakePi({ users: ['dan'], clockSynced: false });
+  pi.ask({ id: 's1', action: 'support-enable', hours: 12 });
+
+  // Ten real minutes later the power goes; the clock comes back half an hour
+  // behind the session start, before timesyncd has stepped it.
+  pi.at('2026-11-04T13:30:00Z');
+  const s = helper.main('support-expire', pi.o);
+  assert.equal(s.support.enabled, true, s.last && s.last.message);
+  assert.equal(pi.pi.signedIn, true, 'the support call carries on');
+  assert.ok(pi.session(), 'and the record it is bounded by is still there');
+});
+
+test('support access: once the clock is known good, a clock behind the session still ends it', () => {
+  // Which is the case the bound was written for, and it is unchanged: the
+  // difference is "no reliable clock yet" versus "the clock really has moved".
+  const pi = fakePi({ users: ['dan'], clockSynced: true });
+  pi.ask({ id: 's1', action: 'support-enable', hours: 12 });
+  pi.at('2026-11-04T13:30:00Z');
+  const s = helper.main('support-expire', pi.o);
+  assert.equal(s.support.enabled, false);
+  assert.match(s.last.message, /clock has moved behind/);
+  assert.equal(pi.pi.signedIn, false);
+});
+
+test('support access: an untrusted clock does not postpone the expiry itself', () => {
+  // Only the *ordering* judgement waits for the clock. A session that has run
+  // out by the clock in front of us ends, synchronised or not — a clock that is
+  // behind can only make a session look younger, never older.
+  const pi = fakePi({ users: ['dan'], clockSynced: false });
+  pi.ask({ id: 's1', action: 'support-enable', hours: 1 });
+  pi.at('2026-11-04T15:00:01Z');
+  const s = helper.main('support-expire', pi.o);
+  assert.equal(s.support.enabled, false);
+  assert.match(s.last.message, /ran out/);
+  assert.equal(pi.pi.signedIn, false);
+});
+
+/* ------------------------------------------------- how old a request may be */
+
+test('remote access: a request stranded for a season is not carried out in February', () => {
+  /* `id`/`lastRequestId` cannot help here: a request that was never picked up
+     never had its id recorded. Before the stray pickup the window was "until
+     the next write to that file"; the pickup turned it into "until the next
+     boot", because PathChanged= does not fire for a file that was already there
+     when the path unit started. So a request written in November switched SSH
+     on — with a sudo account, from a password hash the club typed before the
+     close season — when the card came back in February. The timestamp to check
+     was already in the file and nothing read it. */
+  const pi = fakePi({ users: ['dan'] });
+  pi.strand({ id: 'r1', action: 'enable', username: 'clubadmin', passwordHash: HASH }, '2026-08-14T10:00:00Z');
+
+  const s = helper.main('support-expire', pi.o);
+  assert.equal(s.sshActive, false, 'SSH was not switched on three months later');
+  assert.equal(s.last.ok, false);
+  assert.match(s.last.message, /sat unread for too long/);
+  assert.deepEqual(s.users, ['dan'], 'and no login was created');
+  assert.ok(!fs.existsSync(pi.requestFile), 'the hash does not stay on disk either');
+});
+
+test('support access: and a stranded support-enable does not start a fresh session', () => {
+  const pi = fakePi({ users: ['dan'] });
+  pi.strand({ id: 's1', action: 'support-enable', hours: 24 }, '2026-08-14T10:00:00Z');
+  const s = helper.main('support-expire', pi.o);
+  assert.equal(s.support.enabled, false);
+  assert.equal(pi.pi.signedIn, false, 'nothing was signed in');
+  assert.equal(pi.session(), null);
+});
+
+test('remote access: a request that really is fresh is still picked up', () => {
+  // The bound is on the timing, not on the authority: a second look at a
+  // recent request is exactly what the stray pickup is for.
+  const pi = fakePi({ users: ['dan'] });
+  pi.strand({ id: 's1', action: 'support-enable', hours: 6 }, '2026-11-04T13:58:00Z');
+  const s = helper.main('support-expire', pi.o);
+  assert.equal(s.support.enabled, true, s.last && s.last.message);
+  assert.equal(s.lastRequestId, 's1');
+});
+
+test('remote access: a request cannot be made to look fresh by dating it in the future', () => {
+  /* `at` is chosen by the account that writes the file; the mtime is set by the
+     kernel as a side effect of writing it. So the older of the two is used, and
+     a forged `at` can only ever make a request look staler than it is. */
+  const pi = fakePi({ users: ['dan'] });
+  const f = pi.strand({ id: 'r1', action: 'enable', username: 'clubadmin', passwordHash: HASH }, '2027-01-01T00:00:00Z');
+  const old = new Date('2026-08-14T10:00:00Z');
+  fs.utimesSync(f, old, old);
+
+  const s = helper.main('request', pi.o);
+  assert.equal(s.sshActive, false);
+  assert.match(s.last.message, /sat unread for too long/);
+});
+
+/* ------------------------------------------------------------- the lock */
+
+test('remote access: a slow holder keeps its lock, however long it has held it', () => {
+  /* The rule was age alone, at 150s. But a helper makes one rpi-connect call
+     per login on the card and each can sit on EXEC_TIMEOUT_MS (30s) — the very
+     case that timeout exists for — so a support-enable against a wedged
+     rpi-connectd legitimately holds the lock for minutes. Age said that was a
+     dead holder, two helpers then ran over the session record at once, and
+     preventing exactly that is what the lock is for. Liveness is a question for
+     the kernel, not for the clock. */
+  const pi = fakePi({ users: ['dan'], pidAlive: () => true });
+  pi.o.lockStaleMs = 15 * 60_000;
+  const lock = path.join(pi.stateDir, 'support.lock');
+  fs.writeFileSync(lock, '424242\n');
+  // Ten minutes of holding it — four times what used to count as dead.
+  const longAgo = new Date(Date.now() - 600_000);
+  fs.utimesSync(lock, longAgo, longAgo);
+
+  assert.throws(() => helper.main('status', pi.o), /still running/, 'we waited and gave up, rather than stealing');
+  assert.equal(fs.readFileSync(lock, 'utf8'), '424242\n', 'the live holder’s lock is exactly as it was');
+});
+
+test('remote access: a lock whose holder is gone is stolen at once', () => {
+  const pi = fakePi({ users: ['dan'], pidAlive: () => false });
+  pi.o.lockStaleMs = 15 * 60_000;
+  const lock = path.join(pi.stateDir, 'support.lock');
+  fs.writeFileSync(lock, '424242\n');
+  const longAgo = new Date(Date.now() - 600_000);
+  fs.utimesSync(lock, longAgo, longAgo);
+
+  const s = helper.main('status', pi.o);
+  assert.deepEqual(s.users, ['dan'], 'no waiting for a process that is not there');
+  assert.ok(!fs.existsSync(lock), 'and released again on the way out');
+});
+
+test('remote access: a lock with no readable pid falls back to its age', () => {
+  // A holder killed between creating the file and writing its pid into it. The
+  // grace covers the moment legitimately, and the mtime backstop covers the
+  // rest — which is now above the longest legitimate hold rather than below it.
+  const fresh = fakePi({ users: ['dan'], pidAlive: () => true });
+  fs.writeFileSync(path.join(fresh.stateDir, 'support.lock'), '');
+  assert.throws(() => helper.main('status', fresh.o), /still running/, 'within the grace, it is somebody’s');
+
+  const stale = fakePi({ users: ['dan'], pidAlive: () => true });
+  const lock = path.join(stale.stateDir, 'support.lock');
+  fs.writeFileSync(lock, '');
+  const longAgo = new Date(Date.now() - 600_000);
+  fs.utimesSync(lock, longAgo, longAgo);
+  assert.deepEqual(helper.main('status', stale.o).users, ['dan'], 'past it, it is nobody’s');
+});
+
+/* ------------------------------------------- the sign-in link, and honesty */
+
+test('support access: two different verification links means none is used', () => {
+  /* The sign-in runs as the club's own login, so that account writes the log
+     and can put anything in it — inherent in delegating the sign-in to them,
+     and on a stock card they are in `sudo` and can already do more than lie.
+     What is worth refusing is the ambiguous case: two URLs means somebody has
+     written one alongside rpi-connect's, and "whichever matched first wins" is
+     a silent choice between the club's pairing and somebody else's. */
+  const theirs = 'https://connect.raspberrypi.com/verify/ZZZZ-9999';
+  const pi = fakePi({ users: ['dan'], signin: `${SIGNIN_OK}Complete sign in by visiting ${theirs}\n` });
+  const s = pi.ask({ id: 's1', action: 'support-enable', hours: 6 });
+
+  assert.equal(s.last.ok, false);
+  assert.match(s.last.message, /more than one sign-in link/);
+  assert.equal(s.support.enabled, false, 'and nothing was left switched on');
+  assert.equal(pi.pi.connectOn, false);
+  assert.equal(pi.session(), null);
+  assert.ok(!pi.warnings.join('\n').includes(theirs), 'nor did either link reach the dashboard');
+});
+
+test('support access: a half-written verification link is not handed to the club', () => {
+  // We poll a file somebody else is appending to, and return on the first
+  // match, so without requiring the end of the line the first few characters
+  // of a code matched and were shown as the link to open.
+  const pi = fakePi({ users: ['dan'], signin: 'Complete sign in by visiting https://connect.raspberrypi.com/verify/ABCD' });
+  const s = pi.ask({ id: 's1', action: 'support-enable', hours: 6 });
+  assert.equal(s.last.ok, false);
+  assert.match(s.last.message, /did not offer a sign-in link/);
+  assert.equal(s.support.enabled, false);
+  assert.equal(pi.pi.connectOn, false);
+});
+
+test('support access: the mirror never says a switch-off worked next to a signed-in Pi', () => {
+  /* A switch-off that finds nothing recorded to switch off reports a cheerful
+     "Support access is off", and the reconcile in the same run then finds a
+     client signed in under another login. The mirror ended up with last.ok true
+     and "off" on one line and support.signedIn true on the next — the ⚠ banner
+     reads the second, so the page was right and the sentence under it was
+     wrong. The sentence is what a club reads. */
+  const pi = fakePi({ users: ['dan', 'coach'], signedInAs: ['coach'], stubborn: true });
+  const s = pi.ask({ id: 's1', action: 'support-disable' });
+
+  assert.equal(s.support.signedIn, true, 'the Pi is still signed in');
+  assert.equal(s.last.ok, false, 'so nothing may report having switched it off');
+  assert.match(s.last.message, /still reports this Pi as signed in/);
+  const mirror = JSON.parse(fs.readFileSync(pi.statusFile, 'utf8'));
+  assert.equal(mirror.last.ok, false, 'and the mirror does not contradict itself');
+  assert.equal(mirror.support.signedIn, true);
 });

@@ -25,8 +25,30 @@ test('remote access API: needs the dashboard password, never stores the SSH pass
   const reqFile = path.join(dataDir, 'remote-access-request.json');
 
   // Not on a Pi (no helper status yet): say so.
-  assert.equal((await call('GET', '/api/remote-access')).body.available, false);
+  let unavailable = await call('GET', '/api/remote-access');
+  assert.equal(unavailable.body.available, false);
+  assert.match(unavailable.body.unavailableReason, /only be switched on from a Raspberry Pi/);
   assert.equal((await call('POST', '/api/remote-access', { enabled: true, username: 'clubadmin', password: 'long-enough-pw', currentPassword: 'correct horse' })).status, 503);
+
+  /* Unreadable is a different thing from missing, and the two want opposite
+     things said. The helper keeps the mirror root-only when the group it
+     narrows it to is absent — a real, recoverable state, and the explanation
+     goes to the root helper's journal where no club will ever find it. Saying
+     "this only works on a Raspberry Pi" to somebody standing in front of one,
+     with nothing about repairing it, was the wrong half of that. */
+  const mirror = path.join(dataDir, 'remote-access-status.json');
+  fs.writeFileSync(mirror, '{}', { mode: 0o000 });
+  if (process.getuid && process.getuid() !== 0) {
+    unavailable = await call('GET', '/api/remote-access');
+    assert.equal(unavailable.body.available, false);
+    assert.match(unavailable.body.unavailableReason, /cannot read its state — re-run the PitchTribe installer/);
+    // The POST still refuses. Its message is not asserted because the error
+    // handler replaces every 5xx body with "Something went wrong" on purpose,
+    // and the dashboard does not offer the buttons when available is false —
+    // the GET above is where a club reads what is wrong.
+    assert.equal((await call('POST', '/api/remote-access', { enabled: false, currentPassword: 'correct horse' })).status, 503);
+  }
+  fs.rmSync(mirror, { force: true });
 
   fs.writeFileSync(path.join(dataDir, 'remote-access-status.json'), JSON.stringify({ sshEnabled: false, sshActive: false, users: ['dan'] }));
   let r = await call('GET', '/api/remote-access');

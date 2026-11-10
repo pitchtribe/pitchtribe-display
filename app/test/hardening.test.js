@@ -280,6 +280,24 @@ test('support access: the expiry timer is installed, enabled and started', () =>
   assert.match(t, /OnBootSec=/, 'a card that was off past its expiry must come back expired, not usable');
   assert.ok(!/Persistent=/.test(t), 'Persistent= does nothing without OnCalendar= and would only mislead');
   assert.match(t, /WantedBy=timers\.target/);
+  /* And OnBootSec= aims the first run of all at the moment the clock is least
+     trustworthy: a Pi has no RTC, fake-hwclock saves hourly, and a card that
+     was unplugged comes back up to an hour behind. Waiting for timesyncd costs
+     a few seconds of a five-minute cadence. (The helper does not depend on
+     this — it checks timesyncd's marker itself — but a run that happens after
+     the clock is right is a run that does not have to.) */
+  assert.match(t, /After=time-sync\.target/, 'the first run after boot must not race the clock');
+
+  /* Type=oneshot disables TimeoutStartSec= by default, so without this the unit
+     has no overall bound — and while it is `activating`, OnUnitActiveSec= never
+     starts the next run. One hung syscall in the helper therefore stopped
+     support access expiring at all, which is the one failure this feature may
+     not have. */
+  const svc = read('deploy/remote-access/pitchtribe-remote-access@.service');
+  const timeout = Number((svc.match(/^TimeoutStartSec=(\d+)$/m) || [])[1]);
+  assert.ok(Number.isFinite(timeout), 'Type=oneshot has no start timeout unless one is given');
+  assert.ok(timeout >= 430 && timeout <= 900,
+    'above the longest legitimate run (one rpi-connect call per login at 30s, plus the waits), and still a bound');
 });
 
 test('support access: what bounds a session is kept where the dashboard cannot write it', () => {
@@ -297,10 +315,17 @@ test('support access: what bounds a session is kept where the dashboard cannot w
   const helper = read('app/bin/remote-access.js');
   // The timer reads the session record, never the mirror in DATA_DIR.
   const expiry = helper.split('function supportExpire(o,')[1].split('\n}')[0];
-  assert.match(expiry, /readSessionRecord\(o\)/, 'expiry must be decided from the record root owns');
+  assert.match(expiry, /sessionState\(o\)/, 'expiry must be decided from the record root owns');
+  const judge = helper.split('function sessionState(o) {')[1].split('\n}')[0];
+  assert.match(judge, /readSessionRecord\(o\)/, 'which reads root’s record');
+  assert.match(judge, /sessionBounds\(session, o\.now\(\), writtenAtMs, clockSynced\(o\)\)/,
+    'and judges it, with the clock’s own trustworthiness part of the judgement');
   assert.ok(!/remote-access-status\.json/.test(expiry), 'the expiry must not be decided from the status mirror');
-  // And it is decided before anything in DATA_DIR is so much as looked at.
+  // And it is decided before anything in DATA_DIR is so much as looked at —
+  // including whether a name there exists, which was an `existsSync` on an
+  // object the dashboard's user chooses the *kind* of.
   assert.ok(!/file\(o,/.test(expiry.split('supportOff(')[0]), 'nothing in DATA_DIR may be read before the session is judged');
+  assert.ok(!/existsSync/.test(expiry), 'and nothing there may be stat-ed before it either');
   // And the length is bounded again here, because this is the path an edited
   // or corrupted record walks through — the allow-list on the way in is not it.
   assert.match(helper, /expires - started > SUPPORT_MAX_MS/, 'a far-future expiry must not buy an unbounded session');
@@ -315,8 +340,8 @@ test('support access: what bounds a session is kept where the dashboard cannot w
   // the one thing that code must not allow. The captive portal's user is in
   // group pitchtribe, so the mirror gets a group whose only member is the
   // dashboard — see the install.sh assertions below.
-  assert.match(helper, /writeJson\(f, next, \{ mode: 0o640, gid \}\)/, 'the status mirror is 0640, to a group it is given');
-  assert.match(helper, /writeJson\(f, session, \{ mode: 0o600 \}\)/, 'the session record is root-only');
+  assert.match(helper, /writeJson\(o, f, next, \{ mode: 0o640, gid \}\)/, 'the status mirror is 0640, to a group it is given');
+  assert.match(helper, /writeJson\(o, f, session, \{ mode: 0o600 \}\)/, 'the session record is root-only');
 });
 
 test('support access: nothing in DATA_DIR can steer a write root makes', () => {
@@ -330,7 +355,12 @@ test('support access: nothing in DATA_DIR can steer a write root makes', () => {
      and the mirror's content cannot be chosen. */
   const helper = read('app/bin/remote-access.js');
   const writeJson = helper.split('function writeJson(')[1].split('\n}')[0];
-  assert.match(writeJson, /fs\.rmSync\(tmp, \{ force: true \}\)/, 'unlink a link at that name rather than following it');
+  /* `recursive` as well as `force`, because the kind of object at that name is
+     the dashboard user's to choose too: rmSync without it throws EISDIR on a
+     directory, and O_EXCL then gets EEXIST, so one `mkdir` broke every status
+     run from then on — persistently, with no race to win. */
+  assert.match(writeJson, /fs\.rmSync\(tmp, \{ force: true, recursive: true \}\)/, 'unlink a link — or a directory — at that name rather than following it');
+  assert.match(writeJson, /clearObstruction\(o, f\)/, 'and clear the destination too: rename\\(2\\) will not replace a directory');
   assert.match(writeJson, /O_EXCL/, 'write only a file we have just created ourselves');
   assert.match(writeJson, /O_NOFOLLOW/, 'and never through a link planted in the moment in between');
   assert.match(writeJson, /fs\.fchmodSync\(fd, mode\)/, 'mode on the descriptor: a path can change meaning between two calls');
@@ -358,8 +388,22 @@ test('support access: the expiry is not gated on anything that can fail', () => 
     'the expiry runs whether or not the lock was taken');
   assert.ok(!/throw/.test(helper.split('function takeLock(o) {')[1].split('\n}')[0]),
     'taking the lock must not throw: every errno has to end up as "could not take it"');
-  // And the lock is only ever stolen from a holder old enough to be dead.
-  assert.match(helper, /if \(age > stale\) \{ fs\.rmSync\(lock/, 'steal on staleness');
+  /* And the lock is only ever stolen from a holder that is *gone*, which is a
+     question for the kernel and not for the clock. Age alone was wrong by
+     construction: a helper makes one rpi-connect call per login on the card and
+     each can sit on EXEC_TIMEOUT_MS, so the longest legitimate hold runs to
+     minutes — well past the 150s that used to count as dead. */
+  assert.match(helper, /if \(!pidAlive\(o, holder\) && age > LOCK_GRACE_MS\)/, 'steal from a holder that is gone');
+  // Read the two constants out of the source, since neither is exported.
+  const ms = (name) => {
+    const expr = helper.match(new RegExp(`const ${name} = ([^;]+);`))[1].replace(/_/g, '');
+    // Only ever `30000` or `15 * 60000`; anything else should fail loudly here.
+    const [a, b = 1] = expr.split('*').map((n) => Number(n.trim()));
+    assert.ok(Number.isFinite(a * b), `${name} is not a number of milliseconds: ${expr}`);
+    return a * b;
+  };
+  assert.ok(ms('LOCK_STALE_MS') > 6 * ms('EXEC_TIMEOUT_MS'),
+    'and the mtime backstop must sit above the longest legitimate hold, not below it');
   assert.match(helper, /if \(Date\.now\(\) >= deadline\) return null;/, 'and give up on the deadline, rather than stealing');
   assert.match(helper, /if \(lockPid\(o\) === process\.pid\) fs\.rmSync\(lock/, 'release our own lock and nobody else’s');
 });
@@ -374,8 +418,14 @@ test('support access: the verification code is readable by the dashboard and not
   assert.match(install, /MIRROR_GROUP=pitchtribe-dashboard/, 'a group of its own for the status mirror');
   assert.match(install, /groupadd --system "\$MIRROR_GROUP"/);
   assert.match(install, /usermod -a -G "\$MIRROR_GROUP" "\$SVC_USER"/, 'with the dashboard’s user in it');
-  assert.match(install, /\[\[ "\$mirror_members" == "\$SVC_USER" \|\| -z "\$mirror_members" \]\]/,
+  assert.match(install, /\[\[ -z "\$mirror_extra" \]\]/,
     'and a check that nothing else ever joins it — group pitchtribe was narrow once too');
+  /* Which stops the install rather than warning, because a warning in installer
+     output on a Pi nobody is watching is not a control — but with a documented
+     way through, so that the next person who legitimately needs a member makes
+     a decision instead of editing this script. */
+  assert.match(install, /PITCHTRIBE_ALLOW_MIRROR_GROUP_MEMBERS/, 'with an explicit override for a deliberate member');
+  assert.match(install, /\|\| die "group \$MIRROR_GROUP must contain only/, 'and it is still fatal by default');
   assert.match(read('deploy/remote-access/pitchtribe-remote-access@.service'), /Environment=MIRROR_GROUP=pitchtribe-dashboard/);
 
   const helper = read('app/bin/remote-access.js');

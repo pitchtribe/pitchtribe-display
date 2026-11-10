@@ -1772,8 +1772,14 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       return h('div', { class: 'card panel-box stack', style: 'gap:10px' }, ...head, h('p', { class: 'small muted' }, 'Loading…'));
     }
     if (!remoteInfo.available) {
+      /* Which "unavailable" this is comes from the server, because the two
+         readings want opposite things said: no helper on this machine at all,
+         or a helper that is there and kept its state file unreadable. Telling a
+         club standing in front of a Pi that it isn't one, and saying nothing
+         about repairing it, was the wrong half of that. */
       return h('div', { class: 'card panel-box stack', style: 'gap:10px' }, ...head,
-        h('p', { class: 'small muted' }, 'Remote access is switched on from a Raspberry Pi running PitchTribe 0.2 or later.'));
+        h('p', { class: 'small muted' }, remoteInfo.unavailableReason
+          || 'Remote access is switched on from a Raspberry Pi running PitchTribe 0.2 or later.'));
     }
     const st = remoteInfo.status;
     const on = st.sshActive;
@@ -1846,7 +1852,8 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     const box = (...kids) => h('div', { class: 'card panel-box stack', style: 'gap:10px' }, ...head, ...kids);
     if (!remoteInfo) return box(h('p', { class: 'small muted' }, 'Loading…'));
     if (!remoteInfo.available) {
-      return box(h('p', { class: 'small muted' }, 'Support access is switched on from a Raspberry Pi running PitchTribe.'));
+      return box(h('p', { class: 'small muted' }, remoteInfo.unavailableReason
+        || 'Support access is switched on from a Raspberry Pi running PitchTribe.'));
     }
     const s = remoteInfo.status.support || {};
     if (!s.installed) {
