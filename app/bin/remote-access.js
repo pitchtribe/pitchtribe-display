@@ -1074,6 +1074,12 @@ function requestAgeMs(o, req, mtimeMs) {
   return o.now().getTime() - stamp;
 }
 
+/** The action a request asked for, as it is safe to write down. It is a string
+    the dashboard's own user chose, and it ends up in the mirror and on the
+    page — and keepFromMirror() bounds this field to 32 characters when it
+    reads it *back*, which is only half a rule if the writer does not. */
+const reqAction = (req) => String((req && req.action) || 'request').slice(0, 32);
+
 function handleRequest(o) {
   const requestFile = file(o, 'remote-access-request.json');
   /* Not readFileSync: the dashboard's own user owns this directory and chooses
@@ -1102,11 +1108,11 @@ function handleRequest(o) {
      timestamp to check was already in the file and nothing read it. */
   const age = requestAgeMs(o, req, read.mtimeMs);
   if (age > REQUEST_MAX_AGE_MS) {
-    o.warn(`ignoring a ${Math.round(age / 60_000)} minute old ${req.action} request`);
+    o.warn(`ignoring a ${Math.round(age / 60_000)} minute old ${reqAction(req)} request`);
     return status(o, {
       lastRequestId: req.id,
       last: {
-        action: req.action || 'request',
+        action: reqAction(req),
         at: o.now().toISOString(),
         ok: false,
         message: 'That request sat unread for too long and was not carried out. Try again.',
@@ -1124,7 +1130,7 @@ function handleRequest(o) {
     return status(o, { lastRequestId: req.id });
   } catch (err) {
     const message = err.stderr ? String(err.stderr).trim().split('\n').pop() : err.message;
-    return status(o, { lastRequestId: req.id, last: { action: req.action, at: o.now().toISOString(), ok: false, message } });
+    return status(o, { lastRequestId: req.id, last: { action: reqAction(req), at: o.now().toISOString(), ok: false, message } });
   }
 }
 

@@ -1319,3 +1319,17 @@ test('support access: clearing something out of the way is not a way to delete s
   assert.equal(fs.statSync(pi.stateDir).isDirectory(), true, 'and so is the directory it lives in');
   assert.equal(fs.lstatSync(pi.statusFile).isFile(), true, 'while the mirror is a real file again');
 });
+
+test('remote access: what a request called itself is bounded before it is written down', () => {
+  // keepFromMirror() bounds last.action to 32 characters when it reads it back
+  // out of the mirror, which is only half a rule if the writer does not — the
+  // action is a string the dashboard's own user chose, and it reaches the page.
+  const pi = fakePi({ users: ['dan'] });
+  const s = pi.ask({ id: 'r1', action: 'x'.repeat(500) });
+  assert.equal(s.last, undefined, 'an action we do not recognise does nothing');
+
+  const long = fakePi({ users: ['dan'] });
+  long.strand({ id: 'r1', action: 'y'.repeat(500), username: 'clubadmin', passwordHash: HASH }, '2026-08-14T10:00:00Z');
+  const stale = helper.main('request', long.o);
+  assert.equal(stale.last.action.length, 32, 'and one that is written down is cut to the length that survives a read');
+});
