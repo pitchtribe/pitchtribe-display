@@ -1,13 +1,51 @@
 [Unit]
-# %i is status (at boot) or request (pitchtribe-remote-access.path: the
-# dashboard's Settings → Remote access asked to switch SSH on or off).
+# %i is one of:
+#   status          at boot — record whether SSH is on, and the logins
+#   request         pitchtribe-remote-access.path: the dashboard's Settings →
+#                   Remote access asked to switch SSH or support access on or off
+#   support-expire  pitchtribe-support-expire.timer: end a support session that
+#                   has run out, whether or not the dashboard is ever opened again
 Description=PitchTribe remote access (%i)
 After=local-fs.target
 
 [Service]
 Type=oneshot
+# Type=oneshot disables TimeoutStartSec= by default — systemd.service(5) says so
+# in as many words — so without this line the unit has *no* overall bound and a
+# single hung syscall keeps it `activating` for ever. That mattered rather more
+# than it sounds: while this unit is active, OnUnitActiveSec= on the expiry timer
+# never starts the next run, so a helper wedged inside DATA_DIR (a FIFO at the
+# request file's name used to do it) stopped support access expiring at all.
+# The helper closed that hole at the read, and this is the backstop under it.
+#
+# 600s is above the worst *legitimate* run, not a guess: up to 60s waiting for
+# the lock, then one rpi-connect call per login on the card at EXEC_TIMEOUT_MS
+# (30s) each against a wedged rpi-connectd, plus the 10s runtime-directory wait
+# and the 30s sign-in wait — around 430s on a card with three logins. Every run
+# here is retried (the path unit on the next write, the timer in five minutes),
+# so being killed is recoverable and hanging is not.
+TimeoutStartSec=600
 Environment=DATA_DIR=/var/lib/pitchtribe
-# Root, because it creates the login and starts or stops SSH.
+# Root's own, deliberately not inside DATA_DIR: DATA_DIR belongs to the
+# dashboard's user, and a backup restore chowns everything in it. What bounds a
+# support session has to live somewhere that user cannot write.
+Environment=STATE_DIR=/var/lib/pitchtribe-remote-access
+# The group the status file is readable as, and it has one member: the
+# dashboard's own user. Not group pitchtribe, which the captive portal's user is
+# also in — while a sign-in is waiting to be finished that file holds the
+# Raspberry Pi Connect verification code, and whoever reads it can pair this Pi
+# to their own Raspberry Pi ID instead of the club's.
+Environment=MIRROR_GROUP=pitchtribe-dashboard
+# Root's own directory for the sign-in output. The club user's /run/user/<uid>
+# is theirs, so a log kept there could be replaced with a link between root
+# creating it and root reading the verification URL out of it.
+Environment=SIGNIN_DIR=/run/pitchtribe-remote-access
+# SUPPORT_USER=<login> here names the account Raspberry Pi Connect runs as,
+# when the first login account on the Pi is not the right one. Optional.
+EnvironmentFile=-/etc/default/pitchtribe-remote-access
+# Root, because it creates the login and starts or stops SSH. Raspberry Pi
+# Connect is a *user* service and is never run as root: the helper drops to the
+# club's own login with runuser for every rpi-connect call.
 ExecStart=/usr/bin/env node /opt/pitchtribe/app/bin/remote-access.js %i
 
 [Install]

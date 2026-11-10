@@ -1722,6 +1722,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     const widgetSettings = widgetsCard();
     const backupsBox = backupCard();
     const remoteBox = remoteAccessCard();
+    const supportBox = supportAccessCard();
     const secureBox = secureConnectionCard();
 
     const about = h('div', { class: 'card panel-box stack', style: 'gap:10px' },
@@ -1736,7 +1737,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
 
     return shell('settings',
       h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Settings'))),
-      h('div', { class: 'stack', style: 'max-width:640px' }, general, sports, widgetSettings, backupsBox, remoteBox, secureBox, pw, about));
+      h('div', { class: 'stack', style: 'max-width:640px' }, general, sports, widgetSettings, backupsBox, remoteBox, supportBox, secureBox, pw, about));
   }
 
   /* Settings → About: the nightly Raspberry Pi OS update ------------------------------
@@ -1850,8 +1851,14 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       return h('div', { class: 'card panel-box stack', style: 'gap:10px' }, ...head, h('p', { class: 'small muted' }, 'Loading…'));
     }
     if (!remoteInfo.available) {
+      /* Which "unavailable" this is comes from the server, because the two
+         readings want opposite things said: no helper on this machine at all,
+         or a helper that is there and kept its state file unreadable. Telling a
+         club standing in front of a Pi that it isn't one, and saying nothing
+         about repairing it, was the wrong half of that. */
       return h('div', { class: 'card panel-box stack', style: 'gap:10px' }, ...head,
-        h('p', { class: 'small muted' }, 'Remote access is switched on from a Raspberry Pi running PitchTribe 0.2 or later.'));
+        h('p', { class: 'small muted' }, remoteInfo.unavailableReason
+          || 'Remote access is switched on from a Raspberry Pi running PitchTribe 0.2 or later.'));
     }
     const st = remoteInfo.status;
     const on = st.sshActive;
@@ -1879,12 +1886,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         try {
           const r = await api('POST', '/remote-access', { enabled: turningOn, username: user.value.trim(), password: pass.value, currentPassword: current.value });
           current.value = pass.value = '';
-          let last = null;
-          for (let i = 0; i < 60 && !last; i++) {
-            await sleep(1000);
-            const now = await api('GET', '/remote-access').catch(() => null);
-            if (now?.status?.lastRequestId === r.requestId) { remoteInfo = now; last = now.status.last; }
-          }
+          const last = await awaitRemoteRequest(r.requestId);
           toast(last ? last.message : 'The Pi hasn’t answered yet — check again in a minute', last && !last.ok ? 'error' : undefined);
         } catch (err) { toast(err.message, 'error'); }
         remoteBusy = false;
@@ -1898,9 +1900,121 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       h('label', { class: 'switch' }, enabled, 'Remote access on'),
       loginRows,
       h('label', { class: 'field' }, 'Your dashboard password', current, h('span', { class: 'hint' }, 'Needed to change remote access, because the SSH login can change anything on the Pi.')),
-      st.last && !st.last.ok ? h('p', { class: 'small', style: 'color:var(--danger)' }, `⚠ ${st.last.message}`) : null,
+      st.last && !st.last.ok && !String(st.last.action || '').startsWith('support-')
+        ? h('p', { class: 'small', style: 'color:var(--danger)' }, `⚠ ${st.last.message}`) : null,
       h('div', {}, h('button', { class: 'btn primary', type: 'submit', disabled: remoteBusy }, remoteBusy ? 'Working…' : 'Save')),
       h('p', { class: 'small muted' }, 'Anyone with the SSH login can change anything on the Pi. Use a strong password, and switch it off when you don’t need it.'));
+    return form;
+  }
+
+  // Settings → Remote access → support access ------------------------------------------
+  let supportBusy = false;
+
+  /** Wait for the root helper to pick our request up, then show what it said. */
+  async function awaitRemoteRequest(requestId) {
+    for (let i = 0; i < 60; i++) {
+      await sleep(1000);
+      const now = await api('GET', '/remote-access').catch(() => null);
+      if (now?.status?.lastRequestId === requestId) {
+        remoteInfo = now;
+        return now.status.last;
+      }
+    }
+    return null;
+  }
+
+  function supportAccessCard() {
+    const head = [
+      h('h2', {}, 'Let PitchTribe support connect'),
+      h('p', { class: 'small muted' }, 'Off until you switch it on. It lets us look at this Pi to help with a problem, without anyone opening a port on the club’s router.'),
+    ];
+    const box = (...kids) => h('div', { class: 'card panel-box stack', style: 'gap:10px' }, ...head, ...kids);
+    if (!remoteInfo) return box(h('p', { class: 'small muted' }, 'Loading…'));
+    if (!remoteInfo.available) {
+      return box(h('p', { class: 'small muted' }, remoteInfo.unavailableReason
+        || 'Support access is switched on from a Raspberry Pi running PitchTribe.'));
+    }
+    const s = remoteInfo.status.support || {};
+    if (!s.installed) {
+      return box(h('p', { class: 'small muted' }, 'This Pi doesn’t have the Raspberry Pi Connect client, so support access isn’t available here. ',
+        'SSH on the club network, above, is the way in.'));
+    }
+
+    const hoursOptions = remoteInfo.supportHours || [6];
+    const hoursDefault = remoteInfo.supportHoursDefault || hoursOptions[0];
+    const hours = h('select', {},
+      ...hoursOptions.map((n) => h('option', { value: String(n), selected: n === hoursDefault }, n === 1 ? '1 hour' : `${n} hours`)));
+    const current = h('input', { type: 'password', autocomplete: 'current-password', required: true });
+
+    const act = async (body, confirmText) => {
+      if (confirmText && !confirm(confirmText)) return;
+      supportBusy = true;
+      render();
+      try {
+        const r = await api('POST', '/remote-access', { ...body, currentPassword: current.value });
+        current.value = '';
+        const last = await awaitRemoteRequest(r.requestId);
+        toast(last ? last.message : 'The Pi hasn’t answered yet — check again in a minute', last && !last.ok ? 'error' : undefined);
+      } catch (err) { toast(err.message, 'error'); }
+      supportBusy = false;
+      await loadRemote();
+    };
+
+    // On: the sign-in to finish, how long is left, and the way to end it now.
+    if (s.enabled) {
+      const left = s.expiresAt ? Math.max(0, new Date(s.expiresAt) - Date.now()) : 0;
+      const mins = Math.round(left / 60000);
+      const countdown = !s.expiresAt ? 'no end time recorded — it will be ended at the next check'
+        : left <= 0 ? 'any moment now'
+          : mins < 60 ? `in ${mins} min` : `in ${Math.floor(mins / 60)} h ${mins % 60} min`;
+      const end = h('button', { class: 'btn', type: 'button', disabled: supportBusy },
+        supportBusy ? 'Working…' : 'End support access');
+      end.addEventListener('click', () => act({ support: { enabled: false } }, 'End support access now?'));
+      return box(
+        h('p', { class: 'small' }, 'Support access is ', h('strong', {}, s.signedIn ? 'on' : 'waiting to be finished'), '.'),
+        !s.signedIn && s.signin
+          ? h('div', { class: 'stack', style: 'gap:6px' },
+            h('p', { class: 'small' }, 'Finish on a phone or computer: open ', h('a', { href: s.signin.url, target: '_blank', rel: 'noopener' }, s.signin.url),
+              ' and sign in with the club’s own Raspberry Pi ID. Make one there if the club hasn’t got one.'),
+            s.signin.code ? h('p', { class: 'small' }, 'Code: ', h('code', { style: 'font-size:1.2em' }, s.signin.code)) : null)
+          : null,
+        h('dl', { class: 'kv' },
+          h('dt', {}, 'Ends'), h('dd', {}, countdown),
+          h('dt', {}, 'Support connected'), h('dd', {}, s.connected ? 'now' : ago(s.lastConnection ? new Date(s.lastConnection).getTime() : 0)),
+          h('dt', {}, 'Signed in as'), h('dd', {}, s.user || '—')),
+        h('label', { class: 'field' }, 'Your dashboard password', current, h('span', { class: 'hint' }, 'Needed to end support access, the same as to start it.')),
+        h('div', {}, end),
+        h('p', { class: 'small muted' }, 'It ends by itself at the time above even if you never come back to this page. The club owns the Raspberry Pi ID it is signed in to, so you can also remove this device at ',
+          h('a', { href: 'https://connect.raspberrypi.com', target: '_blank', rel: 'noopener' }, 'connect.raspberrypi.com'), ' at any time.'));
+    }
+
+    // Off: the normal state of every card.
+    const stuckEnd = h('button', { class: 'btn', type: 'button', disabled: supportBusy },
+      supportBusy ? 'Working…' : 'Try signing out again');
+    stuckEnd.addEventListener('click', () => act({ support: { enabled: false } }));
+    const form = h('form', {
+      class: 'card panel-box form-grid',
+      onsubmit: (e) => { e.preventDefault(); act({ support: { enabled: true, hours: Number(hours.value) } }); },
+    },
+      ...head,
+      h('p', { class: 'small' }, 'Support access is ', h('strong', {}, 'off'), '.'),
+      // The Pi has no bounded session, and yet Raspberry Pi Connect says it is
+      // signed in. The card tries to sign out by itself every few minutes, but
+      // "off" would be a lie to leave on the screen in the meantime.
+      s.signedIn ? h('div', { class: 'stack', style: 'gap:6px' },
+        h('p', { class: 'small', style: 'color:var(--danger)' },
+          '⚠ Raspberry Pi Connect still reports this Pi as signed in, with no support session behind it. ',
+          'This Pi keeps trying to sign out on its own; to be certain, remove the device at ',
+          h('a', { href: 'https://connect.raspberrypi.com', target: '_blank', rel: 'noopener' }, 'connect.raspberrypi.com'), '.'),
+        h('div', {}, stuckEnd)) : null,
+      h('label', { class: 'field' }, 'Let support connect for', hours, h('span', { class: 'hint' }, 'It ends by itself when the time is up — there is no option to leave it on indefinitely.')),
+      h('label', { class: 'field' }, 'Your dashboard password', current, h('span', { class: 'hint' }, 'Needed to start support access, because it gives us a shell on this Pi.')),
+      remoteInfo.status.last && !remoteInfo.status.last.ok && String(remoteInfo.status.last.action || '').startsWith('support-')
+        ? h('p', { class: 'small', style: 'color:var(--danger)' }, `⚠ ${remoteInfo.status.last.message}`) : null,
+      h('div', {}, h('button', { class: 'btn primary', type: 'submit', disabled: supportBusy }, supportBusy ? 'Working…' : 'Turn support access on')),
+      h('p', { class: 'small muted' }, 'This uses Raspberry Pi Connect. You will be given a link to finish at, where you sign in with the ',
+        h('strong', {}, 'club’s own'), ' Raspberry Pi ID — not a PitchTribe account — so the club can see the device and remove it whenever it likes. ',
+        'Nothing is opened on the club’s router: the Pi connects outwards. SSH, above, is not affected either way.'));
     return form;
   }
 

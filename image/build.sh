@@ -131,6 +131,40 @@ else
   log "No first-boot username wizard (userconfig.service) in this base image"
 fi
 
+# --------------------------------------------------- support access (Connect)
+# Raspberry Pi OS Lite ships rpi-connect-lite, and the dashboard's "Let
+# PitchTribe support connect" is built on it (Settings → Remote access). It is
+# adopted deliberately, not shipped by accident, so make the state of a fresh
+# card explicit rather than inherited: the client is present, it is signed out,
+# and nothing starts it. The club turns it on, signing in to the club's own
+# Raspberry Pi ID, and it expires on its own. Fail the build if any of that is
+# not true, because "a remote access client nobody chose" is the one state a
+# club card must never be flashed in.
+log "Checking Raspberry Pi Connect ships signed out and disabled"
+if chroot "$MNT" sh -c 'command -v rpi-connect' >/dev/null 2>&1; then
+  CONNECT_PKG="$(chroot "$MNT" dpkg-query -W -f '${Package} ${Version}\n' 'rpi-connect*' 2>/dev/null | head -1)"
+  log "Connect client present: ${CONNECT_PKG:-rpi-connect (unpackaged)}"
+  # No account on the image. rpi-connectd keeps its credentials under the home
+  # of whoever signed in, so any such file would be baked into every card.
+  CONNECT_CREDS="$(find "$MNT/root" "$MNT/home" -maxdepth 4 -path '*rpi-connect*' -type f 2>/dev/null || true)"
+  [[ -z "$CONNECT_CREDS" ]] || die "the image has Raspberry Pi Connect state baked in, which would ship one account to every card:
+$CONNECT_CREDS"
+  # Nothing may start it: not as a system service, and not enabled for every
+  # user — and no lingering user, which is what would start a user service
+  # with nobody logged in.
+  ! chroot "$MNT" systemctl is-enabled rpi-connect.service >/dev/null 2>&1 \
+    || die "rpi-connect.service is enabled as a system service in the image"
+  CONNECT_USER_WANTS="$(ls -1 "$MNT/etc/systemd/user/default.target.wants" 2>/dev/null | grep -i rpi-connect || true)"
+  [[ -z "$CONNECT_USER_WANTS" ]] || die "rpi-connect is enabled for every user in the image ($CONNECT_USER_WANTS)"
+  LINGER="$(ls -1 "$MNT/var/lib/systemd/linger" 2>/dev/null || true)"
+  [[ -z "$LINGER" ]] || die "the image has lingering user sessions ($LINGER), which would start rpi-connect before any club asked for it"
+  log "Connect: installed, signed out, no user enabled, no linger — off until a club turns it on"
+else
+  # Not an error: the dashboard reads this off the device and says support
+  # access is unavailable rather than offering a button that cannot work.
+  log "No Raspberry Pi Connect client in this base image — support access will show as unavailable"
+fi
+
 # ----------------------------------------------------------- boot hardening
 # A club screen has no keyboard and no serial cable plugged into it, so the
 # boot-time consoles are only a way in, and kernel chatter on a bar TV is both

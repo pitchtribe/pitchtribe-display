@@ -6,6 +6,12 @@ After=network.target
 Type=simple
 User=pitchtribe
 Group=pitchtribe
+# The group Settings → Remote access reads remote-access-status.json as, and
+# this is belt and braces: systemd calls initgroups() whenever User= is set, so
+# the membership install.sh grants would normally arrive anyway, Group= being
+# set as well notwithstanding. Naming it here does not depend on that, or on the
+# usermod having happened before this service last started.
+SupplementaryGroups=pitchtribe-dashboard
 WorkingDirectory=/opt/pitchtribe/app
 Environment=NODE_ENV=production
 Environment=PORT=@PORT@

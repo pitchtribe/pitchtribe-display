@@ -50,8 +50,21 @@ Use the one-line installer, which fetches one for you:
 
 APP_DIR=/opt/pitchtribe
 DATA_DIR=/var/lib/pitchtribe
+# Root's own, and deliberately not inside DATA_DIR. What bounds a support
+# access session is kept here, because DATA_DIR belongs to SVC_USER — and a
+# backup restore chowns everything in it to SVC_USER as well. The dashboard
+# reads a mirror of the state; it never gets to decide when access ends.
+STATE_DIR=/var/lib/pitchtribe-remote-access
 SVC_USER=pitchtribe
 PORTAL_USER=pitchtribe-portal
+# The group the remote access status file is readable as, with one member:
+# SVC_USER. Not group pitchtribe — that one is wider than the dashboard (the
+# captive portal's user is in it, to reach DATA_DIR/portal), and while a support
+# access sign-in is waiting to be finished that file holds the Raspberry Pi
+# Connect verification code. Whoever gets to that code first pairs this Pi to
+# their own Raspberry Pi ID instead of the club's, so it does not get to share a
+# group with anything a guest on an untrusted network can reach.
+MIRROR_GROUP=pitchtribe-dashboard
 KIOSK_USER=pitchtribe-kiosk
 PORT="${PITCHTRIBE_PORT:-80}"
 HTTPS_PORT="${PITCHTRIBE_HTTPS_PORT:-443}"
@@ -117,6 +130,29 @@ if [[ -z "$SERVER" ]]; then
   log "Installing PitchTribe to $APP_DIR"
   id -u "$SVC_USER" >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin "$SVC_USER"
   install -d -o "$SVC_USER" -g "$SVC_USER" -m 0750 "$DATA_DIR"
+  install -d -o root -g root -m 0700 "$STATE_DIR"
+  getent group "$MIRROR_GROUP" >/dev/null || groupadd --system "$MIRROR_GROUP"
+  usermod -a -G "$MIRROR_GROUP" "$SVC_USER"
+  # A tripwire, not a formality: the whole value of this group is that it has
+  # one member. Group pitchtribe used to be narrow too, and then the captive
+  # portal joined it. Adding somebody here is how that happens again.
+  #
+  # It stops the install rather than warning, because a warning in installer
+  # output on a Pi nobody is watching is not a control. But it is recoverable
+  # without editing this script: PITCHTRIBE_ALLOW_MIRROR_GROUP_MEMBERS is a
+  # space-separated list of accounts somebody has decided on purpose may read
+  # the verification code. Going through it is a decision; not noticing is not.
+  mirror_allowed="$SVC_USER ${PITCHTRIBE_ALLOW_MIRROR_GROUP_MEMBERS:-}"
+  mirror_members="$(getent group "$MIRROR_GROUP" | cut -d: -f4 | tr ',' ' ')"
+  mirror_extra=""
+  for m in $mirror_members; do
+    [[ " $mirror_allowed " == *" $m "* ]] || mirror_extra="$mirror_extra $m"
+  done
+  [[ -z "$mirror_extra" ]] \
+    || die "group $MIRROR_GROUP must contain only $SVC_USER, and also contains:$mirror_extra.
+Whatever is in it can read $DATA_DIR/remote-access-status.json, which holds the
+Raspberry Pi Connect verification code while support access is being switched on.
+If that is deliberate, re-run with PITCHTRIBE_ALLOW_MIRROR_GROUP_MEMBERS=\"$(echo "$mirror_extra" | xargs)\"."
   rm -rf "$APP_DIR.new"
   mkdir -p "$APP_DIR.new/app" "$APP_DIR.new/signage-server"
   cp -a "$SRC_DIR/app/." "$APP_DIR.new/app/"
@@ -178,9 +214,12 @@ if [[ -z "$SERVER" ]]; then
     chmod 0600 "$DATA_DIR/backup-recovery.json"
   fi
   # Remote access (Settings → Remote access): a root helper that switches SSH on
-  # or off and sets its login, when the dashboard asks.
+  # or off and sets its login, and switches support access (Raspberry Pi Connect)
+  # on or off, when the dashboard asks. The timer ends a support session that has
+  # run out even if nobody ever opens the dashboard again.
   install -m 0644 "$SRC_DIR/deploy/remote-access/pitchtribe-remote-access@.service" \
-    "$SRC_DIR/deploy/remote-access/pitchtribe-remote-access.path" /etc/systemd/system/
+    "$SRC_DIR/deploy/remote-access/pitchtribe-remote-access.path" \
+    "$SRC_DIR/deploy/remote-access/pitchtribe-support-expire.timer" /etc/systemd/system/
   # The nightly OS update runs in front of the nightly backup, as one job: the
   # backup timer is the schedule for both. See deploy/update/10-os-update.conf.
   install -d -m 0755 /etc/systemd/system/pitchtribe-backup@nightly.service.d
@@ -193,9 +232,10 @@ if [[ -z "$SERVER" ]]; then
   sed -e "s|@PORT@|$PORT|g" -e "s|@HTTPS_PORT@|$HTTPS_PORT|g" "$SRC_DIR/deploy/pitchtribe.service" >/etc/systemd/system/pitchtribe.service
   start_now daemon-reload
   systemctl enable pitchtribe.service pitchtribe-backup.path pitchtribe-backup.timer pitchtribe-backup@scan.service \
-    pitchtribe-remote-access.path pitchtribe-remote-access@status.service
+    pitchtribe-remote-access.path pitchtribe-remote-access@status.service pitchtribe-support-expire.timer
   start_now restart pitchtribe.service
-  start_now start pitchtribe-backup.path pitchtribe-backup.timer pitchtribe-remote-access.path
+  start_now start pitchtribe-backup.path pitchtribe-backup.timer pitchtribe-remote-access.path \
+    pitchtribe-support-expire.timer
   start_now start --no-block pitchtribe-remote-access@status.service || true
   start_now start --no-block pitchtribe-backup@scan.service || true
   SERVER="http://localhost$([[ "$PORT" == 80 ]] || echo ":$PORT")"

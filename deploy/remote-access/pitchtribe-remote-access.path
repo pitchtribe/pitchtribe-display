@@ -1,5 +1,7 @@
 [Unit]
 Description=Watch for remote access requests from the PitchTribe dashboard
+# Settings → Remote access writes one request at a time here — SSH on or off, or
+# support access on or off — and the helper deletes it as it reads it.
 
 [Path]
 PathChanged=/var/lib/pitchtribe/remote-access-request.json

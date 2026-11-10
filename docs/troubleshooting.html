@@ -76,6 +76,24 @@
   </tbody>
 </table>
 
+<h3 id="support-access">Support access won’t switch on</h3>
+<table>
+  <thead><tr><th>It says</th><th>What to do</th></tr></thead>
+  <tbody>
+    <tr><td>Support access isn’t available on this Pi</td><td>The Raspberry Pi Connect client isn’t installed — usually a Pi set up by hand rather than from a PitchTribe card. Install it over SSH with <code>sudo apt install rpi-connect-lite</code>, then reload the dashboard.</td></tr>
+    <tr><td>This Pi has no login account</td><td>The card was written without a username in Raspberry Pi Imager, so there is no account to run it as. Switch SSH on in <strong>Settings → Remote access</strong> and choose a username first — that creates one.</td></tr>
+    <tr><td>Connect didn’t offer a sign-in link</td><td>The Pi couldn’t reach the internet. Check it is online (live scores and weather will be blank too), then try again. Nothing is left switched on when this happens.</td></tr>
+    <tr><td>It says <em>waiting to be finished</em></td><td>The link has been given out but nobody has signed in at it yet. Open it on a phone and sign in with the club’s Raspberry Pi ID. If the link has gone stale, tap <strong>End support access</strong> and switch it on again for a fresh one.</td></tr>
+    <tr><td>The Pi didn’t open a background session</td><td>Raspberry Pi Connect runs as the club’s own login, and that login’s background session hadn’t started yet. Nothing was switched on. Wait a minute and try again; if it keeps happening, reboot the Pi and try once more.</td></tr>
+    <tr><td>Still reports this Pi as signed in</td><td>The dashboard asked Raspberry Pi Connect to sign out and it didn’t. The Pi keeps trying by itself every few minutes, so this usually clears. To be certain now, remove the device at <a href="https://connect.raspberrypi.com">connect.raspberrypi.com</a> — that works from the club’s side whatever the Pi does.</td></tr>
+    <tr><td><em>The Pi hasn’t answered yet</em></td><td>The Pi was busy with something else on the same page — most likely a switch-on that is still waiting for Raspberry Pi Connect. Nothing has been lost: the Pi picks the request up within about five minutes, and reloading the page will show what it did. Tapping the button again is safe too.</td></tr>
+    <tr><td>The link has gone from the card</td><td>Somebody has signed in at it, which is what it was for. The Pi doesn’t keep a code it has already used — anyone who got hold of one could add the Pi to their own Raspberry Pi ID instead of the club’s. The card will say support access is <em>on</em> rather than <em>waiting to be finished</em>.</td></tr>
+    <tr><td><em>Nothing on this card accounted for it</em>, over and over</td><td>You were already using Raspberry Pi Connect on this Pi yourself, before PitchTribe was installed. PitchTribe takes Raspberry Pi Connect over on the card it runs: anything signed in that isn’t a support session the dashboard started gets signed out again within five minutes, because a remote-access client nobody chose is the one thing a club card must never have. If you want your own Connect access to this Pi as well, use SSH on the club network instead (<strong>Settings → Remote access</strong>), or keep your own Connect session on a different Pi.</td></tr>
+  </tbody>
+</table>
+<p>To take the Pi away from support at any time, sign in to <a href="https://connect.raspberrypi.com">connect.raspberrypi.com</a> with the club’s own Raspberry Pi ID and remove the device. It is the club’s account, so that always works — you don’t need us, and you don’t need the dashboard.</p>
+<p>Ending a session and removing the device are not the same thing. Ending a session signs the Pi out on the Pi, which is what stops anyone connecting; the device stays in the club’s list at Raspberry Pi Connect, signed out, until you remove it there.</p>
+
 <h3 id="forgot-password">I’ve forgotten the admin password</h3>
 <p>Anyone can reset it from a terminal on the Pi (see <a href="/docs/install-raspberry-pi-os#ssh">connecting with SSH</a> — Remote access has to have been switched on, or a username set in Imager, while you could still sign in). Run:</p>
 <pre data-copy><code>sudo pitchtribe-reset-password</code></pre>
