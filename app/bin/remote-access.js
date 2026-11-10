@@ -65,7 +65,7 @@
    status run throw instead.
 
    So nothing here opens a name in DATA_DIR by path and takes what it finds on
-   trust: readJsonStat() opens O_NOFOLLOW|O_NONBLOCK and refuses anything that
+   trust: readFileStrict() opens O_NOFOLLOW|O_NONBLOCK and refuses anything that
    is not a regular file, which is one answer to the symlink, the FIFO, the
    directory and the device node alike. */
 const childProcess = require('node:child_process');
@@ -109,7 +109,7 @@ const STILL_SIGNED_IN = 'Support access could not be ended: Raspberry Pi Connect
    the session and signed the Pi out, in the middle of the support call it was
    switched on for. So the ordering judgement is not made at all until the clock
    is known good, and slack covers only the seconds between a run and timesyncd
-   stepping a clock that was already close — see clockTrusted(). */
+   stepping a clock that was already close — see clockSynced(). */
 const CLOCK_SLACK_MS = 60_000;
 /* systemd-timesyncd writes this once it has stepped the clock from the network.
    Its absence means "no reliable clock yet", which is a different thing from
@@ -525,8 +525,15 @@ function status(o, extra = {}) {
      the file ended up with last.ok true and "off" on one line and
      support.signedIn true on the next. The ⚠ in the dashboard is driven by the
      second, so the page was right and the sentence under it was wrong. The
-     sentence is what a club reads, and it must not be the reassuring one. */
-  if (next.support.signedIn && next.last && next.last.ok && OFF_ACTIONS.has(next.last.action)) {
+     sentence is what a club reads, and it must not be the reassuring one.
+
+     Only when the card is meant to be off, which is the whole of the claim
+     being contradicted. A valid session *should* report signedIn: true, and
+     the reconcile that signs a second client out alongside it succeeded — "it
+     could not be ended" would be the lie in the other direction, about a
+     session the club is in the middle of using. */
+  if (!next.support.enabled && next.support.signedIn
+      && next.last && next.last.ok && OFF_ACTIONS.has(next.last.action)) {
     next.last = { ...next.last, ok: false, message: STILL_SIGNED_IN };
   }
   writeStatus(o, next);

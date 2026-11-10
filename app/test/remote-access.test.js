@@ -1249,19 +1249,73 @@ test('support access: a half-written verification link is not handed to the club
 });
 
 test('support access: the mirror never says a switch-off worked next to a signed-in Pi', () => {
-  /* A switch-off that finds nothing recorded to switch off reports a cheerful
-     "Support access is off", and the reconcile in the same run then finds a
-     client signed in under another login. The mirror ended up with last.ok true
-     and "off" on one line and support.signedIn true on the next — the ⚠ banner
-     reads the second, so the page was right and the sentence under it was
-     wrong. The sentence is what a club reads. */
-  const pi = fakePi({ users: ['dan', 'coach'], signedInAs: ['coach'], stubborn: true });
-  const s = pi.ask({ id: 's1', action: 'support-disable' });
+  /* "End support access" switches off the session it knows about, and that
+     call reports honestly on what it did. But the status write that follows it
+     rebuilds support.signedIn from the device, and a *second* Connect client
+     signed in under another login on the card is not something that call
+     touched — a switch-off never reconciles, because the session it just ended
+     is the one it is reporting on. So the mirror ended up with last.ok true and
+     "Support access is off" on one line and support.signedIn true on the next.
+     The ⚠ banner reads the second, so the page was right and the sentence under
+     it was wrong. The sentence is what a club reads. */
+  const pi = fakePi({ users: ['dan', 'coach'] });
+  pi.ask({ id: 's1', action: 'support-enable', hours: 6 });
+  // Somebody else's Connect session, under the other login on the card.
+  pi.pi.signedInAs.add('coach');
 
-  assert.equal(s.support.signedIn, true, 'the Pi is still signed in');
+  const s = pi.ask({ id: 's2', action: 'support-disable' });
+  assert.equal(s.support.signedIn, true, 'the card is still signed in, under the other login');
   assert.equal(s.last.ok, false, 'so nothing may report having switched it off');
   assert.match(s.last.message, /still reports this Pi as signed in/);
   const mirror = JSON.parse(fs.readFileSync(pi.statusFile, 'utf8'));
   assert.equal(mirror.last.ok, false, 'and the mirror does not contradict itself');
   assert.equal(mirror.support.signedIn, true);
+
+  // And the next run, which does reconcile, ends it for real.
+  const next = helper.main('status', pi.o);
+  assert.equal(next.support.signedIn, false);
+  assert.equal(pi.pi.signedIn, false);
+});
+
+test('support access: a live session alongside a second client is not reported as a failure', () => {
+  /* The other way for that sentence to be wrong, which the first version of
+     the fix above introduced. A valid session *should* report signedIn: true,
+     and when the reconcile signs a second client out alongside it the run
+     succeeded — so "Support access could not be ended" would be a lie in the
+     opposite direction, about a session the club is in the middle of using. */
+  const pi = fakePi({ users: ['dan', 'coach'] });
+  pi.ask({ id: 's1', action: 'support-enable', hours: 6 });
+  pi.pi.signedInAs.add('coach');
+
+  const s = helper.main('status', pi.o);
+  assert.equal(s.support.enabled, true, 'the club’s own session carries on');
+  assert.equal(s.support.signedIn, true);
+  assert.equal(s.last.ok, true, 'and signing the other one out worked');
+  assert.match(s.last.message, /was signed out/);
+  assert.deepEqual([...pi.pi.signedInAs], ['dan'], 'only the unaccounted-for client went');
+});
+
+test('support access: clearing something out of the way is not a way to delete somebody else’s files', () => {
+  /* The new primitive that *removes* things as root, so it is the one worth
+     being certain about. A symlink at either of root's names in DATA_DIR is
+     unlinked, never followed — `rmSync` recursive lstats and unlinks a link
+     rather than recursing into what it points at — so pointing it at the
+     session record, or anywhere else on the card, deletes nothing but the link
+     the dashboard's own user made. */
+  const pi = fakePi({ users: ['dan'] });
+  pi.ask({ id: 's1', action: 'support-enable', hours: 6 });
+  const before = pi.session();
+  assert.ok(before, 'there is a session record to try to destroy');
+
+  // A link at the mirror's name, and one at its temporary name, both aimed at
+  // root's own directory.
+  fs.rmSync(pi.statusFile, { force: true });
+  fs.symlinkSync(pi.stateDir, pi.statusFile);
+  fs.symlinkSync(pi.sessionFile, `${pi.statusFile}.tmp`);
+
+  const s = helper.main('status', pi.o);
+  assert.deepEqual(pi.session(), before, 'the record root owns is untouched');
+  assert.equal(s.support.enabled, true, 'and the session it bounds carries on');
+  assert.equal(fs.statSync(pi.stateDir).isDirectory(), true, 'and so is the directory it lives in');
+  assert.equal(fs.lstatSync(pi.statusFile).isFile(), true, 'while the mirror is a real file again');
 });
