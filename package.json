@@ -23,8 +23,8 @@
     "i18n:check": "node scripts/i18n-build.mjs --check"
   },
   "devDependencies": {
-    "@tailwindcss/cli": "4.3.3",
-    "tailwindcss": "4.3.3",
-    "wrangler": "4.156.2"
+    "@tailwindcss/cli": "4.3.5",
+    "tailwindcss": "4.3.5",
+    "wrangler": "4.158.0"
   }
 }
