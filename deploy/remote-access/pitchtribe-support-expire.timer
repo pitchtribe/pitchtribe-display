@@ -7,14 +7,29 @@ Description=End PitchTribe support access once it has run out
 # Pi Connect out anyway. A support session that cannot expire is the whole thing
 # we are avoiding, so it must not depend on a client being there to ask.
 Documentation=https://pitchtribe.media/docs/dashboard.html
+# A Pi has no real-time clock. It boots with fake-hwclock's last saved time —
+# saved hourly and on clean shutdown, so a card that was unplugged rather than
+# shut down comes back up to an hour behind — and systemd-timesyncd steps it
+# from the network some seconds later. OnBootSec= below therefore aimed the
+# first run of all at exactly the moment the clock is least trustworthy, which
+# is the moment the helper has to decide whether a session's start is in the
+# future. Waiting for the clock costs a few seconds of a five-minute cadence
+# and stops a power cut ending a session the club is in the middle of using.
+# (The helper does not *depend* on this: it also checks timesyncd's own marker
+# before making any judgement about time having moved backwards. Expiry itself
+# is never deferred — a clock that is behind can only make a session look
+# younger, and the recorded expiry and the record's mtime both still bound it.)
+Wants=time-sync.target
+After=time-sync.target
 
 [Timer]
-# Soon after boot, because a card that was off past its expiry comes back with
-# the Connect client already lingering, and then every five minutes.
+# OnBootSec is what makes "a card that was off past its expiry comes back
+# expired" true: it was off, so no run was due, and nothing is being caught up
+# on — the first run after boot compares the clock to the recorded expiry and
+# signs out. (Persistent= would not help here and is deliberately absent: it
+# only applies to OnCalendar= timers.) Then every five minutes.
 OnBootSec=15s
 OnUnitActiveSec=5min
-# Catch up on a run missed while the Pi was off.
-Persistent=true
 AccuracySec=30s
 Unit=pitchtribe-remote-access@support-expire.service
 

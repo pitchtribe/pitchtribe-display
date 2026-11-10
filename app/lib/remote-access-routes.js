@@ -6,7 +6,20 @@
    remote-access-request.json for it and reads remote-access-status.json back.
    Either one gives somebody a shell on the Pi, so both need the dashboard
    password again, and the SSH password is hashed here (SHA-512 crypt, via
-   openssl): the plain password is never written to disk. */
+   openssl): the plain password is never written to disk.
+
+   remote-access-status.json is a mirror the helper writes for this server to
+   read, and nothing here decides anything: how long a support session lasts
+   is bounded by the helper, from a record in root's own directory that this
+   user cannot write. The hours check below is for a useful error message, not
+   for safety — the helper checks again, and so does the expiry timer.
+
+   That mirror is 0640 root:pitchtribe-dashboard, a group whose only member is
+   this server's own user, because while a support sign-in is waiting to be
+   finished it holds the Raspberry Pi Connect verification code — and whoever
+   opens that link first is who the Pi gets added to. So this is the only
+   process on the card that may read it, and it stops holding the code as soon
+   as the device is signed in. */
 const crypto = require('node:crypto');
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
@@ -21,12 +34,25 @@ function mountRemoteAccessRoutes({ api, dataDir, adminHash, limiter, hashPasswor
   hashPassword = hashPassword || sha512crypt;
   const statusFile = path.join(dataDir, 'remote-access-status.json');
   const requestFile = path.join(dataDir, 'remote-access-request.json');
-  const status = () => { try { return JSON.parse(fs.readFileSync(statusFile, 'utf8')); } catch { return null; } };
+  /* Why the mirror could not be read matters, because the two reasons want
+     opposite things said about them. Missing means there is no root helper on
+     this machine — a laptop, a container, somebody's dev box — and "this only
+     works on a Pi" is the truth. Unreadable means the helper is there and ran,
+     and deliberately kept the file root-only because the group it narrows it to
+     was missing: on a Pi, told it isn't one, with the explanation going only to
+     the root helper's journal where no club will ever find it. */
+  function status() {
+    try { return { s: JSON.parse(fs.readFileSync(statusFile, 'utf8')) }; } catch (err) { return { s: null, code: err.code }; }
+  }
+  const unavailable = (code) => (code === 'EACCES' || code === 'EPERM'
+    ? 'Remote access is set up but this dashboard cannot read its state — re-run the PitchTribe installer on this Pi to repair it'
+    : 'Remote access can only be switched on from a Raspberry Pi running PitchTribe');
 
   api.get('/remote-access', (req, res) => {
-    const s = status();
+    const { s, code } = status();
     res.set('Cache-Control', 'no-store').json({
       available: Boolean(s),
+      unavailableReason: s ? null : unavailable(code),
       supportHours: SUPPORT_HOURS,
       supportHoursDefault: SUPPORT_HOURS_DEFAULT,
       status: s && {
@@ -44,7 +70,8 @@ function mountRemoteAccessRoutes({ api, dataDir, adminHash, limiter, hashPasswor
   api.post('/remote-access', (req, res, next) => {
     try {
       const b = req.body || {};
-      if (!status()) throw new v.HttpError(503, 'Remote access can only be switched on from a Raspberry Pi running PitchTribe');
+      const { s, code } = status();
+      if (!s) throw new v.HttpError(503, unavailable(code));
       if (limiter.blocked(req.ip)) throw new v.HttpError(429, 'Too many attempts — wait 15 minutes and try again');
       if (!auth.verifyPassword(String(b.currentPassword || ''), adminHash())) {
         limiter.fail(req.ip);
