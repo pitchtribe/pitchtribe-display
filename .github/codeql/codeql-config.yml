@@ -1,0 +1,57 @@
+name: "PitchTribe display — JavaScript/TypeScript"
+
+# Query selection lives here rather than in the workflow because the order of
+# `queries` and `query-filters` matters: a filter applies to the query set
+# declared above it. Keeping both in one file makes that order explicit.
+queries:
+  # security-extended adds the queries worth having here: path traversal in the
+  # archive and USB paths, and command injection around `nft`, `useradd` and
+  # `mount`.
+  - uses: security-extended
+
+# ---------------------------------------------------------------------------
+# Paths excluded from analysis
+# ---------------------------------------------------------------------------
+# Tests deliberately do unsafe-looking things: stat a temp path they created a
+# line earlier, trust a self-signed certificate, assert that a URL contains a
+# host. Nothing attacker-controlled reaches a unit test and nobody races one,
+# so every alert raised in these trees was noise (13 of the 35 standing on
+# main). Excluding them keeps the Security tab meaningful.
+paths-ignore:
+  - app/test
+  - signage-server/test
+  # Build-time docs generator, run on repo files by a developer on their own
+  # machine. No untrusted writer to race.
+  - scripts/docs-build.mjs
+
+# ---------------------------------------------------------------------------
+# Rules excluded repo-wide, with reasons
+# ---------------------------------------------------------------------------
+# Only rules whose *every* finding here is a structural false positive are
+# listed. A rule that merely happens to be wrong once is left on and the single
+# alert is dismissed in the Security tab instead, so the rule keeps guarding
+# new code. See .github/codeql/triage.md.
+query-filters:
+  # Nine alerts, no true positives. CodeQL cannot see this deployment: the
+  # dashboard is password-gated and bound to the club LAN, and the two surfaces
+  # that actually check a credential or accept guest input are already limited
+  # (`limiter.blocked(req.ip)` in remote-access-routes.js, 10/min/IP on the
+  # portal's `/accept`). The rest are static assets on fixed paths and an
+  # auth-status probe with nothing to brute-force. A guest already on the guest
+  # LAN can hammer any service on it; rate-limiting a stylesheet changes
+  # nothing.
+  #
+  # Cost of this exclusion, stated plainly: a genuinely unlimited credential
+  # route added later would not be flagged. That is accepted because the rule
+  # could not distinguish one from a favicon here anyway.
+  - exclude:
+      id: js/missing-rate-limiting
+
+  # Four alerts, all the designed behaviour of the product. "Reads a file and
+  # sends it over HTTP" is what a signage push target *is*: `pushTargets` and
+  # the ESPN league list both come from the operator's own config file, so this
+  # is config-driven egress to a destination the operator chose, not SSRF.
+  # Narrowing by path instead would mean ignoring push.js and espn.js entirely
+  # and losing every other rule on them, which is the worse trade.
+  - exclude:
+      id: js/file-access-to-http
