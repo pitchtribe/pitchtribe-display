@@ -1,0 +1,19 @@
+{
+  "name": "pitchtribe-promo-capture-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Builds the Ashworth Rovers FC demo content and records the PitchTribe player and dashboard for the promo video.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "seed": "node seed.js",
+    "capture": "node capture.js",
+    "install-browser": "playwright install chromium"
+  },
+  "devDependencies": {
+    "ffmpeg-static": "^5.3.0",
+    "playwright": "^1.65.0"
+  }
+}

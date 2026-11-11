@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Ashworth Rovers FC — a fictional club invented for the PitchTribe promo video.
+  Drawn from scratch for this project; no real club, league or badge is referenced.
+  Licence: MIT, same as the repository. Green #157a3b, white #ffffff.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 240" width="200" height="240" role="img" aria-label="Ashworth Rovers FC crest">
+  <defs>
+    <clipPath id="shield-clip">
+      <path d="M100 8 L186 34 V124 C186 176 150 212 100 232 C50 212 14 176 14 124 V34 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Shield -->
+  <path d="M100 8 L186 34 V124 C186 176 150 212 100 232 C50 212 14 176 14 124 V34 Z" fill="#157a3b"/>
+
+  <!-- Green and white hoops, clipped to the shield -->
+  <g clip-path="url(#shield-clip)">
+    <rect x="0" y="92" width="200" height="22" fill="#ffffff"/>
+    <rect x="0" y="136" width="200" height="22" fill="#ffffff"/>
+    <rect x="0" y="180" width="200" height="22" fill="#ffffff"/>
+  </g>
+
+  <!-- Top band with the initials -->
+  <g clip-path="url(#shield-clip)">
+    <rect x="0" y="8" width="200" height="56" fill="#ffffff"/>
+  </g>
+  <text x="100" y="50" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="800" fill="#157a3b" letter-spacing="3">ARFC</text>
+
+  <!-- Football, drawn from circles and a pentagon -->
+  <circle cx="100" cy="124" r="34" fill="#ffffff" stroke="#157a3b" stroke-width="4"/>
+  <polygon points="100,106 117,118 110,138 90,138 83,118" fill="#157a3b"/>
+  <line x1="100" y1="106" x2="100" y2="92" stroke="#157a3b" stroke-width="4" stroke-linecap="round"/>
+  <line x1="117" y1="118" x2="131" y2="113" stroke="#157a3b" stroke-width="4" stroke-linecap="round"/>
+  <line x1="110" y1="138" x2="119" y2="150" stroke="#157a3b" stroke-width="4" stroke-linecap="round"/>
+  <line x1="90" y1="138" x2="81" y2="150" stroke="#157a3b" stroke-width="4" stroke-linecap="round"/>
+  <line x1="83" y1="118" x2="69" y2="113" stroke="#157a3b" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Founded year on the lower hoop -->
+  <text x="100" y="197" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#157a3b">EST 1921</text>
+
+  <!-- Outline -->
+  <path d="M100 8 L186 34 V124 C186 176 150 212 100 232 C50 212 14 176 14 124 V34 Z" fill="none" stroke="#0c4f26" stroke-width="5" stroke-linejoin="round"/>
+</svg>
