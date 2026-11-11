@@ -39,8 +39,17 @@ const FPS = Number(process.env.FPS || 60);
 const OUT = path.resolve(process.env.OUT || path.join(__dirname, 'out'));
 const seed = JSON.parse(fs.readFileSync(path.join(__dirname, 'out', 'seed.json'), 'utf8'));
 
+// Headless Chromium stops producing frames for a page with nothing moving on
+// it, and a CSS transition starting on such a page wedges the screenshot call.
+// A 1 px, 1% opacity dot that never stops animating keeps the compositor awake.
+const KEEPALIVE_CSS = `
+  @keyframes pt-keepalive { to { transform: translateX(1px); } }
+  body::after { content: ""; position: fixed; left: 0; top: 0; width: 1px; height: 1px; background: #000; opacity: 0.01; pointer-events: none; animation: pt-keepalive 1s linear infinite; }
+`;
+
 // Hide third-party club crests and the mouse cursor in player captures.
 const PLAYER_CSS = `
+  ${KEEPALIVE_CSS}
   html, body, * { cursor: none !important; }
   ${process.env.KEEP_LOGOS ? '' : '.score-row .logo { display: none !important; }'}
 `;
@@ -196,6 +205,11 @@ async function ensurePlaylist(context, name, rows, extras = {}) {
 }
 
 async function playerPage(context, url, size) {
+  // A registered screen (not preview) opens a Server-Sent Events stream for
+  // push updates. It never settles, so under "pause while fetches pending" it
+  // would stall every frame. Answer 204, which tells EventSource to stop for
+  // good; the player's 60 s poll still works and nothing changes mid-capture.
+  await context.route('**/api/player/*/events', (route) => route.fulfill({ status: 204 }));
   const sp = await SteppedPage.open(context, size);
   await sp.freeze();
   await sp.page.goto(url, { waitUntil: 'commit' });
@@ -288,7 +302,7 @@ async function shotDashboard(browser) {
   await sp.freeze();
   await page.goto(`${BASE}/admin/#/playlists/${seed.playlists.clubhouse}`, { waitUntil: 'commit' });
   await sp.advance(1500);
-  await page.addStyleTag({ content: 'html, body, * { cursor: none !important; }' });
+  await page.addStyleTag({ content: `${KEEPALIVE_CSS} html, body, * { cursor: none !important; }` });
   await page.waitForSelector('.items .item', { timeout: 15000 });
 
   const enc = encoder(file);
@@ -375,7 +389,7 @@ async function shotWifi(browser) {
   await sp.freeze();
   await sp.page.goto(`${BASE}/api/portal/preview`, { waitUntil: 'commit' });
   await sp.advance(1500);
-  await sp.page.addStyleTag({ content: 'html, body, * { cursor: none !important; }' });
+  await sp.page.addStyleTag({ content: `${KEEPALIVE_CSS} html, body, * { cursor: none !important; }` });
   fs.writeFileSync(png, await sp.screenshot());
   const enc = encoder(webm);
   await sp.run(enc, 5);
