@@ -29,8 +29,9 @@ paths-ignore:
 # ---------------------------------------------------------------------------
 # Only rules whose *every* finding here is a structural false positive are
 # listed. A rule that merely happens to be wrong once is left on and the single
-# alert is dismissed in the Security tab instead, so the rule keeps guarding
-# new code. See .github/codeql/triage.md.
+# alert is left open, with its assessment recorded in .github/codeql/triage.md,
+# so the rule keeps guarding new code. Nine alerts stand on main for exactly
+# that reason: that is the intended steady state, not a backlog.
 query-filters:
   # Nine alerts, no true positives. CodeQL cannot see this deployment: the
   # dashboard is password-gated and bound to the club LAN, and the two surfaces
