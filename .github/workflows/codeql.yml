@@ -32,10 +32,9 @@ jobs:
         uses: github/codeql-action/init@9418214df1f2c4b8128c770156c409013b07d6b9 # v3
         with:
           languages: javascript-typescript
-          # security-extended adds the queries worth having here: path traversal
-          # in the archive and USB paths, and command injection around `nft`,
-          # `useradd` and `mount`.
-          queries: security-extended
+          # Query suite, ignored paths and the rules we exclude (with reasons)
+          # all live in the config file.
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Analyse
         uses: github/codeql-action/analyze@9418214df1f2c4b8128c770156c409013b07d6b9 # v3
