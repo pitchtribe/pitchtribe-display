@@ -59,6 +59,7 @@ const HERO = [
 const HERO_HOLD = 8;
 const HERO_CLIP = 6;
 const HERO_OFFSET = 1;
+const WATCHDOG_MS = 20000;
 
 // ----------------------------------------------------------------- helpers
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
@@ -84,9 +85,13 @@ function encoder(file, { width, height, transpose } = {}) {
     proc.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code} for ${file}`))));
     proc.on('error', reject);
   });
+  let exited = false;
+  done.catch(() => {}).finally(() => { exited = true; });
+  proc.stdin.on('error', () => {}); // a dead ffmpeg is reported by `done`, not an EPIPE throw
   return {
     write(buf) {
-      if (!proc.stdin.write(buf)) return new Promise((r) => proc.stdin.once('drain', r));
+      if (exited) return done;
+      if (!proc.stdin.write(buf)) return Promise.race([new Promise((r) => proc.stdin.once('drain', r)), done]);
       return Promise.resolve();
     },
     async end() { proc.stdin.end(); await done; },
@@ -114,20 +119,43 @@ class SteppedPage {
     await page.setViewportSize({ width, height });
     const cdp = await context.newCDPSession(page);
     await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
-    return new SteppedPage(page, cdp);
+    const sp = new SteppedPage(page, cdp);
+    // Track in-flight requests so a stalled frame can say what it waited on.
+    sp.inflight = new Map();
+    page.on('request', (r) => sp.inflight.set(r, r.url()));
+    for (const ev of ['requestfinished', 'requestfailed']) page.on(ev, (r) => sp.inflight.delete(r));
+    return sp;
   }
   /** Freeze the clock at the current real time. Call before goto(). */
   async freeze() {
     await this.cdp.send('Emulation.setVirtualTimePolicy', { policy: 'pause', initialVirtualTime: Date.now() / 1000 });
   }
-  /** Let virtual time run until `ms` have passed and the network is idle. */
+  /** Let virtual time run until `ms` have passed and the network is idle.
+      If a fetch never settles (watchdog), carry on with the clock anyway so a
+      stuck feed costs one log line rather than the whole capture. */
   async advance(ms) {
-    const expired = new Promise((resolve) => this.cdp.once('Emulation.virtualTimeBudgetExpired', resolve));
-    await this.cdp.send('Emulation.setVirtualTimePolicy', { policy: 'pauseIfNetworkFetchesPending', budget: ms, maxVirtualTimeTaskStarvationCount: 100000 });
-    await expired;
+    const budgetExpired = (policy) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`virtual time stalled (${policy}); in flight: ${[...this.inflight.values()].join(', ') || 'nothing'}`)), WATCHDOG_MS);
+      this.cdp.once('Emulation.virtualTimeBudgetExpired', () => { clearTimeout(timer); resolve(); });
+      this.cdp.send('Emulation.setVirtualTimePolicy', { policy, budget: ms, maxVirtualTimeTaskStarvationCount: 100000 }).catch(reject);
+    });
+    try {
+      await budgetExpired('pauseIfNetworkFetchesPending');
+    } catch (err) {
+      log('warning:', err.message);
+      await budgetExpired('advance');
+    }
   }
   async screenshot() {
-    const { data } = await this.cdp.send('Page.captureScreenshot', { format: 'png', optimizeForSpeed: true });
+    const shot = () => this.cdp.send('Page.captureScreenshot', { format: 'png', optimizeForSpeed: true });
+    const timeout = () => new Promise((_, reject) => setTimeout(() => reject(new Error('screenshot stalled')), WATCHDOG_MS));
+    let data;
+    try {
+      ({ data } = await Promise.race([shot(), timeout()]));
+    } catch (err) {
+      log('warning:', err.message, '- retrying once');
+      ({ data } = await Promise.race([shot(), timeout()]));
+    }
     return Buffer.from(data, 'base64');
   }
   /** Advance one frame, grab it. */
