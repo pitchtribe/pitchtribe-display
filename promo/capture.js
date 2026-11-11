@@ -129,6 +129,9 @@ class SteppedPage {
     const cdp = await context.newCDPSession(page);
     await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
     const sp = new SteppedPage(page, cdp);
+    page.on('crash', () => log('warning: page crashed'));
+    page.on('close', () => log('page closed'));
+    page.on('popup', (p) => log('popup opened:', p.url()));
     // Track in-flight requests so a stalled frame can say what it waited on.
     sp.inflight = new Map();
     page.on('request', (r) => sp.inflight.set(r, r.url()));
@@ -307,32 +310,70 @@ async function shotDashboard(browser) {
 
   const enc = encoder(file);
   const rows = () => page.locator('.items .item');
+  // Two rules for input under paused virtual time:
+  // 1. Locator actions (click, hover, scrollIntoViewIfNeeded) wait for the
+  //    element to be "stable" across two animation frames, which never come,
+  //    so all input goes through page.mouse / page.keyboard on measured boxes.
+  // 2. Chromium hands input to the page on the next BeginFrame, and here a
+  //    BeginFrame only happens when we take a screenshot. So each event is
+  //    fired, then frames are captured until it is acknowledged. A plain move
+  //    needs one frame; the move that starts an HTML5 drag needs several
+  //    (Playwright intercepts the drag, then sends dragEnter and waits again).
+  context.setDefaultTimeout(15000);
+  const INPUT_FRAMES_MAX = FPS * 3;
+  const input = async (promise) => {
+    let state = 'pending';
+    let failed;
+    promise.then(() => { state = 'done'; }, (err) => { state = 'done'; failed = err; });
+    for (let i = 0; state === 'pending'; i++) {
+      if (i >= INPUT_FRAMES_MAX) throw new Error(`input not acknowledged after ${INPUT_FRAMES_MAX} frames`);
+      await sp.step(enc);
+      await new Promise((r) => setImmediate(r)); // let the acknowledgement land
+    }
+    if (failed) throw failed;
+  };
+  const centre = async (loc) => {
+    // A programmatic scroll is answered after the next frame, so it goes
+    // through input() like a pointer event would.
+    await input(loc.evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' })));
+    const b = await loc.boundingBox();
+    if (!b) throw new Error('element has no box');
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  };
+  const tap = async (loc) => {
+    const c = await centre(loc);
+    await input(page.mouse.move(c.x, c.y));
+    await input(page.mouse.down());
+    await input(page.mouse.up());
+  };
 
   // Beat 1 (0-1.5 s): hold on the playlist.
+  log('  beat 1: hold');
   await sp.run(enc, 1.5);
 
   // Beat 2: drag the Quiz night notice (row 2) above the Bar & Kitchen menu (row 1).
+  log('  beat 2: drag');
   const from = rows().nth(1);
   const to = rows().nth(0);
   const grip = from.locator('.grip');
   const g = await grip.boundingBox();
   const t = await to.boundingBox();
-  await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
-  await page.mouse.down();
+  if (!g || !t) throw new Error('playlist rows have no box');
+  await input(page.mouse.move(g.x + g.width / 2, g.y + g.height / 2));
+  await input(page.mouse.down());
   await sp.run(enc, 0.3);
   const steps = 24;
   for (let i = 1; i <= steps; i++) {
     const y = g.y + g.height / 2 + ((t.y + 8) - (g.y + g.height / 2)) * (i / steps);
-    await page.mouse.move(g.x + g.width / 2, y);
-    await sp.step(enc);
+    await input(page.mouse.move(g.x + g.width / 2, y));
   }
   await sp.run(enc, 0.3);
-  await page.mouse.up();
+  await input(page.mouse.up());
   await sp.run(enc, 0.2);
   // Chromium's synthetic drag does not always complete HTML5 drag-and-drop in
   // a stepped page; if the order did not change, finish the move with the
   // product's own drop handler so the screen shows the real result.
-  const firstName = async () => rows().nth(0).locator('strong').textContent();
+  const firstName = async () => rows().nth(0).locator('.item-info > strong').textContent();
   if ((await firstName()) !== 'Promo — Quiz night') {
     await page.evaluate(() => {
       const items = document.querySelectorAll('.items .item');
@@ -346,25 +387,27 @@ async function shotDashboard(browser) {
   await sp.run(enc, 1.2);
 
   // Beat 3: change the seconds field on the (now second) row from 10 to 15.
+  log('  beat 3: duration 10 -> 15');
   const dur = rows().nth(1).locator('.dur input');
-  await dur.scrollIntoViewIfNeeded();
-  await dur.click();
+  await tap(dur);
   await sp.run(enc, 0.4);
-  await page.keyboard.press('Control+A');
-  await page.keyboard.type('15', { delay: 0 });
+  await input(page.keyboard.press('Control+A'));
+  for (const ch of '15') await input(page.keyboard.press(ch));
   await sp.run(enc, 1.0);
 
   // Beat 4: save, so the "Saved" state and the Live now badge are on screen together.
-  await page.locator('button.btn.primary', { hasText: 'Save changes' }).click();
+  log('  beat 4: save');
+  await tap(page.locator('button.btn.primary', { hasText: 'Save changes' }));
   await sp.run(enc, 1.5);
 
   // Beat 5: tap Preview (it opens a new tab; the film cuts to the TV here).
+  log('  beat 5: preview');
   const preview = page.locator('a.btn', { hasText: 'Preview' });
-  await preview.scrollIntoViewIfNeeded();
+  const c = await centre(preview);
   await sp.run(enc, 0.3);
-  await preview.hover();
+  await input(page.mouse.move(c.x, c.y));
   await sp.run(enc, 0.2);
-  await preview.click({ noWaitAfter: true });
+  await tap(preview);
   await sp.run(enc, 1.0);
   await enc.end();
 

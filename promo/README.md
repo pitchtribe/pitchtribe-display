@@ -70,6 +70,24 @@ drag-and-drop does not always complete under synthetic input, so if the order
 has not changed after the drag the script fires the product's own drop handler
 so the screen shows the real result.
 
+Three things to know when changing the script:
+
+- Playwright locator actions (`click`, `hover`, `scrollIntoViewIfNeeded`) wait
+  for the element to be stable across two animation frames. Animation frames
+  never fire while virtual time is paused, so those calls hang. Use
+  `page.mouse` and `page.keyboard` on measured bounding boxes instead.
+- Chromium delivers input to the page on the next BeginFrame, and under paused
+  virtual time a BeginFrame only happens when a screenshot is taken. Awaiting
+  a mouse or key event before capturing the next frame is a deadlock. The
+  `input()` helper in the dashboard shot fires the event, then captures frames
+  until it is acknowledged (a plain move takes one frame, the move that starts
+  an HTML5 drag takes several, and so does a programmatic `scrollIntoView`).
+  It gives up after 3 s of frames so a stuck input fails instead of hanging.
+- A registered screen (not preview) opens a Server-Sent Events stream that
+  never settles. The script answers it with 204 so the clock is not held up.
+- Headless Chromium stops drawing a page with nothing moving on it, which can
+  wedge a screenshot mid-transition. A 1 px animated dot keeps it drawing.
+
 ## Backup
 
 Settings → Backups → **Download backup** in the dashboard, or
