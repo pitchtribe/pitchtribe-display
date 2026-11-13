@@ -2,7 +2,7 @@
   "name": "pitchtribe-promo-capture-kit",
   "version": "0.1.0",
   "private": true,
-  "description": "Builds the Ashworth Rovers FC demo content and records the PitchTribe player and dashboard for the promo video.",
+  "description": "Builds the Upper Caldecote FC demo content and records the PitchTribe player and dashboard for the promo video.",
   "license": "MIT",
   "engines": {
     "node": ">=20"
@@ -10,6 +10,7 @@
   "scripts": {
     "seed": "node seed.js",
     "capture": "node capture.js",
+    "backup": "node backup.js",
     "install-browser": "playwright install chromium"
   },
   "devDependencies": {

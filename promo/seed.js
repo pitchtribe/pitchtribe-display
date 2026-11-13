@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 'use strict';
-/* Builds the "Promo reel" demo content for Ashworth Rovers FC on a running
-   PitchTribe instance, through the same HTTP API the dashboard uses.
+/* Builds the "Promo reel" demo content for the fictional club named in club.js
+   (Upper Caldecote FC) on a running PitchTribe instance, through the same HTTP
+   API the dashboard uses.
 
    Usage:
      cd app && DATA_DIR=/tmp/promo-data PORT=8090 npm start     (in another shell)
@@ -19,8 +20,9 @@ const path = require('node:path');
 
 const BASE = (process.env.BASE || 'http://127.0.0.1:8090').replace(/\/$/, '');
 const PASSWORD = process.env.PASSWORD || 'promo-reel-2026';
-const CLUB = 'Ashworth Rovers FC';
+const { CLUB, SHORT, CREST_FILE, crestSvg } = require('./club');
 const OUT_DIR = path.join(__dirname, 'out');
+const CREST_PATH = path.join(__dirname, 'crest', CREST_FILE);
 
 // ------------------------------------------------------------------ content
 // Everything below is invented for the film. No real club, player or venue.
@@ -51,10 +53,10 @@ const NOTICES = {
 // Four fixtures: two already played (they hide themselves on screen), then the
 // next match with the countdown, then one more. Saturdays in 2026.
 const FIXTURES = [
-  '2026-10-31 15:00 | Ashworth Rovers v Netherby Athletic | League | Home',
-  '2026-11-07 14:00 | Carrow Heath v Ashworth Rovers | County Cup | Away',
-  '2026-11-14 15:00 | Ashworth Rovers v Hollin Moor Town | League | Home',
-  '2026-11-21 14:30 | Ravensmere United v Ashworth Rovers | League | Away',
+  `2026-10-31 15:00 | ${SHORT} v Netherby Athletic | League | Home`,
+  `2026-11-07 14:00 | Carrow Heath v ${SHORT} | County Cup | Away`,
+  `2026-11-14 15:00 | ${SHORT} v Hollin Moor Town | League | Home`,
+  `2026-11-21 14:30 | Ravensmere United v ${SHORT} | League | Away`,
 ].join('\n');
 
 const MENU = [
@@ -96,11 +98,11 @@ const CLUBHOUSE = [
 // key. The heading shown on screen is the custom one below.
 const BUS_STOP = { id: '490000266G', name: 'Buses from the ground' };
 
-// Weather for "the ground": Open-Meteo, no key. Pennine foothills.
-const WEATHER = { place: 'Ashworth Park', latitude: 53.64, longitude: -2.22, windUnit: 'mph', provider: 'openmeteo' };
+// Weather for "the ground": Open-Meteo, no key. Upper Caldecote, Bedfordshire.
+const WEATHER = { place: SHORT, latitude: 52.08, longitude: -0.29, windUnit: 'mph', provider: 'openmeteo' };
 
 const PORTAL = {
-  ssid: 'Ashworth Rovers Guest',
+  ssid: `${SHORT} Guest`,
   headline: 'Welcome to {club}',
   message: 'Free Wi-Fi for members, players and visitors.\n\nEnjoy the game, and mind the language near the junior section.',
   accent: '#157a3b',
@@ -161,14 +163,20 @@ async function upsertPlaylist(state, name, fields) {
   return put(`/api/playlists/${created.id}`, { name, ...fields });
 }
 
+/** Write the crest from club.js (so its text follows CLUB) and upload it. */
 async function uploadCrest(state) {
-  const name = 'Ashworth Rovers crest';
+  const svg = crestSvg();
+  fs.mkdirSync(path.dirname(CREST_PATH), { recursive: true });
+  if (!fs.existsSync(CREST_PATH) || fs.readFileSync(CREST_PATH, 'utf8') !== svg) {
+    fs.writeFileSync(CREST_PATH, svg);
+    console.log(`Wrote ${path.relative(process.cwd(), CREST_PATH)}`);
+  }
+  const name = `${SHORT} crest`;
   const existing = state.assets.find((a) => a.name === name && a.type === 'image');
   if (existing) return existing;
-  const svg = fs.readFileSync(path.join(__dirname, 'crest', 'ashworth-rovers-crest.svg'));
-  return call('POST', '/api/assets/upload', new Uint8Array(svg), {
+  return call('POST', '/api/assets/upload', new Uint8Array(Buffer.from(svg)), {
     'content-type': 'image/svg+xml',
-    'x-filename': encodeURIComponent('Ashworth Rovers crest.svg'),
+    'x-filename': encodeURIComponent(`${name}.svg`),
   });
 }
 
