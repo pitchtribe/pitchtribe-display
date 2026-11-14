@@ -1,0 +1,70 @@
+{
+  "events": [
+    {
+      "id": "off",
+      "start": "2026-11-07T14:00:00Z",
+      "status": "Postponed — pitch unplayable",
+      "home": "Our Club 1st XI",
+      "away": "Riverside FC",
+      "venue": "Home Ground"
+    },
+    {
+      "id": "won",
+      "start": "2026-10-31T15:00:00Z",
+      "status": "Final",
+      "home": "Hilltop Town",
+      "away": "Our Club 1st XI",
+      "homeScore": 1,
+      "awayScore": 3,
+      "venue": "Hilltop Park"
+    },
+    {
+      "id": "awaiting",
+      "start": "2026-11-07T14:00:00Z",
+      "status": "Played — result to follow",
+      "home": "Our Club Reserves",
+      "away": "Cranfield United",
+      "venue": "Home Ground"
+    },
+    {
+      "id": "fixture",
+      "start": "2026-11-14T14:00:00Z",
+      "status": "Fixture",
+      "home": "Our Club 1st XI",
+      "away": "Cranfield United",
+      "homeScore": 0,
+      "awayScore": 0,
+      "venue": "Home Ground"
+    },
+    {
+      "id": "walkover",
+      "start": "2026-10-24T15:00:00Z",
+      "status": "Walkover awarded to Our Club",
+      "home": "Our Club 1st XI",
+      "away": "Shefford Rovers",
+      "homeScore": 3,
+      "awayScore": 0,
+      "venue": "Home Ground"
+    },
+    {
+      "id": "mystery",
+      "start": "2026-10-17T15:00:00Z",
+      "status": "Unavoidable clash",
+      "home": "Our Club 1st XI",
+      "away": "Potton Wanderers",
+      "homeScore": 2,
+      "awayScore": 2,
+      "venue": "Home Ground"
+    },
+    {
+      "id": "playing",
+      "start": "2026-11-07T15:00:00Z",
+      "status": "live",
+      "home": "Our Club 'A'",
+      "away": "Sandy Town",
+      "homeScore": 1,
+      "awayScore": 0,
+      "venue": "Home Ground"
+    }
+  ]
+}
