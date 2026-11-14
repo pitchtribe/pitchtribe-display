@@ -12,10 +12,12 @@ PROFILE="${HOME}/.config/pitchtribe-chromium"
 mkdir -p "$PROFILE"
 
 # Wait (up to ~60 s) for the server so the screen doesn't open on an error page.
-# The player retries by itself too, so carry on regardless.
-base="${URL%%/player*}"
+# The page retries by itself too, so carry on regardless. Both health paths are tried
+# because this URL may be the app's player page or the signage server's clubhouse wall.
+origin="$(printf '%s' "$URL" | sed -E 's#^([a-z]+://[^/]+).*#\1#')"
 for _ in $(seq 1 30); do
-  curl -fsS -o /dev/null --max-time 2 "${base}/healthz" && break
+  curl -fsS -o /dev/null --max-time 2 "${origin}/healthz" && break
+  curl -fsS -o /dev/null --max-time 2 "${origin}/api/health" && break
   sleep 2
 done
 

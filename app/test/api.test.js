@@ -6,9 +6,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { createApp } = require('../lib/app');
 
-const espnFixture = JSON.parse(
-  fs.readFileSync(path.join(__dirname, '..', '..', 'signage-server', 'test', 'fixtures', 'espn-eng1.json'), 'utf8')
-);
+const { espnFixtureAroundNow } = require('./espn-fixture');
+
 const fakeEspn = async (url) => {
   if (String(url).startsWith('https://api.open-meteo.com')) {
     return { ok: true, status: 200, json: async () => ({
@@ -16,7 +15,7 @@ const fakeEspn = async (url) => {
       daily: { time: ['2026-11-03', '2026-11-04'], weather_code: [2, 61], temperature_2m_max: [10, 9], temperature_2m_min: [4, 5], precipitation_probability_max: [10, 70] },
     }) };
   }
-  return { ok: true, status: 200, json: async () => espnFixture };
+  return { ok: true, status: 200, json: async () => espnFixtureAroundNow() };
 };
 
 async function startServer(extra = {}) {

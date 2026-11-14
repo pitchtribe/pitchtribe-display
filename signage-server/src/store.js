@@ -2,8 +2,9 @@ import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
 import { fetchEspn } from './sources/espn.js';
 import { fetchManual } from './sources/manual.js';
+import { fetchFulltime } from './sources/fulltime.js';
 
-const SOURCES = { espn: fetchEspn, manual: fetchManual };
+const SOURCES = { espn: fetchEspn, manual: fetchManual, fulltime: fetchFulltime };
 const STATUS_ORDER = { live: 0, final: 1, scheduled: 2, postponed: 3 };
 
 /**
@@ -16,7 +17,7 @@ export class Store extends EventEmitter {
     this.config = config;
     this.fetchImpl = fetchImpl;
     this.log = log;
-    this.leagues = new Map(); // key -> { key, name, events, error, fetchedAt }
+    this.leagues = new Map(); // key -> { key, name, events, standings, club, credit, error, fetchedAt }
     this.updatedAt = null;
     this.hash = '';
     this.timer = null;
@@ -34,7 +35,14 @@ export class Store extends EventEmitter {
   async #refresh(onlyKey) {
     const targets = this.config.leagues.filter((l) => !onlyKey || l.key === onlyKey);
     if (onlyKey && !targets.length) throw new Error(`Unknown league "${onlyKey}"`);
-    const opts = { fetchImpl: this.fetchImpl, daysBack: this.config.daysBack, daysAhead: this.config.daysAhead };
+    // `refreshMinutes` is one timer for every league, tuned for live professional scores.
+    // A source that must be read less often than that (the Full-Time feed: once a week, by
+    // the terms the route decision was bought with) keeps its own clock and returns its
+    // cached payload in between. See src/sources/fulltime.js.
+    const opts = {
+      fetchImpl: this.fetchImpl, daysBack: this.config.daysBack, daysAhead: this.config.daysAhead,
+      tz: this.config.timezone, log: this.log,
+    };
 
     await Promise.all(targets.map(async (league) => {
       const source = SOURCES[league.source ?? 'espn'];
@@ -48,13 +56,18 @@ export class Store extends EventEmitter {
         // Keep the last good data on screen; just record the error.
         this.leagues.set(league.key, {
           key: league.key, name: league.name ?? league.key, events: prev?.events ?? [],
+          standings: prev?.standings ?? null, club: prev?.club ?? null, credit: prev?.credit ?? '',
           fetchedAt: prev?.fetchedAt ?? null, error: err.message,
         });
       }
     }));
 
     const snap = this.snapshot();
-    const hash = createHash('sha1').update(JSON.stringify(snap.leagues.map((l) => [l.key, l.events]))).digest('hex');
+    // The table counts as data: a league that only reshuffled its standings has still
+    // changed, and a screen showing last week's table has to be told to redraw.
+    const hash = createHash('sha1')
+      .update(JSON.stringify(snap.leagues.map((l) => [l.key, l.events, l.standings ?? null])))
+      .digest('hex');
     const changed = hash !== this.hash;
     this.hash = hash;
     this.updatedAt = new Date().toISOString();
@@ -110,10 +123,13 @@ export class Store extends EventEmitter {
   }
 }
 
-/** Live first, then most recent results, then soonest fixtures, then postponed. */
+/** Live first, then most recent results, then soonest fixtures, then postponed.
+    An unrecognised status sorts last rather than making the comparator NaN — one
+    `undefined - number` is enough to scramble the whole display order. */
 export function sortEvents(events) {
+  const rank = (e) => STATUS_ORDER[e?.status] ?? Object.keys(STATUS_ORDER).length;
   return [...events].sort((a, b) => {
-    const s = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+    const s = rank(a) - rank(b);
     if (s) return s;
     const ta = Date.parse(a.start) || 0;
     const tb = Date.parse(b.start) || 0;
