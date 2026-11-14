@@ -89,8 +89,14 @@ jobs:
   image:
     name: SD card image
     needs: tag
+    # A called workflow can only use what its caller grants it, and image.yml signs
+    # the released image — so these three have to be listed here as well as there.
+    # Granting fewer than it asks for does not warn or skip the signing: the whole
+    # run fails before any job starts. See release-caldecote.yml for the full note.
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/image.yml
     with:
       release_tag: ${{ inputs.version }}
