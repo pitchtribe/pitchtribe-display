@@ -246,6 +246,23 @@ A release is a tag on `main` plus the SD card image attached to it, which the we
 
 Publishing a release by hand on GitHub still works too: the tag push starts the same image build.
 
+### Club lines
+
+A **club line** is a long-lived branch carrying one club's build on top of the base system, released
+on its own numbering, so that work for one building cannot destabilise the system everybody else
+downloads. `caldecote` is the first — see `caldecote/README.md` **on that branch** for what is club
+and what is base, and how base releases are merged forward into it.
+
+- **To release a club line:** **Actions → Release (Caldecote line) → Run workflow**, version like
+  `0.0.1`. It tags that branch `caldecote-0.0.1`, checks the number against `caldecote/release.json`
+  on the branch, and builds that line's own SD card image.
+- **A club release is always a prerelease.** The download links above resolve `/releases/latest`,
+  which GitHub omits prereleases from — so publishing one village's build must never move the link a
+  stranger clicks. `release-caldecote.yml` and `image.yml` both enforce it; don't unpick it.
+- `app/package.json` is the **base system's** version and the club line does not touch it. A club
+  line keeps its number in `caldecote/release.json`, a file the base never edits, so merging a base
+  release forward never lands on a version conflict.
+
 ## Conventions worth knowing
 
 These are the three things that have caused real defects here.
