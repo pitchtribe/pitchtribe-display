@@ -26,20 +26,32 @@ That line is not always obvious, so it is worth writing down where it currently 
 | **bug fixes in shared code, even when found doing club work** | slide design, type sizes, opening hours, the countdown |
 
 The last row is the one people get wrong. A defect in `signage-server/src/store.js` or
-`src/sources/manual.js` is a defect in the base system — it is reaching ESPN installs too — and
-fixing it only here means every other club keeps the bug. **Those go to `main` as their own pull
-request, and arrive back here on the next merge forward.**
+`src/sources/manual.js` is a defect in the base system, and fixing it only here means every other
+club keeps the bug. **Those go to `main` as their own pull request, and arrive back here on the next
+merge forward.**
 
-Two such fixes currently live only on this line, and are owed to the base:
+Two such fixes currently live only on this line. Their severity is not the same, and the difference
+is worth stating rather than lumping them together as "bugs owed to the base":
 
-- **`sortEvents` went `NaN` on an unrecognised status.** `STATUS_ORDER[a.status] -
-  STATUS_ORDER[b.status]` against a four-key map makes one `undefined - number` enough to render the
-  comparator inconsistent and the whole display order meaningless. On the ESPN path as well as this
-  one.
-- **`normalizeStatus` read a whole phrase as `scheduled`.** A league that writes *"Postponed — pitch
-  unplayable"* in one cell matched no single word, and an unmatched status fell through to
-  `scheduled` — which decides whether a published score is shown. `manual` is a base source, so this
-  is a base bug.
+- **`sortEvents` goes `NaN` on an unrecognised status — latent on `main`, not live.**
+  `STATUS_ORDER[a.status] - STATUS_ORDER[b.status]` against a four-key map makes one
+  `undefined - number` enough to render the comparator inconsistent and the whole display order
+  meaningless. On `main` it cannot actually fire: `espn.js`'s `mapStatus` and `main`'s `manual.js`
+  are both total functions onto those four values, so nothing can reach the comparator with a fifth.
+  It is one new source away from being live, which is why the fix here makes the comparator total.
+  Worth back-porting as hardening; do not describe it to anyone as a defect in a shipped install.
+- **An unrecognised status silently becomes `scheduled` — live on `main`.** This line reads the whole
+  phrase: a league that writes *"Postponed — pitch unplayable"* in one cell matched no single word
+  and fell through to `scheduled`, which is what decides whether a published score is shown — so the
+  best slide in the brief came out as a plain fixture with the explanation discarded. `main`'s
+  `manual.js` has the same shape of trap (`STATUSES.has(ev.status) ? ev.status : 'scheduled'`), and
+  there it is genuinely live: a club hand-editing its own JSON gets a silent `scheduled` for anything
+  but the four exact lowercase words. That is a trust-rule-1 failure in the base system today.
+
+The second one is deliberately **not** fixed on `main` yet. Porting this line's richer
+`normalizeStatus` into the base would guarantee a merge-forward conflict in that file, for a source
+only a hand-edited install uses — so it is recorded as a known base defect and PIT-45 holds the
+decision on when to fix it there.
 
 ## What this line is made of
 
