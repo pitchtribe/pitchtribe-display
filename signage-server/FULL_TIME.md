@@ -4,8 +4,11 @@
 league issues to it**, server-side, once a week, cached. **We do not scrape the public Full-Time
 pages.**
 
-**Status:** decided, 14 November 2026. Adapter not yet written — see [What this means in
-code](#what-this-means-in-code).
+**Status:** decided, 14 November 2026. **Not yet built, and not yet needed:** the board decided the
+same day that v1 ships on the [`manual` source](CLUBHOUSE.md) — the club's own file on the card —
+rather than wait for snippet codes nobody has asked for yet. Nothing reads Full-Time today. This
+document stays the standing decision for when it does: the codes are the next thing to ask for, not
+a thing to work around. See [What this means in code](#what-this-means-in-code).
 **Context:** first trial site is Caldecote FC, Bedfordshire County League. ESPN (see
 [DATA_SOURCES.md](DATA_SOURCES.md)) covers professional leagues only and has never heard of a county
 league side, so this is a genuinely new source, not a config change.
@@ -137,3 +140,16 @@ data on the club's wall. Full-Time slides carry a small **"Results from The FA F
 - A league declines to issue codes. Then the fallback is **not** a scraper — it is the existing
   `manual` source, a human typing the week's results into a JSON file, which is honest about what it
   is. Slower, and still not circumvention.
+
+## Where v1 actually went
+
+That fallback is where v1 went, by choice rather than by refusal: **nobody has asked the league for
+codes yet, and the screen did not wait.** The manual source now reads a whole season, a league table
+and the league's own wording, and the clubhouse wall is built on it — see
+[CLUBHOUSE.md](CLUBHOUSE.md).
+
+What that costs, stated where it cannot be mistaken for a win: somebody types in the week's results
+on a Saturday evening. In-scope requirement 1 — *"nobody at the club does anything, ever"* — is the
+one part of the brief v1 does not meet, and the Full-Time feed above is how it gets met. Everything
+the feed would change is already behind one source adapter, so switching is a new file in
+`src/sources/` and a config line, not a rebuild.

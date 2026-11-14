@@ -27,9 +27,11 @@ All live sources need no API key unless noted. Each slide shows the credit line 
 | Live scores | ESPN public scoreboard JSON (unofficial) | **Undocumented; for personal / non-commercial use** | ⚠️ not for commercial use | No |
 | Grassroots results, fixtures & tables | [The FA Full-Time](https://fulltime.thefa.com/) code-snippet feeds | Sanctioned club/league feed, issued per division or team from the Full-Time admin area. **Not an open API, and the public pages must not be scraped** — see [FULL_TIME.md](FULL_TIME.md) | ✅ for the club whose league issued the codes, with the shown credit | **Yes** — a snippet id (`lrcode`) per feed, from the club's own Full-Time login |
 
-**Full-Time is decided but not yet built.** The access route is settled and written down in
-[FULL_TIME.md](FULL_TIME.md); the `fulltime` adapter is in progress and needs one capture of a real
-feed response before it can be trusted. Nothing reads Full-Time today.
+**Full-Time is decided but not yet built, and v1 does not wait for it.** The access route is settled
+and written down in [FULL_TIME.md](FULL_TIME.md), and it still needs snippet codes from a club's own
+Full-Time login plus one capture of a real feed response. **Nothing reads Full-Time today:** v1 ships
+on the club's own file on the card (the `manual` source — see [CLUBHOUSE.md](CLUBHOUSE.md)), which
+needs no provider's permission and no codes.
 
 The bundled packs in `data/widgets/` (jokes, phrases, quiz, trivia, history, countries, emoji) were written for this project and ship under the repository's MIT licence.
 
