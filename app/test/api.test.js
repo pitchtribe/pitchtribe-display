@@ -352,7 +352,10 @@ test('widgets: settings, every kind in manifests, spot-the-ball answer stays sec
   const hidden = r.body.items.find((i) => i.assetId === later.id).data;
   assert.equal(hidden.revealed, false);
   assert.equal(hidden.answer, null);
-  assert.ok(!JSON.stringify(hidden).includes('42.5'), 'exact answer not sent before reveal');
+  // The blur patch is a deliberate near-miss, so it is excluded from the text scan:
+  // scanning it too fails whenever its random offset rounds into '42.5' (1.95% of runs).
+  assert.ok(!JSON.stringify({ ...hidden, patch: null }).includes('42.5'), 'exact answer not sent before reveal');
+  assert.ok(hidden.patch && !(hidden.patch.x === 42.5 && hidden.patch.y === 61), 'the patch is not centred on the ball');
   assert.ok(hidden.patch && Math.abs(hidden.patch.x - 42.5) <= 6 * 0.4 && hidden.patch.r > 6, 'blur patch covers the ball area');
   assert.equal(hidden.src, photo.src);
   const shown = r.body.items.find((i) => i.assetId === past.id).data;
