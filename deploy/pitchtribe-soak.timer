@@ -1,0 +1,15 @@
+[Unit]
+Description=PitchTribe soak sampling (every minute, for the seven-day test)
+
+[Timer]
+# From boot rather than from the last run, so a sample that hangs cannot stop the next
+# one — and so the minute a card comes back after a power cut is itself a sample.
+OnBootSec=30
+OnUnitInactiveSec=1min
+AccuracySec=5s
+# Deliberately not Persistent=: a missing minute during a power cut is evidence, and
+# catching up on it afterwards would erase exactly the thing the soak is looking for.
+Unit=pitchtribe-soak.service
+
+[Install]
+WantedBy=timers.target
