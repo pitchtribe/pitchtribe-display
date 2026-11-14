@@ -110,10 +110,13 @@ export class Store extends EventEmitter {
   }
 }
 
-/** Live first, then most recent results, then soonest fixtures, then postponed. */
+/** Live first, then most recent results, then soonest fixtures, then postponed.
+    An unrecognised status sorts last rather than making the comparator NaN — one
+    `undefined - number` is enough to scramble the whole display order. */
 export function sortEvents(events) {
+  const rank = (e) => STATUS_ORDER[e?.status] ?? Object.keys(STATUS_ORDER).length;
   return [...events].sort((a, b) => {
-    const s = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+    const s = rank(a) - rank(b);
     if (s) return s;
     const ta = Date.parse(a.start) || 0;
     const tb = Date.parse(b.start) || 0;
