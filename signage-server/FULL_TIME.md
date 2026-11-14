@@ -4,11 +4,20 @@
 league issues to it**, server-side, once a week, cached. **We do not scrape the public Full-Time
 pages.**
 
-**Status:** decided, 14 November 2026. **Not yet built, and not yet needed:** the board decided the
-same day that v1 ships on the [`manual` source](CLUBHOUSE.md) — the club's own file on the card —
-rather than wait for snippet codes nobody has asked for yet. Nothing reads Full-Time today. This
-document stays the standing decision for when it does: the codes are the next thing to ask for, not
-a thing to work around. See [What this means in code](#what-this-means-in-code).
+**Status:** decided 14 November 2026, and **built the same day**: `src/sources/fulltime.js`, registered
+in `SOURCES` as `fulltime`. **Switched on nowhere.** v1 ships on the [`manual` source](CLUBHOUSE.md) —
+the club's own file on the card — and the board's answer that afternoon was to **go and ask the league
+for the snippet codes after all**, so the feed is the route out of somebody typing the results in.
+
+Two things stand between the adapter and being trusted, and both are one email away:
+
+1. **Snippet codes** — about four for Caldecote, generated once from a Full-Time login. See
+   [What to ask the league for](#what-to-ask-the-league-for).
+2. **One capture of one real feed response**, because nothing here has met a real feed.
+   `npm run fulltime:capture -- --code=<lrcode>` is that capture. Run it the hour a code arrives.
+
+Until that capture exists, treat the request URL and the payload parsing as **documented guesses** —
+see [What is still a guess](#what-is-still-a-guess). Everything else in the adapter is tested.
 **Context:** first trial site is Caldecote FC, Bedfordshire County League. ESPN (see
 [DATA_SOURCES.md](DATA_SOURCES.md)) covers professional leagues only and has never heard of a county
 league side, so this is a genuinely new source, not a config change.
@@ -77,9 +86,30 @@ nobody at the club doing anything, ever — which is in-scope requirement 1, int
 
 ## What this means in code
 
-The adapter goes in `signage-server/src/sources/fulltime.js` and is registered in `SOURCES` in
-`src/store.js` alongside `espn` and `manual`, returning the documented `{ key, name, events }` shape.
-The existing caching, serving, display and offline-fallback plumbing then comes for free.
+The adapter is `signage-server/src/sources/fulltime.js`, registered in `SOURCES` in `src/store.js`
+alongside `espn` and `manual`, returning the documented `{ key, name, events }` shape plus
+`standings`. The existing caching, serving, display and offline-fallback plumbing comes for free.
+
+Config is a list of snippet codes with what each one is:
+
+```json
+{
+  "key": "club",
+  "source": "fulltime",
+  "name": "Bedfordshire County League",
+  "club": { "name": "Caldecote FC", "aliases": ["Caldecote"] },
+  "refreshHours": 168,
+  "feeds": [
+    { "code": "123456", "kind": "table",   "competition": "Premier Division" },
+    { "code": "123457", "kind": "results", "competition": "Premier Division", "team": "First XI" },
+    { "code": "123458", "kind": "results", "competition": "Division One",     "team": "Reserves" },
+    { "code": "123459", "kind": "results", "competition": "Premier Division" }
+  ]
+}
+```
+
+A feed with no `team` is division-wide — that is what fills "around the division". A feed with a
+`team` says which of the club's sides it is about, because the feed itself does not say.
 
 Three things differ from `espn.js` and are worth knowing before you read the adapter:
 
@@ -94,25 +124,48 @@ Three things differ from `espn.js` and are worth knowing before you read the ada
   than `daysBack: 3`. Note that the window trim lives *inside* `espn.js`, not in the store, so a
   Full-Time adapter can keep a whole season without changing ESPN's behaviour.
 
-**Not yet validated, and it must be before install day:** we have not yet seen a real feed response,
-because that needs a real `lrcode` from the club. Two specific unknowns — the exact payload format
-`cs1.js` returns, and whether the feed host is reachable from the clubhouse (`fulltime-league.thefa.com`
-resolves, but did not answer from our build sandbox, which may be our own egress rather than theirs).
-Both are answered by one capture of one real feed response. Until then the adapter is written against
-this document, not against observed data, and should be treated as unverified.
+## What is still a guess
 
-## The one question to put to the league
+Nobody has handed us a real `lrcode`, so **two things in the adapter are assumptions rather than
+observations**, and both are deliberately confined to one place each so that a wrong guess is cheap:
 
-The snippet grant is plainly intended for a club to redisplay its own data on its own web page, in
-the FA's widget markup. We are going to redisplay the club's own data on the club's own television,
-in our own layout — because the FA's widget is a dense table and our screens have to be read in two
-seconds from six metres across a loud room.
+| Unknown | Where it lives | What a wrong guess costs |
+| --- | --- | --- |
+| The request URL | `feedUrl()` — driven by `endpoint`, `codeParam`, `urlTemplate` in config | A config line, not a release |
+| The payload format | `parsePayload()` — accepts bare JSON, JSONP/assignment, or table markup | Nothing is half-read: an unrecognised body is **refused**, the store keeps the last good data and the error is logged |
 
-We think that is the same permission exercised on a different screen, and gentler on their servers
-than the embed it replaces (one read a week, versus one per page view). But we are not the right
-people to decide that unilaterally, so **the board should tell the league what we are doing when it
-asks for the codes.** Not a blocker — a courtesy that costs one sentence in an email, and the kind of
-thing that is much cheaper to say first than to be asked about later.
+A third unknown is not ours to fix from here: whether the feed host answers from the clubhouse.
+`fulltime-league.thefa.com` resolves, but did not answer from our build sandbox — which is most
+likely our own egress rather than theirs. The capture answers that too, because it is run from a real
+network.
+
+**One capture closes all three.** `npm run fulltime:capture -- --code=<lrcode>` saves the raw body,
+says which of the three branches it took, and prints the matches or the table rows the adapter made of
+it. Then commit the capture under `test/fixtures/`, pin a test to it, and delete the two branches that
+turned out to be fiction.
+
+## What to ask the league for
+
+A club or league administrator generates these from a Full-Time login in a few minutes:
+**Media → Code snippets**, pick the feed type, division and season, and copy the numeric `lrcode` out
+of the embed code it gives back. Caldecote needs roughly four:
+
+| What | Feed type | Scope |
+| --- | --- | --- |
+| The table | Table | Bedfordshire County League **Premier Division** |
+| First XI results & fixtures | Team Fixtures/Results (or Recent Results + Upcoming Fixtures) | Caldecote FC **First XI** |
+| Reserves results & fixtures | Team Fixtures/Results | Caldecote FC **Reserves**, Division One |
+| Around the division | Recent Results | Premier Division, **whole division** |
+
+Send the numeric id of each and which of those four it is — the id alone is not self-describing, and a
+mislabelled code shows the Reserves' results under the First XI's name.
+
+**The courtesy to the league was the board's to handle and the board has it covered** (14 November
+2026). For the record, the thing worth them knowing: the snippet grant plainly intends the FA's widget
+markup on a club web page, and we show the club's own data on the club's own television in our own
+layout, because the FA widget is a dense table and our slides must read in two seconds from six metres.
+One read a week is also gentler on their servers than the embed it replaces, which is one read per page
+view.
 
 ## How it degrades
 
@@ -127,6 +180,14 @@ Per the trust rules, and these are requirements, not nice-to-haves:
 - **Grassroots states survive the trip.** Postponed, abandoned, waterlogged, walkover, points
   deducted. "Postponed — pitch unplayable" is a good slide; a blank 0–0 is a lie. Carry the league's
   own words in `statusText` and never mangle them into a score.
+
+  This one had a real bug in it, found while testing the adapter and fixed in `manual.js` where both
+  sources share the status table: a league that writes *the whole phrase* in the status cell matched
+  no single word, and an unmatched status read as `scheduled` — so the exact phrasing the brief holds
+  up as a good slide came out as a plain fixture with the explanation discarded. A phrase is now read
+  word by word, the word that says something happened to the match wins, and the league's wording is
+  kept verbatim. Wording we still cannot place is logged with the phrase in it, which is how we find
+  out what a real league actually writes.
 
 ## Attribution
 
@@ -143,10 +204,9 @@ data on the club's wall. Full-Time slides carry a small **"Results from The FA F
 
 ## Where v1 actually went
 
-That fallback is where v1 went, by choice rather than by refusal: **nobody has asked the league for
-codes yet, and the screen did not wait.** The manual source now reads a whole season, a league table
-and the league's own wording, and the clubhouse wall is built on it — see
-[CLUBHOUSE.md](CLUBHOUSE.md).
+That fallback is where v1 went, by choice rather than by refusal: **the screen did not wait for
+codes.** The manual source now reads a whole season, a league table and the league's own wording, and
+the clubhouse wall is built on it — see [CLUBHOUSE.md](CLUBHOUSE.md).
 
 What that costs, stated where it cannot be mistaken for a win: somebody types in the week's results
 on a Saturday evening. In-scope requirement 1 — *"nobody at the club does anything, ever"* — is the

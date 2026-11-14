@@ -90,18 +90,55 @@ test('grassroots statuses map onto the four the display sorts on', () => {
   // The league's own wording is what goes on the wall; the status is only for ordering.
   assert.deepEqual(
     normalizeStatus('abandoned', { statusText: 'Abandoned — floodlight failure' }),
-    { status: 'postponed', statusText: 'Abandoned — floodlight failure', awaitingResult: false }
+    { status: 'postponed', statusText: 'Abandoned — floodlight failure', awaitingResult: false, unknown: false }
   );
-  assert.deepEqual(normalizeStatus('waterlogged'), { status: 'postponed', statusText: 'Waterlogged', awaitingResult: false });
-  assert.deepEqual(normalizeStatus('called off'), { status: 'postponed', statusText: 'Called off', awaitingResult: false });
-  assert.deepEqual(normalizeStatus('played', { homeScore: 1, awayScore: 0 }), { status: 'final', statusText: 'FT', awaitingResult: false });
+  assert.deepEqual(normalizeStatus('waterlogged'), { status: 'postponed', statusText: 'Waterlogged', awaitingResult: false, unknown: false });
+  assert.deepEqual(normalizeStatus('called off'), { status: 'postponed', statusText: 'Called off', awaitingResult: false, unknown: false });
+  assert.deepEqual(normalizeStatus('played', { homeScore: 1, awayScore: 0 }), { status: 'final', statusText: 'FT', awaitingResult: false, unknown: false });
   assert.equal(normalizeStatus('walkover', { homeScore: 3, awayScore: 0 }).statusText, 'Walkover');
   assert.equal(normalizeStatus('in-progress').status, 'live');
   // Nothing invented: a "result" with no score is a result we do not have yet.
-  assert.deepEqual(normalizeStatus('final'), { status: 'scheduled', statusText: 'Result to follow', awaitingResult: true });
-  assert.deepEqual(normalizeStatus('awaiting'), { status: 'scheduled', statusText: 'Result to follow', awaitingResult: true });
-  // A word nobody anticipated reads as a fixture rather than becoming a fifth status.
-  assert.equal(normalizeStatus('mystery-word').status, 'scheduled');
+  assert.deepEqual(normalizeStatus('final'), { status: 'scheduled', statusText: 'Result to follow', awaitingResult: true, unknown: false });
+  assert.deepEqual(normalizeStatus('awaiting'), { status: 'scheduled', statusText: 'Result to follow', awaitingResult: true, unknown: false });
+});
+
+test('a league that writes the whole phrase in the status cell is read, not shrugged at', () => {
+  // The brief holds "Postponed — pitch unplayable" up as a *good* slide. Read as a single
+  // word it matches nothing, and an unmatched status used to mean `scheduled` — so the
+  // best slide in the brief came out as a plain fixture with the explanation thrown away.
+  const off = normalizeStatus('Postponed — pitch unplayable');
+  assert.equal(off.status, 'postponed');
+  assert.equal(off.statusText, 'Postponed — pitch unplayable', 'the league wrote it; we do not tidy it');
+  assert.equal(off.unknown, false);
+
+  assert.equal(normalizeStatus('Abandoned 70 mins — floodlight failure').status, 'postponed');
+  assert.equal(normalizeStatus('Match called off, pitch frozen').status, 'postponed');
+  assert.equal(normalizeStatus('Walkover awarded to Caldecote FC', { homeScore: 3, awayScore: 0 }).status, 'final');
+
+  // Two of the four in one phrase: the one that says something happened to the match wins.
+  assert.equal(normalizeStatus('Fixture postponed').status, 'postponed');
+  assert.equal(normalizeStatus('Played — result to follow', { homeScore: null }).awaitingResult, true);
+
+  // Whole words only, so a status word buried inside another word is not a match.
+  assert.equal(normalizeStatus('unavoidable clash').unknown, true);
+});
+
+test('wording we cannot place still shows what the league published', () => {
+  // A fixture, as before — there is nothing else to show.
+  const nothing = normalizeStatus('mystery-word');
+  assert.equal(nothing.status, 'scheduled');
+  assert.equal(nothing.unknown, true);
+  assert.equal(nothing.statusText, 'mystery-word', 'kept as written rather than dropped');
+
+  // But a published score is data the league did publish, and hiding it is its own
+  // breach of trust rule 1. It shows as a result with their words beside it.
+  const scored = normalizeStatus('H-W', { homeScore: 3, awayScore: 2 });
+  assert.equal(scored.status, 'final');
+  assert.equal(scored.statusText, 'H-W');
+  assert.equal(scored.unknown, true);
+
+  // No status at all is a fixture, and says nothing — that is not "unknown wording".
+  assert.deepEqual(normalizeStatus(''), { status: 'scheduled', statusText: '', awaitingResult: false, unknown: false });
 });
 
 test('a result with no readable date is left out and said out loud', async () => {

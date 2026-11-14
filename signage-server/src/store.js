@@ -2,8 +2,9 @@ import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
 import { fetchEspn } from './sources/espn.js';
 import { fetchManual } from './sources/manual.js';
+import { fetchFulltime } from './sources/fulltime.js';
 
-const SOURCES = { espn: fetchEspn, manual: fetchManual };
+const SOURCES = { espn: fetchEspn, manual: fetchManual, fulltime: fetchFulltime };
 const STATUS_ORDER = { live: 0, final: 1, scheduled: 2, postponed: 3 };
 
 /**
@@ -34,8 +35,13 @@ export class Store extends EventEmitter {
   async #refresh(onlyKey) {
     const targets = this.config.leagues.filter((l) => !onlyKey || l.key === onlyKey);
     if (onlyKey && !targets.length) throw new Error(`Unknown league "${onlyKey}"`);
+    // `refreshMinutes` is one timer for every league, tuned for live professional scores.
+    // A source that must be read less often than that (the Full-Time feed: once a week, by
+    // the terms the route decision was bought with) keeps its own clock and returns its
+    // cached payload in between. See src/sources/fulltime.js.
     const opts = {
-      fetchImpl: this.fetchImpl, daysBack: this.config.daysBack, daysAhead: this.config.daysAhead, log: this.log,
+      fetchImpl: this.fetchImpl, daysBack: this.config.daysBack, daysAhead: this.config.daysAhead,
+      tz: this.config.timezone, log: this.log,
     };
 
     await Promise.all(targets.map(async (league) => {

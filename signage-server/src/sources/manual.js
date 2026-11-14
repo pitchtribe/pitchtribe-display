@@ -13,7 +13,8 @@
 //     "events": [{
 //       "id": "1xi-2026-11-07",
 //       "start": "2026-11-07T14:00:00Z",        // REQUIRED — a result with no date is not shown
-//       "status": "final",                      // see STATUS_WORDS below; anything unknown reads as scheduled
+//       "status": "final",                      // a word from STATUS_WORDS below, or a whole phrase
+//                                               // ("Postponed — pitch unplayable") — both are read
 //       "statusText": "Postponed — pitch unplayable",   // the league's own words, kept as written
 //       "competition": "Premier Division",
 //       "team": "First XI",                     // which of the club's sides
@@ -43,7 +44,7 @@ export const CORE_STATUSES = new Set(['scheduled', 'live', 'final', 'postponed']
  * has not published the score yet. It is not a fifth status — it sorts as `scheduled`
  * and sets `awaitingResult`, because inventing a 0–0 would break trust rule 1.
  */
-const STATUS_WORDS = {
+export const STATUS_WORDS = {
   final: 'final', played: 'final', result: 'final', ft: 'final', 'full-time': 'final', fulltime: 'final',
   walkover: 'final', awarded: 'final',
   scheduled: 'scheduled', fixture: 'scheduled', upcoming: 'scheduled', unplayed: 'scheduled', tbc: 'scheduled',
@@ -53,7 +54,33 @@ const STATUS_WORDS = {
   awaiting: 'awaiting', pending: 'awaiting', 'result-to-follow': 'awaiting', 'to-follow': 'awaiting',
 };
 
+/**
+ * When a league writes the whole phrase in the status cell — "Postponed — pitch
+ * unplayable", which the brief holds up as a *good* slide — no single word matches, so the
+ * phrase is read word by word. Several of the four can be mentioned in one phrase
+ * ("Fixture postponed", "Played — result to follow"), so the one that wins is the one that
+ * says something happened to the match, in this order. A bare "scheduled" is the thing any
+ * other word overrides, which is why it is last.
+ */
+const PHRASE_ORDER = ['postponed', 'awaiting', 'live', 'final', 'scheduled'];
+
 const slug = (s) => String(s ?? '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+
+/** Every known status word this phrase mentions, matched on whole words only — so "void"
+    is found in "match void by committee" but not in "avoided". */
+function wordsIn(raw) {
+  const tokens = String(raw ?? '').toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+  const found = new Set();
+  for (let i = 0; i < tokens.length; i += 1) {
+    // Up to three tokens joined, because some keys are hyphenated: "called-off",
+    // "in-progress", "result-to-follow".
+    for (let n = 1; n <= 3 && i + n <= tokens.length; n += 1) {
+      const mapped = STATUS_WORDS[tokens.slice(i, i + n).join('-')];
+      if (mapped) found.add(mapped);
+    }
+  }
+  return found;
+}
 const sentence = (s) => {
   const words = String(s ?? '').trim().replace(/[-_]+/g, ' ');
   return words ? words[0].toUpperCase() + words.slice(1) : '';
@@ -66,12 +93,28 @@ const num = (v) => {
 
 /**
  * Map one league's wording onto a core status.
- * @returns {{ status: string, statusText: string, awaitingResult: boolean }}
+ *
+ * @returns {{ status: string, statusText: string, awaitingResult: boolean, unknown: boolean }}
+ *   `unknown` is true when the league's wording matched nothing we know, so the caller can
+ *   log the phrase. That log is how we find out what a real league actually writes.
  */
 export function normalizeStatus(raw, { homeScore = null, awayScore = null, statusText } = {}) {
   const word = slug(raw) || 'scheduled';
-  const mapped = STATUS_WORDS[word] ?? 'scheduled';
   const scored = homeScore !== null && awayScore !== null;
+
+  let mapped = STATUS_WORDS[word];
+  let phrase = false;
+  if (!mapped) {
+    const found = wordsIn(raw);
+    mapped = PHRASE_ORDER.find((s) => found.has(s));
+    phrase = Boolean(mapped);
+  }
+  // Nothing recognised. A published score is still a published score, so it is shown as a
+  // result with the league's own words beside it — hiding data the league did publish
+  // would be its own breach of trust rule 1. With no score there is nothing to show but
+  // the fixture.
+  const unknown = !mapped;
+  if (unknown) mapped = scored ? 'final' : 'scheduled';
 
   // A "final" with no score on it is not a result, it is a result we don't have yet.
   const awaitingResult = mapped === 'awaiting' || (mapped === 'final' && !scored);
@@ -79,12 +122,15 @@ export function normalizeStatus(raw, { homeScore = null, awayScore = null, statu
 
   let text = statusText;
   if (!text) {
-    if (awaitingResult) text = 'Result to follow';
+    // A phrase, or wording we could not place, is kept exactly as the league wrote it —
+    // trust rule 3. Only our own single-word vocabulary gets tidied into a caption.
+    if (phrase || (unknown && slug(raw))) text = String(raw).trim();
+    else if (awaitingResult) text = 'Result to follow';
     else if (status === 'final') text = word === 'walkover' || word === 'awarded' ? sentence(word) : 'FT';
     else if (status === 'postponed') text = sentence(word);
     else text = '';
   }
-  return { status, statusText: text, awaitingResult };
+  return { status, statusText: text, awaitingResult, unknown };
 }
 
 const side = (name, score) => ({
@@ -150,9 +196,12 @@ export async function fetchManual(league, { log = () => {} } = {}) {
     const id = `${league.key}:${ev.id ?? i}`;
     const homeScore = num(ev.homeScore);
     const awayScore = num(ev.awayScore);
-    const { status, statusText, awaitingResult } = normalizeStatus(ev.status, {
+    const { status, statusText, awaitingResult, unknown } = normalizeStatus(ev.status, {
       homeScore, awayScore, statusText: ev.statusText,
     });
+    if (unknown) {
+      log(`[manual] ${id}: status "${ev.status}" matched nothing known — shown as ${status}, wording kept as written`);
+    }
 
     // Trust rule 1: every result carries its date. An undated row cannot be dated on
     // screen, cannot be ordered against the others and cannot count towards form — so

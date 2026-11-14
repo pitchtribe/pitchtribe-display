@@ -13,6 +13,7 @@
     "mcp": "node src/mcp-stdio.js",
     "test": "node --test test/*.test.js",
     "six-metre": "node scripts/six-metre.js",
+    "fulltime:capture": "node scripts/fulltime-capture.js",
     "preview": "node scripts/preview.js"
   },
   "main": "src/service.js",

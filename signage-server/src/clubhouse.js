@@ -355,7 +355,9 @@ export function buildClubhouse(snapshot, config = {}, { now = new Date(), photoF
     data.push({
       kind: 'next',
       date: longDate(e.start, tz),
-      kickoff: kickoffTime(e.start, tz),
+      // A feed that published no kick-off time gets none printed. Midday is where an
+      // undated-time match is parked so the calendar day can't slip; it is not 12:00 KO.
+      kickoff: e.kickoffKnown === false ? '' : kickoffTime(e.start, tz),
       competition: e.competition || e.leagueName || '',
       team: e.team || '',
       them: them.name, homeAway,
