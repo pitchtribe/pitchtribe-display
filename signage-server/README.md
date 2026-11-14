@@ -61,6 +61,13 @@ npm start                            # http://localhost:8090/display
 npm test
 ```
 
+For a club wall there are two more:
+
+```bash
+npm run six-metre                    # is the type big enough for the room? (CLUBHOUSE.md)
+npm run preview -- wall.html         # the whole loop as one static file, no Pi needed
+```
+
 Docker: `docker build -t pitchtribe-signage . && docker run -p 8090:8090 -v $PWD/config.json:/app/config.json pitchtribe-signage`
 Raspberry Pi service: see `pitchtribe-signage.service`.
 

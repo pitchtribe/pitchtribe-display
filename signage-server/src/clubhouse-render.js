@@ -148,13 +148,17 @@ export function renderClubhouse(wall, opts = {}) {
     opacity:0;transition:opacity .7s ease}
   .slide.on{opacity:1}
   .slide[data-broken]{display:none}
-  .eyebrow{font-size:3.4vh;letter-spacing:.14em;text-transform:uppercase;opacity:.75;font-weight:600}
-  .date{font-size:5.2vh;font-weight:600;opacity:.95}
+  /* Every size below is measured, not chosen by eye: src/legibility.js works out what
+     each one comes to in arcminutes of cap height on a 43-inch screen at six metres, and
+     test/legibility.test.js fails the build if any of them drops under its floor.
+     Run scripts/six-metre.js to print the whole table. */
+  .eyebrow{font-size:5.8vh;letter-spacing:.14em;text-transform:uppercase;opacity:.75;font-weight:600}
+  .date{font-size:6.4vh;font-weight:600;opacity:.95}
   .big{font-weight:800;line-height:.95;letter-spacing:-.01em}
   .score{font-size:30vh}
   .score.W{color:var(--win)}
   .score.L{color:var(--loss)}
-  .words{font-size:11vh;max-width:88vw}
+  .words{font-size:12vh;max-width:88vw}
   .club-name{font-size:13vh}
   .count{font-size:34vh;color:var(--accent)}
   .line{font-size:6vh;opacity:.95;max-width:88vw}
@@ -163,12 +167,12 @@ export function renderClubhouse(wall, opts = {}) {
   .photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
   ul{list-style:none;width:100%}
   .form{display:flex;gap:2.4vw;justify-content:center}
-  .form li{width:15vh;height:15vh;border-radius:2.5vh;display:flex;align-items:center;justify-content:center;
-    font-size:9vh;font-weight:800;color:#06121f;background:var(--draw)}
+  .form li{width:17vh;height:17vh;border-radius:2.5vh;display:flex;align-items:center;justify-content:center;
+    font-size:12vh;font-weight:800;color:#06121f;background:var(--draw)}
   .form li.W{background:var(--win)}
   .form li.L{background:var(--loss)}
   .table li{display:grid;grid-template-columns:3.2em 1fr 3.4em 4em;gap:2vw;align-items:center;
-    font-size:6.4vh;font-weight:600;padding:.7vh 2vw;border-radius:1.6vh}
+    font-size:8vh;font-weight:600;padding:.7vh 2vw;border-radius:1.6vh}
   .table li.us{background:rgba(255,255,255,.18);font-weight:800}
   .table .pos{opacity:.7;text-align:right}
   .table .club{text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -176,17 +180,17 @@ export function renderClubhouse(wall, opts = {}) {
   .table .pts{text-align:right;color:var(--accent);font-weight:800}
   .legend{font-size:2.6vh;letter-spacing:.1em;text-transform:uppercase;opacity:.6;margin-top:1.5vh}
   .others li{display:grid;grid-template-columns:1fr auto 1fr;gap:2vw;align-items:center;
-    font-size:5.6vh;font-weight:600;padding:1vh 0}
+    font-size:8vh;font-weight:600;padding:1vh 0}
   .others .t{text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .others .t.away{text-align:left}
   .others .s{font-weight:800;color:var(--accent)}
-  .rhythm li{font-size:6.2vh;font-weight:600;padding:1vh 0}
+  .rhythm li{font-size:8vh;font-weight:600;padding:1vh 0}
   footer{position:fixed;left:0;right:0;bottom:0;padding:1.4vh 3vw;font-size:2.4vh;
     letter-spacing:.06em;opacity:.65;text-align:center;
     background:linear-gradient(to top,rgba(0,0,0,.45),transparent)}
   /* Shown only after the card has failed to reach its own server for a few minutes:
      one sentence, in words a volunteer can act on, with the age of the data. */
-  .notice{position:fixed;left:0;right:0;top:0;padding:1.8vh 3vw;font-size:3.2vh;font-weight:700;
+  .notice{position:fixed;left:0;right:0;top:0;padding:1.8vh 3vw;font-size:4.8vh;font-weight:700;
     background:#1d1d1f;color:#ffd34d;text-align:center;display:none}
   .notice.show{display:block}
 </style>

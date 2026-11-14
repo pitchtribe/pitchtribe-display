@@ -100,12 +100,19 @@ export function ourResults(events, isUs, { now = new Date(), withinDays = 9, lim
     .slice(0, limit);
 }
 
-/** Our matches that were called off recently — a good slide, in the league's own words. */
+/**
+ * Our matches called off around now — a good slide, in the league's own words.
+ *
+ * Bounded at both ends. A postponement that was meant to be played in March is not news
+ * in November, and with only a floor the earliest one in the file would hold a slide all
+ * season.
+ */
 export function ourCalledOff(events, isUs, { now = new Date(), withinDays = 9, limit = 2 } = {}) {
   const floor = now.getTime() - withinDays * DAY;
+  const ceiling = now.getTime() + withinDays * DAY;
   return events
     .filter(involvesUs(isUs))
-    .filter((e) => e.status === 'postponed' && Date.parse(e.start) >= floor)
+    .filter((e) => e.status === 'postponed' && Date.parse(e.start) >= floor && Date.parse(e.start) <= ceiling)
     .sort((a, b) => Date.parse(a.start) - Date.parse(b.start))
     .slice(0, limit);
 }

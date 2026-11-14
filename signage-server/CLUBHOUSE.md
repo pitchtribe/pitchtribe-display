@@ -146,15 +146,97 @@ Omit the whole block and the clubhouse routes stay inert: `/` still goes to `/di
 `refreshMinutes` is worth turning down for a club card: there is nothing live to collect,
 so 30 minutes is plenty and a weekly file needs no more.
 
-## The two tests that decide whether this is finished
+## The six-metre test, measured
 
-Both are physical, and neither can be asserted in code:
+The design law is that everything survives a two-second glance from six metres across a
+loud room, and the brief asks for it photographed rather than asserted. A photograph needs
+a television. The arithmetic does not, and it catches what a photograph catches first:
+type too small for the room.
 
-- **The six-metre test.** Photograph a slide, stand six metres back, glance for two
-  seconds, look away, and say what it said. Every slide type, photographed and checked.
-- **The Wednesday test.** A photograph of the screen on Wednesday is visibly different
-  from Sunday's.
+```
+node scripts/six-metre.js            # a plain 43" set at six metres
+node scripts/six-metre.js 55 6       # a 55" set at six metres
+```
 
-The automated tests in [test/clubhouse.test.js](test/clubhouse.test.js) cover the rules
-behind them — one idea per slide, five table rows, a dated result, a daily reshuffle — but
-they cannot tell you whether the room can read it.
+[src/legibility.js](src/legibility.js) reads the stylesheet the page actually ships, works
+out the **cap height** of every piece of text in millimetres and in arcminutes, and holds
+each one to the tier it belongs in. Angular size is the only figure that matters: a 43-inch
+screen at four metres and a 65-inch screen at six are the same reading task.
+
+| Tier | Floor | What it is |
+| --- | --- | --- |
+| **idea** | 25′ | The one thing the slide says. The trade rule of an inch of letter per ten feet is 29′; this is a little under it, for a glance rather than a read. |
+| **fact** | 12′ | Something the room relies on — the date (trust rule 1), which of the club's sides played. The outer limit of the same trade rule. |
+| **fine** | none | Provenance. Deliberately the smallest thing on the wall. |
+
+Measured on a **43-inch** set at **six metres**, which is the pessimistic case:
+
+| Slide | Its one idea | Cap height | Reads at a glance |
+| --- | --- | --- | --- |
+| Saturday's result | the score, 30vh | 112 mm / 64′ | to 15.5 m |
+| Countdown | the number, 34vh | 127 mm / 73′ | to 17.5 m |
+| Club identity | the club's name | 49 mm / 28′ | to 6.7 m |
+| Result to follow · called off · next Saturday | the words, 12vh | 45 mm / 26′ | to 6.2 m |
+| Form | five W/D/L tiles | 45 mm / 26′ | to 6.2 m |
+| The table | five rows, 8vh | 30 mm / 17′ | to 4.1 m — 63-inch set at six metres |
+| Around the division | four results, 8vh | 30 mm / 17′ | to 4.1 m — 63-inch set at six metres |
+| This week | up to four lines, 8vh | 30 mm / 17′ | to 4.1 m — 63-inch set at six metres |
+
+So the install number: **the heartbeat slides read at a glance on any set from 43 inches
+up; the three list-shaped slides need a 65-inch set to do the same at six metres.** On a
+smaller screen they are still well clear of the fact floor — they are a look rather than a
+glance, and what a glance gets from them is the shape: our row is the lit one, so "third"
+arrives as a position on the screen rather than as reading.
+
+Those three are recorded as **named exceptions** in `legibility.js`, each with its reason,
+because the brief asks for a five-row table *and* for no small text and on a 43-inch screen
+those two wishes do not both fit. A decision with the number in front of it is fine; silence
+is not. The outage banner is the fourth exception, at 10′: it shares the screen with a slide
+rather than replacing it, and the thing it asks for happens at the router.
+
+[test/legibility.test.js](test/legibility.test.js) fails the build if any of this slips —
+including if someone adds text to a slide and never says which tier it is in, because
+unmeasured text is not passing text.
+
+What this does **not** do is replace the photograph. It cannot see glare off the window
+behind the bar, a dirty screen, the angle people actually stand at, or a set with its
+sharpness turned up. Those still want five minutes with a camera.
+
+> Keep `rhythm` lines short — four lines of about forty characters is the budget at 8vh.
+> Longer ones wrap, and four wrapped lines will not fit the slide.
+
+## Seven days, simulated
+
+The other physical criterion is seven days unattended. The loop is a pure function of the
+clock, so [test/soak.test.js](test/soak.test.js) runs the clock forward a week in a second
+and checks every page it would have shown — 673 of them, one every fifteen minutes:
+
+- Not one throws, and no page contains `undefined`, `NaN` or an invalid date.
+- Every result on screen carries a date inside its window, on every page of the week.
+- **By day eight, with no new data, the heartbeat goes quiet rather than stale**: last
+  Saturday's results stop being shown instead of starting to read as this week's. The
+  table, the countdown, the club's name and the photographs carry on.
+- The blackout keeps the week's schedule, cross-checked against a second, deliberately
+  naive implementation of opening hours. Nothing is lit on a closed day.
+- The countdown shows seven different faces in seven days.
+- The photographs are stable within each local day and different from the day before —
+  the Wednesday test, run for a week.
+- The six-metre measurement holds on all eight days, not just on the fullest page.
+
+It is **not** the unattended soak, and it is not evidence for it. It cannot see a corrupted
+SD card, a browser that leaks over six days, a router that drops at 3am, or hours typed in
+wrong. It means that when the card is left for a week, what is left to go wrong is the
+hardware and the wiring rather than the pages.
+
+## The two tests that are still owed
+
+Both are physical, and nothing in this repo can stand in for them:
+
+- **The six-metre test, photographed.** Every slide type, on the real set, in the real
+  room. The arithmetic above says the type is big enough; a camera says the room can
+  read it.
+- **Seven days unattended**, with an unannounced power cut and a pulled network cable
+  somewhere in the middle.
+
+[scripts/preview.js](scripts/preview.js) writes the whole loop to one static HTML file for
+anyone who wants to see it without a Raspberry Pi.
