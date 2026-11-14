@@ -151,6 +151,12 @@ with the bearer token.
 | `espn` | `"path": "soccer/eng.1"` | ESPN's public scoreboard JSON. No key needed. Football leagues worldwide (`soccer/esp.1`, `soccer/uefa.champions`, `soccer/sco.1`, …), `football/nfl`, `basketball/nba`, `hockey/nhl`, `baseball/mlb`, and more |
 | `manual` | `"file": "data/club-fixtures.json"` | Your club's own teams, results and league table — grassroots sides no public feed covers. Edit the file and the next refresh picks it up. Format at the top of [src/sources/manual.js](src/sources/manual.js); a full example in [data/club-season.example.json](data/club-season.example.json) |
 
+**Grassroots leagues (The FA Full-Time): route decided, adapter in progress.** ESPN covers
+professional leagues only, so a county-league club needs a different source. We read Full-Time
+through the code-snippet feeds a club's own league issues to it, weekly and cached — and we do not
+scrape the public pages. The reasoning, the config shape and what we still have to validate are in
+[FULL_TIME.md](FULL_TIME.md). Read that before writing anything that talks to Full-Time.
+
 Each ESPN refresh asks for a whole calendar month per league (`?dates=YYYYMM`) and then trims the
 result to `daysBack`/`daysAhead` — normally one request per league, two when the window crosses a
 month end. ESPN answers `HTTP 400` to the day-range form (`?dates=YYYYMMDD-YYYYMMDD`).

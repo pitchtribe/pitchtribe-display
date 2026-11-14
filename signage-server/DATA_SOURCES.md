@@ -26,10 +26,18 @@ All live sources need no API key unless noted. Each slide shows the credit line 
 | Calendar | Any iCal (.ics) feed you add | Depends on the calendar | Your own calendars | No |
 | Live scores | ESPN public scoreboard JSON (unofficial) | **Undocumented; for personal / non-commercial use** | ⚠️ not for commercial use | No |
 | Grassroots results, fixtures & tables | The club's own JSON file on the card (`manual` source) | The club's own data, kept by the club | ✅ | No |
+| Grassroots results, fixtures & tables | [The FA Full-Time](https://fulltime.thefa.com/) code-snippet feeds (`fulltime` source) | Sanctioned club/league feed, issued per division or team from the Full-Time admin area. **Not an open API, and the public pages must not be scraped** — see [FULL_TIME.md](FULL_TIME.md) | ✅ for the club whose league issued the codes, with the shown credit | **Yes** — a snippet id (`lrcode`) per feed, from the club's own Full-Time login |
 
-The grassroots row is the honest one: nothing is fetched. The club's results, fixtures and table live
-in a file on the card and somebody keeps it up to date — see [CLUBHOUSE.md](CLUBHOUSE.md). It needs no
-provider's permission, which is the whole reason it is what v1 ships on.
+Two rows for the same football, because there are two ways to get it and they cost different things.
+
+The **club file** fetches nothing: the results, fixtures and table live on the card and somebody keeps
+them up to date — see [CLUBHOUSE.md](CLUBHOUSE.md). It needs no provider's permission, which is why v1
+ships on it.
+
+The **Full-Time feed** is built (`src/sources/fulltime.js`, read once a week and cached) and the access
+route is settled in [FULL_TIME.md](FULL_TIME.md). It is not switched on anywhere, because it needs
+snippet codes from a club's own Full-Time login and one capture of a real feed response before anyone
+should trust what it parses. `npm run fulltime:capture -- --code=…` is that capture.
 
 The bundled packs in `data/widgets/` (jokes, phrases, quiz, trivia, history, countries, emoji) were written for this project and ship under the repository's MIT licence.
 
