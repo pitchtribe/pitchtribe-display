@@ -21,6 +21,7 @@
   "files": [
     "src",
     "data",
-    "config.example.json"
+    "config.example.json",
+    "clubhouse.example.json"
   ]
 }

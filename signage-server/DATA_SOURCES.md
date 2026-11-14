@@ -25,6 +25,11 @@ All live sources need no API key unless noted. Each slide shows the credit line 
 | News headlines | Any RSS/Atom feed you add | **Depends on the feed** | Only feeds you have rights to show | No |
 | Calendar | Any iCal (.ics) feed you add | Depends on the calendar | Your own calendars | No |
 | Live scores | ESPN public scoreboard JSON (unofficial) | **Undocumented; for personal / non-commercial use** | ⚠️ not for commercial use | No |
+| Grassroots results, fixtures & tables | The club's own JSON file on the card (`manual` source) | The club's own data, kept by the club | ✅ | No |
+
+The grassroots row is the honest one: nothing is fetched. The club's results, fixtures and table live
+in a file on the card and somebody keeps it up to date — see [CLUBHOUSE.md](CLUBHOUSE.md). It needs no
+provider's permission, which is the whole reason it is what v1 ships on.
 
 The bundled packs in `data/widgets/` (jokes, phrases, quiz, trivia, history, countries, emoji) were written for this project and ship under the repository's MIT licence.
 
