@@ -4,11 +4,14 @@ name: CodeQL
 # the guest portal, the root helpers and the signage engine. Weekly as well as
 # on pushes, because a new CodeQL query can find something in code that has not
 # changed.
+#
+# The `caldecote` club line is analysed too: it ships to a real building, so it
+# does not get to be the branch nobody scans.
 on:
   push:
-    branches: [main]
+    branches: [main, caldecote]
   pull_request:
-    branches: [main]
+    branches: [main, caldecote]
   schedule:
     - cron: '41 6 * * 1'
   workflow_dispatch:

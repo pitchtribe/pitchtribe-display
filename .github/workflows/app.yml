@@ -1,11 +1,15 @@
 name: Signage app + server
 
+# `caldecote` is a club line, not a feature branch: it carries one club's build
+# on top of the base system and is released separately (release-caldecote.yml).
+# It is listed here because a long-lived branch with no tests is a branch that
+# quietly stops working — see caldecote/README.md on that line.
 on:
   push:
-    branches: [main]
+    branches: [main, caldecote]
     paths: ['app/**', 'signage-server/**', 'deploy/**', '.github/workflows/app.yml']
   pull_request:
-    branches: [main]
+    branches: [main, caldecote]
     paths: ['app/**', 'signage-server/**', 'deploy/**', '.github/workflows/app.yml']
   workflow_dispatch:
 

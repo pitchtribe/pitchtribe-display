@@ -3,6 +3,10 @@ name: Release
 # Publishes a PitchTribe release from main, with the SD card image attached:
 # Actions → Release → Run workflow, enter the version (e.g. v0.2.0).
 #
+# This is the BASE SYSTEM's release, and only main's: it refuses anything that is
+# not vX.Y.Z and it is what the website's download button points at. A club line
+# has its own button and its own numbering — see release-caldecote.yml.
+#
 # Tick "replace" to redo a release that went wrong — for example one whose tag
 # points at the wrong commit. That deletes the existing release and its tag
 # first, then tags main again. Without it, an existing version is refused.
