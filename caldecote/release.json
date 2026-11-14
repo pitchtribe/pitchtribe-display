@@ -1,0 +1,13 @@
+{
+  "line": "caldecote",
+  "version": "0.0.1",
+  "tag": "caldecote-0.0.1",
+  "club": "Caldecote FC — The Pavilion, Harvey Close, Upper Caldecote",
+  "base": "v0.4.2 +25 (main @ 9bdcbba)",
+  "baseRelease": "v0.4.2",
+  "baseBranch": "main",
+  "baseCommit": "9bdcbbaf30ac161a541a106169f3cdbc529b1128",
+  "baseCommitsSinceRelease": 25,
+  "issue": "PIT-45",
+  "notes": "The club line's version of record. The base system's version lives in app/package.json and is NOT touched here, so that merging a base release forward never lands on a version conflict. release-caldecote.yml checks the number below against the version it is asked to publish."
+}
