@@ -123,8 +123,16 @@ jobs:
   image:
     name: SD card image
     needs: tag
+    # These three mirror image.yml's own job permissions, and all three are needed.
+    # A reusable workflow cannot be granted more than its caller holds, so if the
+    # caller omits id-token/attestations the called workflow is refused them — and
+    # because the signing step declares them at job level, GitHub rejects the whole
+    # run at startup, before the tag job runs. That reads as "a workflow file issue"
+    # with no log and no failed step, which is a bad half-hour; hence this comment.
     permissions:
       contents: write
+      id-token: write     # provenance attestation for the released image
+      attestations: write
     uses: ./.github/workflows/image.yml
     with:
       release_tag: ${{ needs.tag.outputs.tag }}
