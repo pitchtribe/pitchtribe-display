@@ -1,0 +1,31 @@
+[Unit]
+Description=PitchTribe soak sample (one minute of evidence)
+# A test instrument for the seven-day soak, not part of the product. It is installed by
+# hand on a test card and removed afterwards — see SOAK.md. Nothing here reaches the
+# network except the Pi's own server and one 204 to check the broadband.
+After=pitchtribe-signage.service
+
+[Service]
+Type=oneshot
+# A sample that cannot complete is not worth waiting for: the next one is a minute away,
+# and a missing sample is itself the evidence (that is how a power cut shows up).
+TimeoutStartSec=45
+ExecStart=/usr/local/bin/pitchtribe-soak-watch sample
+
+# ---------------------------------------------------------------------------- hardening
+# Reads /proc, /sys and systemd state; writes two directories and nothing else.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pitchtribe-soak
+RuntimeDirectory=pitchtribe-soak
+RuntimeDirectoryPreserve=yes
+StateDirectory=pitchtribe-soak
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true

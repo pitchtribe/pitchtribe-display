@@ -238,5 +238,10 @@ Both are physical, and nothing in this repo can stand in for them:
 - **Seven days unattended**, with an unannounced power cut and a pulled network cable
   somewhere in the middle.
 
+The second one now has an instrument and a protocol: **[../deploy/SOAK.md](../deploy/SOAK.md)**,
+with `deploy/soak-watch.sh` taking a sample a minute on the test card and printing a verdict per
+criterion at the end. It says what the week can prove and what it cannot — a restart loop and a
+browser leak yes, the room's glare no.
+
 [scripts/preview.js](scripts/preview.js) writes the whole loop to one static HTML file for
 anyone who wants to see it without a Raspberry Pi.
