@@ -14,9 +14,7 @@ const path = require('node:path');
 const http = require('node:http');
 const { createApp } = require('../lib/app');
 
-const espnFixture = JSON.parse(
-  fs.readFileSync(path.join(__dirname, '..', '..', 'signage-server', 'test', 'fixtures', 'espn-eng1.json'), 'utf8')
-);
+const { espnFixtureAroundNow } = require('./espn-fixture');
 
 /** Stands in for something only the Pi can see — a router admin page. */
 async function secretServer(t) {
@@ -36,7 +34,7 @@ async function start(t) {
   const ctx = createApp({
     dataDir,
     maxUploadMb: 1,
-    sportsFetch: async () => ({ ok: true, status: 200, json: async () => espnFixture }),
+    sportsFetch: async () => ({ ok: true, status: 200, json: async () => espnFixtureAroundNow() }),
     log: () => {},
   });
   const server = await new Promise((resolve) => {
