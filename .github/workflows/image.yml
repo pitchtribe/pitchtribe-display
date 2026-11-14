@@ -7,15 +7,19 @@ name: SD card image
 #     and keep it as a workflow artifact for a few days, so it can be tried on a Pi
 #   - a pushed version tag (v1.2.3): build it and attach it to that GitHub release,
 #     which is what the website's download link points at
+#   - a pushed club-line tag (caldecote-0.0.1): same, for that club's own release.
+#     The club's release is marked a prerelease, so /releases/latest — the website's
+#     download button — keeps pointing at the base system and never hands a stranger
+#     one village's build.
 #   - run by hand from the Actions tab: build it as an artifact
-#   - called by the Release workflow (release.yml) with release_tag: build it
-#     from that tag and attach it to that release
+#   - called by the Release workflow (release.yml, release-caldecote.yml) with
+#     release_tag: build it from that tag and attach it to that release
 on:
   pull_request:
-    branches: [main]
+    branches: [main, caldecote]
     paths: ['image/**', 'deploy/**', '.github/workflows/image.yml']
   push:
-    tags: ['v*']
+    tags: ['v*', 'caldecote-*']
   workflow_dispatch:
     inputs:
       base_url:
@@ -104,7 +108,10 @@ jobs:
           entry["url"] = sys.argv[1]
           json.dump({"os_list": [entry]}, open("out/pitchtribe-imager.json", "w"), indent=2)
           PY
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "PitchTribe $TAG" --generate-notes
+          # A club-line tag is never the website's download: keep it a prerelease so
+          # /releases/latest stays on the base system.
+          pre=''; [[ "$TAG" == v* ]] || pre='--prerelease'
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "PitchTribe $TAG" --generate-notes $pre
           gh release upload "$TAG" --clobber \
             out/$IMAGE_NAME.img.xz out/$IMAGE_NAME.img.xz.sha256 out/pitchtribe-imager.json
 
