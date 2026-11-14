@@ -1,0 +1,44 @@
+{
+  "_comment": "One club's wall: GET /clubhouse. Run it with SIGNAGE_CONFIG=clubhouse.example.json npm start, then copy it to config.json and edit. See CLUBHOUSE.md.",
+  "port": 8090,
+  "host": "0.0.0.0",
+  "title": "Our Club",
+  "timezone": "Europe/London",
+  "refreshMinutes": 30,
+  "liveRefreshSeconds": 300,
+  "leagues": [
+    {
+      "key": "club",
+      "source": "manual",
+      "file": "data/club-season.example.json",
+      "name": "County League"
+    }
+  ],
+  "clubhouse": {
+    "league": "club",
+    "club": "Our Club",
+    "aliases": [],
+    "name": "Our Club",
+    "strapline": "The Pavilion · Saturdays, 16+",
+    "badge": "data/badge.example.svg",
+    "colours": { "primary": "#1b4d9b", "ink": "#ffffff", "accent": "#ffd34d" },
+    "photosDir": "data/photos",
+    "photosPerLoop": 12,
+    "rotateSeconds": 12,
+    "rhythm": [
+      "Training — Tuesday & Thursday, 7pm",
+      "Quiz night — first Friday of the month",
+      "Bar open Saturday from midday"
+    ],
+    "openingHours": {
+      "mon": [],
+      "tue": [["18:30", "23:00"]],
+      "wed": [],
+      "thu": [["18:30", "23:00"]],
+      "fri": [["18:00", "23:30"]],
+      "sat": [["12:00", "23:30"]],
+      "sun": [["12:00", "18:00"]]
+    }
+  },
+  "pushTargets": []
+}

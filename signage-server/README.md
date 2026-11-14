@@ -4,13 +4,17 @@ This server collects sports fixtures, live scores and results on a schedule, and
 full-screen, auto-rotating display page for club screens. It also pushes the data to other
 signage systems through **webhooks**, a **JSON API** and **MCP**.
 
+For one club's own screen there is a second page, **`/clubhouse`** — single-idea slides, the
+club's own photographs, and its own opening hours. See [CLUBHOUSE.md](CLUBHOUSE.md).
+
 It has no dependencies and needs Node 20 or later. It runs on a Raspberry Pi 5.
 
 ```
  ESPN scoreboard feeds ─┐                   ┌─► GET /display     (screens in kiosk mode, live-updating)
- club-fixtures.json  ───┼─► store (cache) ──┼─► GET /api/*       (JSON for any CMS / app)
-   every 10 min,        │   change-detect   ├─► webhook push     (POST JSON or HTML to your signage system)
-   every 60 s when live ┘                   └─► MCP              (stdio, or POST /mcp)
+ the club's own file ───┼─► store (cache) ──┼─► GET /clubhouse   (one club's wall — CLUBHOUSE.md)
+   every 10 min,        │   change-detect   ├─► GET /api/*       (JSON for any CMS / app)
+   every 60 s when live ┘                   ├─► webhook push     (POST JSON or HTML to your signage system)
+                                            └─► MCP              (stdio, or POST /mcp)
 ```
 
 ## Two ways to run it
@@ -57,6 +61,13 @@ npm start                            # http://localhost:8090/display
 npm test
 ```
 
+For a club wall there are two more:
+
+```bash
+npm run six-metre                    # is the type big enough for the room? (CLUBHOUSE.md)
+npm run preview -- wall.html         # the whole loop as one static file, no Pi needed
+```
+
 Docker: `docker build -t pitchtribe-signage . && docker run -p 8090:8090 -v $PWD/config.json:/app/config.json pitchtribe-signage`
 Raspberry Pi service: see `pitchtribe-signage.service`.
 
@@ -91,6 +102,9 @@ similar systems. The page rotates through leagues and reloads itself when a scor
 | Method | Path | Notes |
 | --- | --- | --- |
 | GET | `/display` | Signage page |
+| GET | `/clubhouse` | One club's wall: single-idea slides, own hours, own photographs ([CLUBHOUSE.md](CLUBHOUSE.md)) |
+| GET | `/photos/:name` | One photograph from `clubhouse.photosDir` |
+| GET | `/badge` | The club badge (`clubhouse.badge`) |
 | GET | `/api/events` | `?league=eng.1&status=live,final,scheduled,postponed&team=arsenal&limit=20` |
 | GET | `/api/snapshot` | All leagues with their events |
 | GET | `/api/leagues` | League list, event counts, last fetch, errors |
@@ -135,7 +149,7 @@ with the bearer token.
 | `source` | Config | Covers |
 | --- | --- | --- |
 | `espn` | `"path": "soccer/eng.1"` | ESPN's public scoreboard JSON. No key needed. Football leagues worldwide (`soccer/esp.1`, `soccer/uefa.champions`, `soccer/sco.1`, …), `football/nfl`, `basketball/nba`, `hockey/nhl`, `baseball/mlb`, and more |
-| `manual` | `"file": "data/club-fixtures.json"` | Your club's own teams. Edit the file and the next refresh picks it up |
+| `manual` | `"file": "data/club-fixtures.json"` | Your club's own teams, results and league table — grassroots sides no public feed covers. Edit the file and the next refresh picks it up. Format at the top of [src/sources/manual.js](src/sources/manual.js); a full example in [data/club-season.example.json](data/club-season.example.json) |
 
 Each ESPN refresh asks for a whole calendar month per league (`?dates=YYYYMM`) and then trims the
 result to `daysBack`/`daysAhead` — normally one request per league, two when the window crosses a
