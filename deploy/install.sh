@@ -347,6 +347,11 @@ if [[ "${PITCHTRIBE_NO_KIOSK:-0}" != 1 ]]; then
   cat >/etc/default/pitchtribe-kiosk <<EOF
 # Read by pitchtribe-kiosk.service. @HOSTNAME@ becomes this Pi's hostname when the
 # kiosk starts, so each Pi shows its own screen (and an SD card image works on any Pi).
+#
+# For a single-club clubhouse wall instead of the playlist player, point this at the
+# signage server's clubhouse page and restart pitchtribe-kiosk (see
+# signage-server/CLUBHOUSE.md):
+#   PITCHTRIBE_URL=${SERVER%/}/feeds/clubhouse
 PITCHTRIBE_URL=${SERVER%/}/player/?screen=@HOSTNAME@
 CHROMIUM=${CHROMIUM}
 EOF
