@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fetchEspn, normalizeEspn, scoreboardMonths, scoreboardUrl } from '../src/sources/espn.js';
-import { Store } from '../src/store.js';
+import { Store, sortEvents } from '../src/store.js';
 import { renderDisplay } from '../src/render.js';
 import { pushToTargets } from '../src/push.js';
 import { createMcpHandler } from '../src/mcp.js';
@@ -126,6 +126,40 @@ test('store refreshes, sorts, filters, keeps last good data on failure', async (
   assert.equal(eng.error, 'down');
   assert.equal(eng.events.length, 4);
   assert.equal(updates, 1);
+});
+
+// Every ordering of the same events, so the assertion is about the order being total
+// rather than about where one event landed from one starting arrangement.
+function* permutations(items) {
+  if (items.length <= 1) return yield items;
+  for (let i = 0; i < items.length; i += 1) {
+    const rest = [...items.slice(0, i), ...items.slice(i + 1)];
+    for (const p of permutations(rest)) yield [items[i], ...p];
+  }
+}
+
+test('an unrecognised status cannot scramble the display order', () => {
+  // STATUS_ORDER has four keys, so a fifth status value made one side of the subtraction
+  // undefined — and a comparator that answers NaN leaves the whole order meaningless, not
+  // just the one event misplaced. No source on main can emit a fifth value today; the next
+  // source adapter is one typo away from it.
+  const at = (hours) => new Date(Date.parse('2026-11-07T15:00:00Z') + hours * 3_600_000).toISOString();
+  const events = [
+    { id: 'live', status: 'live', start: at(0) },
+    { id: 'result', status: 'final', start: at(-48) },
+    { id: 'older-result', status: 'final', start: at(-72) },
+    { id: 'fixture', status: 'scheduled', start: at(24) },
+    { id: 'off', status: 'postponed', start: at(48) },
+    { id: 'mystery', status: 'abandoned', start: at(-24) },
+  ];
+  const expected = ['live', 'result', 'older-result', 'fixture', 'off', 'mystery'];
+
+  for (const input of permutations(events)) {
+    assert.deepEqual(
+      sortEvents(input).map((e) => e.id), expected,
+      `order came out of the comparator differently for input ${input.map((e) => e.id).join(',')}`,
+    );
+  }
 });
 
 test('display page escapes team names and paginates', async () => {
