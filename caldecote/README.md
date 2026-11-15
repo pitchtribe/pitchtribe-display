@@ -2,7 +2,7 @@
 
 **You are on a club line, not on the base system.** This branch carries one club's build — Caldecote
 FC, The Pavilion, Harvey Close, Upper Caldecote — on top of PitchTribe, and is released on its own
-numbering. The current version is **caldecote 0.0.1** (`caldecote/release.json`).
+numbering. The current version is **caldecote 0.0.2** (`caldecote/release.json`).
 
 It exists so that work for one building cannot destabilise the system everybody else downloads. The
 base system is at `v0.4.2` and is happy there; the clubhouse wall, the Full-Time feed and the soak
