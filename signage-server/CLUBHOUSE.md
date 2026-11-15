@@ -1,7 +1,8 @@
 # The clubhouse wall
 
 One television in one clubhouse, showing one club's football and one club's photographs.
-`GET /clubhouse`.
+`GET /clubhouse` from this server on its own — and **`GET /feeds/clubhouse` on an installed
+card**, which is the path every real install takes. See ["On a card"](#on-a-card--which-is-not-the-same-path).
 
 This is a different thing from [`/display`](README.md). `/display` is a multi-league
 pamphlet for a sports centre: dense, tabular, read from a few feet away. The clubhouse

@@ -56,8 +56,13 @@ pitchtribe-soak-watch event "mains pulled at the wall"
 ```
 
 A sample a minute: uptime, service restart counts, Chromium's RSS, memory, SoC temperature,
-under-voltage and thermal throttling flags, whether `/api/health` answers, **how old the data it
-would show is**, whether `/clubhouse` actually renders, and whether the broadband is up.
+under-voltage and thermal throttling flags, whether `/healthz` answers, **how old the data it
+would show is**, whether the wall itself actually renders, and whether the broadband is up.
+
+The three addresses it watches are printed at the top of every report, because every figure in one
+is about them. The wall's URL is **read from the kiosk's own environment file**, not guessed: a soak
+that watches a different page from the one on the television can report a healthy week about a page
+nobody is looking at.
 
 **The write path is deliberate, because SD-card wear is a constraint of this project and not a
 worry I invented.** The minute-by-minute samples live in tmpfs and are capped. The card itself gets
@@ -77,7 +82,7 @@ more reachable with this installed than without it.
 | --- | --- | --- |
 | Seven days unattended | a full week of samples with no unexplained gaps | a gap nobody has an event line for |
 | Recovers on its own | back to a rendering wall within five minutes of every reboot | a reboot that needed a keyboard |
-| Never a blank screen | every sample got HTTP 200 from `/clubhouse` | any sample that did not |
+| Never a blank screen | every sample got HTTP 200 from the kiosk's own wall URL | any sample that did not |
 | Stale but dated | worst data age is explainable (a week, with the feed off, is correct) | a date that stops moving while the screen claims otherwise |
 | Not leaking | Chromium's RSS flat across the week | a trend, not a peak — a peak on day one is fine |
 | Power, not software | no under-voltage or throttling flag | a flag, which means buy a better supply before blaming the code |
