@@ -22,9 +22,12 @@ The product already has two sanctioned ways in, so nothing new has to be built o
 Either is enough. Alongside it:
 
 1. **A Pi with a card flashed from this repo**, on a real network, pointed at a real television —
-   `PITCHTRIBE_URL` ending `/clubhouse`, not `/player`.
+   `PITCHTRIBE_URL` ending **`/feeds/clubhouse`**, not `/player`. (The card runs the app, which
+   embeds the feed engine under `/feeds`; the bare `/clubhouse` is the standalone server's path and
+   is not served on a card.)
 2. **Nine days**, not seven: one to set up and confirm the loop, seven untouched, one to report.
-3. **The club file filled in** (`manual` source) — the wall renders without it, but then the soak is
+3. **The club file filled in** (`manual` source), at `/var/lib/pitchtribe/clubhouse.json` — see
+   "On a card" in `signage-server/CLUBHOUSE.md`. The wall renders without it, but then the soak is
    only testing the countdown and the blackout. The example file is enough if real data is not.
 4. **Two physical events, mid-week, and I cannot do either from a terminal:**
    - **the mains pulled** at the wall, unannounced, ideally at night;

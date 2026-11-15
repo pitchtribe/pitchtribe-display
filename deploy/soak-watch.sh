@@ -25,6 +25,32 @@ MAX_SAMPLES="${PITCHTRIBE_SOAK_MAX_SAMPLES:-20160}"   # 14 days at one a minute
 ORIGIN="${PITCHTRIBE_SOAK_ORIGIN:-http://localhost}"
 UNITS="${PITCHTRIBE_SOAK_UNITS:-pitchtribe-kiosk.service pitchtribe.service pitchtribe-signage.service}"
 
+# The page the television is actually showing, read from the kiosk's own environment
+# file rather than guessed: a soak that watches a different URL from the one on the
+# wall can report a healthy week about a page nobody is looking at.
+kiosk_url() {
+  local u=""
+  if [[ -r /etc/default/pitchtribe-kiosk ]]; then
+    u="$(sed -n 's/^[[:space:]]*PITCHTRIBE_URL=//p' /etc/default/pitchtribe-kiosk | tail -n 1 | tr -d "\"'")"
+  fi
+  u="${u//@HOSTNAME@/$(hostname 2>/dev/null || echo localhost)}"
+  printf '%s' "${u:-$ORIGIN/feeds/clubhouse}"
+}
+WALL_URL="${PITCHTRIBE_SOAK_WALL_URL:-$(kiosk_url)}"
+# Liveness comes from /healthz, which is open on purpose and answers `{ok, version}`.
+# The dashboard's /api/* is behind the login, so asking it whether the server is up
+# answers 401 on every properly set-up card and reports a week-long outage that
+# never happened.
+HEALTHZ_URL="${PITCHTRIBE_SOAK_HEALTHZ_URL:-$ORIGIN/healthz}"
+# How old the data on screen is comes from the feed engine's own health route — the
+# same one the wall itself polls, which is `api/health` relative to the page.
+engine_health_url() {
+  local base="${WALL_URL%%\?*}"
+  base="${base%/}"
+  printf '%s/api/health' "${base%/*}"
+}
+ENGINE_HEALTH_URL="${PITCHTRIBE_SOAK_ENGINE_HEALTH_URL:-$(engine_health_url)}"
+
 mkdir -p "$RUN_DIR" "$STATE_DIR" 2>/dev/null || true
 
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -75,8 +101,9 @@ cpu_temp_c() {
 # put on screen? Stale-but-dated is the brief's requirement, so age is the thing to watch,
 # not just whether the port is open.
 health() {
+  curl -fsS -o /dev/null --max-time 5 "$HEALTHZ_URL" 2>/dev/null || { printf 'down\tna'; return; }
   local body
-  body="$(curl -fsS --max-time 5 "$ORIGIN/api/health" 2>/dev/null)" || { printf 'down\tna'; return; }
+  body="$(curl -fsS --max-time 5 "$ENGINE_HEALTH_URL" 2>/dev/null)" || { printf 'up\tna'; return; }
   local updated
   # The server pretty-prints, so the whitespace and the newlines go before the match.
   updated="$(printf '%s' "$body" | tr -d ' \t\n' | sed -n 's/.*"updatedAt":"\([^"]*\)".*/\1/p')"
@@ -91,7 +118,7 @@ wall_status() {
   local code
   # -w prints the code on failure too, so the fallback is only for curl writing nothing
   # at all; without this the two spellings of "no answer" concatenate into "000000".
-  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 8 "$ORIGIN/clubhouse" 2>/dev/null)"
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 8 "$WALL_URL" 2>/dev/null)"
   printf '%s' "${code:-000}"
 }
 
@@ -158,6 +185,10 @@ report() {
     echo "No samples in $SAMPLES. Is pitchtribe-soak.timer running?"
     return 1
   fi
+  # Printed because every figure below is about these three addresses, and the first
+  # of them comes from the kiosk's environment file rather than from this script.
+  echo "watching       wall $WALL_URL"
+  echo "               server $HEALTHZ_URL · data age $ENGINE_HEALTH_URL"
   awk -F'\t' '
     NR == 1 { first = $1 }
     {
@@ -184,7 +215,7 @@ report() {
       printf "reboots        %d\n", boots
       printf "service restarts %d (NRestarts peaked at %d)\n", restart_events, max_r
       printf "wall page      %d of %d samples not HTTP 200%s\n", page_bad, n, (page_bad ? "" : "  — never once")
-      printf "server         %d samples with /api/health down\n", down
+      printf "server         %d samples with /healthz not answering\n", down
       printf "longest gap    %d consecutive minutes with no wall\n", worst_run
       if (seen_age)
         printf "data age       worst %d s (%.1f h) — stale is allowed, undated is not\n", max_age, max_age / 3600.0
