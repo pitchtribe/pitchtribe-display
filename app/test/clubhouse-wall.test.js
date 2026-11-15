@@ -56,6 +56,8 @@ function clubFixture(dir, { seasonFile = 'season.json', badge = 'badge.svg' } = 
     }),
   );
   fs.writeFileSync(path.join(dir, badge), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"/>');
+  fs.mkdirSync(path.join(dir, 'photos'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'photos', 'team.jpg'), Buffer.from('\xff\xd8\xff\xe0', 'binary'));
   return {
     title: 'Caldecote FC',
     timezone: 'Europe/London',
@@ -66,6 +68,7 @@ function clubFixture(dir, { seasonFile = 'season.json', badge = 'badge.svg' } = 
       name: 'Caldecote FC',
       strapline: 'The Pavilion · Saturdays, 16+',
       badge,
+      photosDir: 'photos',
       openingHours: { sat: [['12:00', '23:30']] },
     },
   };
@@ -199,4 +202,35 @@ test("the club file's own leagues reach the engine and win a key collision", asy
   const leagues = ctx.feeds.service.config.leagues.filter((l) => l.key === 'eng.1');
   assert.equal(leagues.length, 1, 'one key, one league — a duplicate would show the division twice');
   assert.equal(leagues[0].source, 'manual', "it is this club's screen, so the card's own file wins");
+});
+
+test("the wall's own sub-resources are reachable with no credentials", async (t) => {
+  // The page asks for `api/health`, `api/stream`, `badge` and `photos/…` *relative to
+  // itself*, so under the /feeds mount they are /feeds/api/health and friends. The card
+  // has no login and no token, and nobody is standing at it to type one.
+  //
+  // The health check is the one that would fail loudly in the wrong way: three misses
+  // and the wall puts "No internet connection — unplug the white cable" across the top.
+  // A 401 counts as a miss, so putting /feeds behind the dashboard login would hang a
+  // permanent outage notice on a card whose broadband is perfectly fine.
+  const { base } = await start(t, { club: clubFixture });
+  for (const p of ['/feeds/clubhouse', '/feeds/api/health', '/feeds/badge', '/feeds/photos/team.jpg']) {
+    const r = await fetch(`${base}${p}`);
+    assert.equal(r.status, 200, `${p} must answer a card that cannot authenticate`);
+  }
+  // The stream is held open, so it is read for its headers and dropped.
+  const ac = new AbortController();
+  const stream = await fetch(`${base}/feeds/api/stream`, { signal: ac.signal });
+  assert.equal(stream.status, 200);
+  assert.match(stream.headers.get('content-type') || '', /event-stream/);
+  ac.abort();
+});
+
+test('a photograph is woven into the loop, served from the pool beside the club file', async (t) => {
+  const { ctx, base } = await start(t, { club: clubFixture });
+  const html = await wall(base, ctx);
+  // Relative, because the page is mounted under /feeds on a card and absolute would
+  // point at a path the app does not serve.
+  assert.match(html, /src="photos\/team\.jpg"/, 'the photo pool resolves against the club file');
+  assert.doesNotMatch(html, /src="\/photos\//, 'an absolute photo path is the standalone server, not a card');
 });
