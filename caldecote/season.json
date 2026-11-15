@@ -1,0 +1,13 @@
+{
+  "name": "Bedfordshire County League",
+  "club": { "name": "Caldecote FC", "aliases": ["Caldecote"] },
+  "credit": "Results from the Bedfordshire County League's published results",
+  "_comment": "Caldecote's season, read by the `manual` source. Empty on purpose: this file is where the week's results are typed in, and inventing a fixture list would put football on a clubhouse wall that nobody played. Until somebody fills it in, the wall shows the club's name, the countdown to Saturday and the photographs — which is correct, not broken. Format: see the top of signage-server/src/sources/manual.js, and signage-server/data/club-season.example.json for a worked season.",
+  "_howToAdd": "One object per match in `events`. `start` is required — a result with no readable date is refused and the reason logged, because every result on screen carries its date. `team` says which of the club's sides played (First XI, Reserves, A). A match that was played but not yet published goes in with status \"awaiting\", never with a 0-0. The league's own wording for a called-off match goes in `statusText` verbatim.",
+  "_keepTheWholeSeason": "Do not trim old results out. The table and the last-five form slide need the season, and results older than nine days stop appearing as news on their own slides automatically.",
+  "events": [],
+  "standings": {
+    "name": "Premier Division",
+    "rows": []
+  }
+}
