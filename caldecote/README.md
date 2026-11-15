@@ -53,6 +53,37 @@ The second one is deliberately **not** fixed on `main` yet. Porting this line's 
 only a hand-edited install uses — so it is recorded as a known base defect and PIT-45 holds the
 decision on when to fix it there.
 
+## Putting it on the card
+
+The release image is the base system plus the wall's **code**. It carries no club content —
+that is the boundary in the table above — so a freshly flashed card boots as a playlist
+player until Caldecote's own files are on it. Two commands:
+
+```bash
+# On the Pi, from a checkout or a copied caldecote/ folder:
+sudo install -o pitchtribe -g pitchtribe -m 0644 caldecote/clubhouse.json /var/lib/pitchtribe/clubhouse.json
+sudo install -o pitchtribe -g pitchtribe -m 0644 caldecote/season.json    /var/lib/pitchtribe/season.json
+sudo install -d -o pitchtribe -g pitchtribe -m 0755 /var/lib/pitchtribe/photos
+sudo systemctl restart pitchtribe
+```
+
+Then point `PITCHTRIBE_URL` in `/etc/default/pitchtribe-kiosk` at `/feeds/clubhouse` and
+restart `pitchtribe-kiosk`. `signage-server/CLUBHOUSE.md` has the long version.
+
+**Three things in `clubhouse.json` are placeholders and the file says so in its own
+`_unconfirmed` field.** None can be settled from this side of the keyboard:
+
+| Placeholder | Why it is not filled in | What it costs if it ships as-is |
+| --- | --- | --- |
+| **Opening hours** | Only Saturday is established by the brief ("16+, Saturdays", a bar and people waiting for a pint). Every other day is deliberately **closed** rather than guessed. | A dark screen on a night the bar is open. Chosen over the other way round: a screen lit during a committee meeting is how installations get unplugged. |
+| **Colours** | Nobody has told us Caldecote's. Omitted, so the engine's defaults apply. | A wall in somebody else's blue. Harmless but not theirs, and it is their screen. |
+| **Badge** | There isn't one on file. Omitted; the slide drops the image and keeps the name. | The identity slide is type-only. |
+
+`season.json` is **empty on purpose.** It is where the week's results are typed in, and a
+made-up fixture list would put football on a clubhouse wall that nobody played. Until it is
+filled in the wall shows the club's name, the countdown and the photographs — which is v1
+behaving correctly, not v1 broken.
+
 ## What this line is made of
 
 Base system, plus the PIT-45 work in this order:
@@ -63,6 +94,33 @@ Base system, plus the PIT-45 work in this order:
    wall, and the `fulltime` source adapter. These stack: **#36 contains #33 and #34**, so merging #36
    delivers all three.
 3. **#37** — the soak instrument (`deploy/soak-watch.sh`, `deploy/SOAK.md`), stacked on #34.
+4. **#43** — the wall on a card. Everything above configured the engine **directly**; an installed
+   Pi does not. It runs the app, which embeds the engine under `/feeds`, so the wall is at
+   `/feeds/clubhouse` and nothing passed it a club config. `caldecote-0.0.1` was published with
+   that in it: the right page, with our name on it and no football.
+
+### The one hunk of base code this line owns
+
+**`app/lib/feeds.js` and the `clubFile` line in `app/lib/app.js` are club-line changes inside base
+files.** That is a merge-forward conflict surface, and it is the only one, so it is worth knowing
+about before February rather than during it.
+
+By the rule above this belongs on `main` — the next club wants a card that can serve its own wall
+too. It cannot go there yet: **`main` has no clubhouse page at all** (it arrived on this line in
+#34), so config threading for a wall that does not exist would be dead code in the base system. When
+the wall itself graduates to `main`, this goes with it and the conflict surface disappears. Until
+then, a base change to `feeds.js` merges forward into a file this line has edited, and the resolution
+is always the same: keep both, because the club file reading is additive to everything the dashboard
+does.
+
+Two smaller things are owed to `main` as hardening rather than fixes, and neither is live there:
+
+- **The deploy-script CI check named eight scripts by hand** and had stopped covering the ninth. On
+  this line the ninth is `deploy/soak-watch.sh`; on `main` that file does not exist, so the list is
+  still complete there and nothing is going unchecked. The glob is the durable version regardless.
+- **`soak-watch.sh` watched `/api/health`**, which is behind the dashboard login and answers 401 on
+  every properly set-up card — a week-long outage that never happened. The instrument is club-line,
+  so this one stays here.
 
 What v1 does and does not do is in `signage-server/CLUBHOUSE.md`, including the one line of the brief
 it knowingly does not meet: while the wall runs on the `manual` source, somebody types in the week's

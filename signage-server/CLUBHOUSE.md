@@ -1,7 +1,8 @@
 # The clubhouse wall
 
 One television in one clubhouse, showing one club's football and one club's photographs.
-`GET /clubhouse`.
+`GET /clubhouse` from this server on its own — and **`GET /feeds/clubhouse` on an installed
+card**, which is the path every real install takes. See ["On a card"](#on-a-card--which-is-not-the-same-path).
 
 This is a different thing from [`/display`](README.md). `/display` is a multi-league
 pamphlet for a sports centre: dense, tabular, read from a few feet away. The clubhouse
@@ -24,6 +25,40 @@ SIGNAGE_CONFIG=clubhouse.example.json npm start   # http://localhost:8090/clubho
 
 Then copy `clubhouse.example.json` to `config.json`, point it at the club's own file and
 photographs, and edit the hours.
+
+### On a card — which is not the same path
+
+The quick start above runs this server on its own. **A Pi installed by
+`deploy/install.sh` does not.** It runs the app, which embeds this engine as a library and
+serves it under `/feeds`, so the wall is at **`/feeds/clubhouse`** and there is no
+`SIGNAGE_CONFIG` for it to read. The engine's own `config.json` is never consulted on a
+card.
+
+So on a card the club file goes in the **data directory**, where the app looks for it:
+
+```bash
+# /var/lib/pitchtribe belongs to the service user, so hand it the files.
+sudo install -o pitchtribe -g pitchtribe -m 0644 clubhouse.json /var/lib/pitchtribe/clubhouse.json
+sudo install -o pitchtribe -g pitchtribe -m 0644 season.json    /var/lib/pitchtribe/season.json
+sudo systemctl restart pitchtribe   # the club file is read when the engine is configured
+```
+
+Then point the kiosk at the wall in `/etc/default/pitchtribe-kiosk` and restart
+`pitchtribe-kiosk` — `install.sh` leaves the line commented out ready for it.
+
+Two things that follow from this and bite otherwise:
+
+- **One file holds both halves.** On a card the club file carries its own `leagues`, not
+  just the `clubhouse` section — the engine's config is not there to supply them. The
+  `clubhouse.example.json` shape is exactly right; it is just read from the data directory
+  instead. Relative paths in it (the season file, the badge, the photo pool) resolve
+  **against the club file itself**, so bare filenames beside it work.
+- **No club file means nothing changes.** Most cards are playlist players, and a missing
+  file is the normal case, not an error. A file that cannot be parsed *is* an error: it is
+  named in the log and the card carries on without the wall, because a dashboard that will
+  not start is worse than a wall that is not configured.
+
+`PITCHTRIBE_CLUB_FILE` overrides the location if the file lives somewhere else.
 
 ## What it shows
 

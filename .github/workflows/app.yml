@@ -45,5 +45,23 @@ jobs:
         run: npm test
 
       - name: Check deploy scripts
-        working-directory: deploy
-        run: bash -n install.sh && bash -n bootstrap.sh && bash -n reset-password.sh && bash -n kiosk.sh && bash -n update/os-update.sh && bash -n ../image/build.sh && bash -n ../image/harden-cmdline.sh && bash -n portal/portal-apply.sh && node --check ../app/lib/portal-hw.js && node --check ../app/bin/backup.js && node --check ../app/bin/remote-access.js
+        # The job defaults to app/, and these paths are the repo's.
+        working-directory: .
+        # Every script, found rather than listed. The list this replaces named eight of
+        # the nine and had silently stopped covering deploy/soak-watch.sh — a list of
+        # files to check is a list that rots, and the whole point of these is that they
+        # run unattended on somebody's Pi.
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS= read -r -d '' f; do
+            echo "bash -n $f"
+            bash -n "$f"
+            found=$((found + 1))
+          done < <(find deploy image -name '*.sh' -print0 | sort -z)
+          # A glob that matches nothing would turn this step into a no-op that passes.
+          [[ "$found" -ge 9 ]] || { echo "only $found shell scripts found — expected at least 9"; exit 1; }
+          echo "checked $found shell scripts"
+          node --check app/lib/portal-hw.js
+          node --check app/bin/backup.js
+          node --check app/bin/remote-access.js

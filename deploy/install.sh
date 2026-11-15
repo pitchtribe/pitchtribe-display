@@ -348,10 +348,12 @@ if [[ "${PITCHTRIBE_NO_KIOSK:-0}" != 1 ]]; then
 # Read by pitchtribe-kiosk.service. @HOSTNAME@ becomes this Pi's hostname when the
 # kiosk starts, so each Pi shows its own screen (and an SD card image works on any Pi).
 #
-# For a single-club clubhouse wall instead of the playlist player, point this at the
-# signage server's clubhouse page and restart pitchtribe-kiosk (see
-# signage-server/CLUBHOUSE.md):
+# For a single-club clubhouse wall instead of the playlist player, put the club's own
+# file at ${DATA_DIR}/clubhouse.json, restart pitchtribe, then point this line at the
+# wall and restart pitchtribe-kiosk (see signage-server/CLUBHOUSE.md, "On a card"):
 #   PITCHTRIBE_URL=${SERVER%/}/feeds/clubhouse
+# Without that file the page answers, but with our name on it and no football — so the
+# file comes first.
 PITCHTRIBE_URL=${SERVER%/}/player/?screen=@HOSTNAME@
 CHROMIUM=${CHROMIUM}
 EOF

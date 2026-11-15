@@ -22,9 +22,12 @@ The product already has two sanctioned ways in, so nothing new has to be built o
 Either is enough. Alongside it:
 
 1. **A Pi with a card flashed from this repo**, on a real network, pointed at a real television —
-   `PITCHTRIBE_URL` ending `/clubhouse`, not `/player`.
+   `PITCHTRIBE_URL` ending **`/feeds/clubhouse`**, not `/player`. (The card runs the app, which
+   embeds the feed engine under `/feeds`; the bare `/clubhouse` is the standalone server's path and
+   is not served on a card.)
 2. **Nine days**, not seven: one to set up and confirm the loop, seven untouched, one to report.
-3. **The club file filled in** (`manual` source) — the wall renders without it, but then the soak is
+3. **The club file filled in** (`manual` source), at `/var/lib/pitchtribe/clubhouse.json` — see
+   "On a card" in `signage-server/CLUBHOUSE.md`. The wall renders without it, but then the soak is
    only testing the countdown and the blackout. The example file is enough if real data is not.
 4. **Two physical events, mid-week, and I cannot do either from a terminal:**
    - **the mains pulled** at the wall, unannounced, ideally at night;
@@ -53,8 +56,13 @@ pitchtribe-soak-watch event "mains pulled at the wall"
 ```
 
 A sample a minute: uptime, service restart counts, Chromium's RSS, memory, SoC temperature,
-under-voltage and thermal throttling flags, whether `/api/health` answers, **how old the data it
-would show is**, whether `/clubhouse` actually renders, and whether the broadband is up.
+under-voltage and thermal throttling flags, whether `/healthz` answers, **how old the data it
+would show is**, whether the wall itself actually renders, and whether the broadband is up.
+
+The three addresses it watches are printed at the top of every report, because every figure in one
+is about them. The wall's URL is **read from the kiosk's own environment file**, not guessed: a soak
+that watches a different page from the one on the television can report a healthy week about a page
+nobody is looking at.
 
 **The write path is deliberate, because SD-card wear is a constraint of this project and not a
 worry I invented.** The minute-by-minute samples live in tmpfs and are capped. The card itself gets
@@ -74,7 +82,7 @@ more reachable with this installed than without it.
 | --- | --- | --- |
 | Seven days unattended | a full week of samples with no unexplained gaps | a gap nobody has an event line for |
 | Recovers on its own | back to a rendering wall within five minutes of every reboot | a reboot that needed a keyboard |
-| Never a blank screen | every sample got HTTP 200 from `/clubhouse` | any sample that did not |
+| Never a blank screen | every sample got HTTP 200 from the kiosk's own wall URL | any sample that did not |
 | Stale but dated | worst data age is explainable (a week, with the feed off, is correct) | a date that stops moving while the screen claims otherwise |
 | Not leaking | Chromium's RSS flat across the week | a trend, not a peak — a peak on day one is fine |
 | Power, not software | no under-voltage or throttling flag | a flag, which means buy a better supply before blaming the code |
