@@ -63,6 +63,33 @@ Base system, plus the PIT-45 work in this order:
    wall, and the `fulltime` source adapter. These stack: **#36 contains #33 and #34**, so merging #36
    delivers all three.
 3. **#37** — the soak instrument (`deploy/soak-watch.sh`, `deploy/SOAK.md`), stacked on #34.
+4. **#43** — the wall on a card. Everything above configured the engine **directly**; an installed
+   Pi does not. It runs the app, which embeds the engine under `/feeds`, so the wall is at
+   `/feeds/clubhouse` and nothing passed it a club config. `caldecote-0.0.1` was published with
+   that in it: the right page, with our name on it and no football.
+
+### The one hunk of base code this line owns
+
+**`app/lib/feeds.js` and the `clubFile` line in `app/lib/app.js` are club-line changes inside base
+files.** That is a merge-forward conflict surface, and it is the only one, so it is worth knowing
+about before February rather than during it.
+
+By the rule above this belongs on `main` — the next club wants a card that can serve its own wall
+too. It cannot go there yet: **`main` has no clubhouse page at all** (it arrived on this line in
+#34), so config threading for a wall that does not exist would be dead code in the base system. When
+the wall itself graduates to `main`, this goes with it and the conflict surface disappears. Until
+then, a base change to `feeds.js` merges forward into a file this line has edited, and the resolution
+is always the same: keep both, because the club file reading is additive to everything the dashboard
+does.
+
+Two smaller things are owed to `main` as hardening rather than fixes, and neither is live there:
+
+- **The deploy-script CI check named eight scripts by hand** and had stopped covering the ninth. On
+  this line the ninth is `deploy/soak-watch.sh`; on `main` that file does not exist, so the list is
+  still complete there and nothing is going unchecked. The glob is the durable version regardless.
+- **`soak-watch.sh` watched `/api/health`**, which is behind the dashboard login and answers 401 on
+  every properly set-up card — a week-long outage that never happened. The instrument is club-line,
+  so this one stays here.
 
 What v1 does and does not do is in `signage-server/CLUBHOUSE.md`, including the one line of the brief
 it knowingly does not meet: while the wall runs on the `manual` source, somebody types in the week's
