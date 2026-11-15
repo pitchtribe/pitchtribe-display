@@ -128,7 +128,15 @@ class Feeds extends EventEmitter {
     this.emit('update', 'config');
   }
 
-  /** True when this card is one club's wall — read by the dashboard's About panel. */
+  /**
+   * True when this card is one club's wall rather than a playlist player — that is, when a
+   * club file was found *and* parsed *and* had a `clubhouse` section in it.
+   *
+   * Nothing in the dashboard reads this yet; it exists so that "did the club file take?"
+   * is one question with one answer, asked by the tests and by anyone debugging a card
+   * that came up showing the wrong screen. Reaching into `feeds.club` to work it out again
+   * is how two slightly different definitions of "configured" start to disagree.
+   */
   get clubhouseOn() {
     return Boolean(this.club?.clubhouse);
   }
