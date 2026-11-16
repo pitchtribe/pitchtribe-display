@@ -40,6 +40,62 @@ Either is enough. Alongside it:
 5. **Photographs for the pool**, if the Wednesday test is to mean anything. Twelve is wallpaper by
    Thursday; this has not moved since the brief said so, and it is still nobody's job.
 
+## The rig the board offered, identified — and a correction
+
+The board named `192.168.1.194` on PIT-45. That box was written off at the time as *"not the
+clubhouse display we built — our server serves `/clubhouse`, `/player` and `/api/health`, this one
+redirects `/` to `/admin/`."* **That was wrong, and the way it was wrong is worth keeping.**
+
+`app/lib/app.js` ends with `app.get('/', (req, res) => res.redirect('/admin/'))`. Redirecting `/` to
+`/admin/` is not evidence against it being one of ours — **it is the single most distinctive thing a
+PitchTribe card does.** The comparison was made against `signage-server`'s routes, which is the
+engine, not the thing an installed card runs. Same mistake as the bug in #43, made about the same
+boundary a day apart: reasoning about the engine's seams instead of the card's.
+
+What it actually answers, asked rather than assumed:
+
+| Request | Answer | What that means |
+| --- | --- | --- |
+| `GET /healthz` | `{"ok":true,"version":"0.4.2"}` | **a PitchTribe card, running the base system at v0.4.2** |
+| `GET /` | `302` → `/admin/` | `app/lib/app.js`, verified on both `:80` and `:443` |
+| `GET /api/health` | `401` | behind the dashboard login, exactly as #43 found |
+| `GET /player` | `301` | the base playlist screen is there |
+| `GET /feeds/` | `302` | the feed engine **is** mounted |
+| `GET /feeds/clubhouse` | `404` | v0.4.2 predates the wall — it is on this line, not in the base |
+
+So the rig exists, it is reachable, and `tcp/22` is open. It is **not a blank Pi waiting for an
+image**: it is a working v0.4.2 card, which makes the route onto it an in-place upgrade rather than a
+re-flash, and that is a job that can be done over the reach already offered instead of one needing a
+card reader and somebody's hands.
+
+```bash
+# On the card, over SSH. Keeps /var/lib/pitchtribe — the dashboard, the playlists and the
+# password all survive; this replaces /opt/pitchtribe, not the data directory.
+curl -sSL https://pitchtribe.media/install.sh | sudo PITCHTRIBE_REF=caldecote-0.0.2 bash
+```
+
+Then the two club-content commands and the kiosk URL from `caldecote/README.md` → *Putting it on the
+card*, and `/feeds/clubhouse` starts answering.
+
+**One thing to know before running that on a box somebody is using:** it reinstalls the application
+over the top of a card that currently works, and `caldecote-0.0.2` has never been installed anywhere.
+If `192.168.1.194` is a demo box the board shows people, that is a bad afternoon. On a test rig it is
+the right move; on anything else, flash a second card instead.
+
+### The access that is still missing
+
+SSH is open on the rig but nothing of ours is trusted on it. The key half of that is done — a
+dedicated keypair for this soak exists outside the repo, so this is one line pasted on the Pi rather
+than a credential sent anywhere:
+
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII+OQGVXDMMyhGiw10fJAXGwkCMrfgt7BqKpBlR7nvvM pitchtribe-soak-pit-45
+```
+
+`ssh-copy-id` or one append to `~/.ssh/authorized_keys`, plus **which account** it went on. Nothing
+of the board's is shared, and the key is scoped to this one job: when the soak is done, delete that
+line and the access is gone.
+
 ## What I do with it
 
 ```bash
