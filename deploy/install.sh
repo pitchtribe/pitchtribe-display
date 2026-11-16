@@ -35,6 +35,11 @@
 #   PITCHTRIBE_IMAGE_BUILD=1      used by image/build.sh: install into a mounted SD card
 #                                 image from a chroot. Services are enabled for the
 #                                 first boot but not started now.
+#   PITCHTRIBE_CLUB_DIR=caldecote one club's own card content (a clubhouse wall rather
+#                                 than a playlist player): a directory in this checkout
+#                                 holding card/ and card.env — see deploy/club-content.sh.
+#                                 A club line names its own in a .pitchtribe-club file at
+#                                 the top of the checkout, so this is usually not typed.
 set -euo pipefail
 
 log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
@@ -356,6 +361,34 @@ EOF
   systemctl set-default multi-user.target
   systemctl disable getty@tty1.service 2>/dev/null || true
   systemctl enable pitchtribe-kiosk.service
+  start_now restart pitchtribe-kiosk.service || true
+  KIOSK_ENV_FILE=/etc/default/pitchtribe-kiosk
+fi
+
+# ------------------------------------------------------------- club content
+# Most cards are playlist players and are configured from the dashboard after
+# they boot. A card built for one named building is not: its screen is driven by
+# files in the data directory, and the only person near it is a volunteer with no
+# keyboard — so those files have to be on the card before its first boot.
+#
+# A club line says which directory is its own in a .pitchtribe-club file at the
+# top of the checkout. There is no such file on main, so this is inert for the
+# system everybody downloads.
+CLUB_DIR="${PITCHTRIBE_CLUB_DIR:-}"
+if [[ -z "$CLUB_DIR" && -f "$SRC_DIR/.pitchtribe-club" ]]; then
+  CLUB_DIR="$(tr -d '[:space:]' <"$SRC_DIR/.pitchtribe-club")"
+  # It is joined onto a path, so it names one directory here and nothing else.
+  [[ "$CLUB_DIR" =~ ^[A-Za-z0-9._-]+$ && "$CLUB_DIR" != .* ]] \
+    || die ".pitchtribe-club must name one directory in this checkout, not “$CLUB_DIR”"
+fi
+if [[ -n "$CLUB_DIR" ]]; then
+  [[ "$CLUB_DIR" == /* ]] || CLUB_DIR="$SRC_DIR/$CLUB_DIR"
+  log "Club card: putting $(basename "$CLUB_DIR")'s own content on it"
+  # Not `|| true`: a club card that installs as a playlist player with the
+  # club's name on the box is the failure this is here to prevent, so a missing
+  # or unreadable club directory fails the install rather than passing quietly.
+  "$SRC_DIR/deploy/club-content.sh" "$CLUB_DIR" "$DATA_DIR" "${KIOSK_ENV_FILE:-}"
+  start_now restart pitchtribe.service || true
   start_now restart pitchtribe-kiosk.service || true
 fi
 
