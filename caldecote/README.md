@@ -55,20 +55,43 @@ decision on when to fix it there.
 
 ## Putting it on the card
 
-The release image is the base system plus the wall's **code**. It carries no club content —
-that is the boundary in the table above — so a freshly flashed card boots as a playlist
-player until Caldecote's own files are on it. Two commands:
+**Nothing.** A card flashed from this line's image comes up as Caldecote on its first boot,
+with no keyboard and no commands typed on the Pi. That is the whole point of a club line, and
+it is worth saying what it replaced: until `0.0.3` this section listed four commands to type
+on the Pi after flashing, and a card flashed and switched on *without* them served the wall
+correctly with **our** name on it — the right page, the wrong club, HTTP 200, invisible in a
+screenshot. `caldecote-0.0.1` and `0.0.2` both shipped exactly that.
+
+How it works now:
+
+| In this directory | Goes to | Why |
+| --- | --- | --- |
+| `card/*` | the data directory, `/var/lib/pitchtribe` | `clubhouse.json` is what the app reads to turn the wall on; `season.json` and `photos/` sit beside it because its relative paths resolve against it |
+| `card.env` | merged into `/etc/default/pitchtribe-kiosk` | points the kiosk at `/feeds/clubhouse`. Without it the card serves the wall and *opens* `/player`, which on a card with no playlist is an empty screen |
+
+`.pitchtribe-club` at the top of the checkout holds one word — `caldecote` — and is how
+`deploy/install.sh` and `image/build.sh` know this checkout is a club line at all. **There is no
+such file on `main`**, which is why none of this touches the system everybody downloads, and why
+no workflow needed changing: a club line's image build is just a checkout that carries its own
+marker. The mechanism itself (`deploy/club-content.sh`) is base code and lives on `main`; this
+line only supplies the content and the marker.
+
+Two rules the script **enforces** rather than documents, both of which matter here:
+
+- **A file already in the data directory is never overwritten.** Upgrading a working Caldecote
+  card must not throw away the season somebody typed in on a Saturday evening, the photographs
+  they finally handed over, or opening hours that have since been corrected. The empty
+  `season.json` in this directory is for a *fresh* card and will not replace a filled-in one.
+- **A club directory that is named but missing or empty fails the install.** A club card that
+  quietly installs as a playlist player is the failure above, so it is an error, not a no-op.
+
+On a card that is already running, the same job by hand is one command:
 
 ```bash
-# On the Pi, from a checkout or a copied caldecote/ folder:
-sudo install -o pitchtribe -g pitchtribe -m 0644 caldecote/clubhouse.json /var/lib/pitchtribe/clubhouse.json
-sudo install -o pitchtribe -g pitchtribe -m 0644 caldecote/season.json    /var/lib/pitchtribe/season.json
-sudo install -d -o pitchtribe -g pitchtribe -m 0755 /var/lib/pitchtribe/photos
-sudo systemctl restart pitchtribe
+sudo deploy/club-content.sh caldecote
 ```
 
-Then point `PITCHTRIBE_URL` in `/etc/default/pitchtribe-kiosk` at `/feeds/clubhouse` and
-restart `pitchtribe-kiosk`. `signage-server/CLUBHOUSE.md` has the long version.
+`signage-server/CLUBHOUSE.md` has the long version of what the wall reads.
 
 **Three things in `clubhouse.json` are placeholders and the file says so in its own
 `_unconfirmed` field.** None can be settled from this side of the keyboard:
@@ -98,6 +121,17 @@ Base system, plus the PIT-45 work in this order:
    Pi does not. It runs the app, which embeds the engine under `/feeds`, so the wall is at
    `/feeds/clubhouse` and nothing passed it a club config. `caldecote-0.0.1` was published with
    that in it: the right page, with our name on it and no football.
+5. **#46** (on `main`) **and the `card/` layout here** — the club's content on the card *before*
+   its first boot. #43 made a club file work once it was on the Pi; it did not put it there, and
+   the documented route was four commands typed on the Pi after flashing. So `caldecote-0.0.2`'s
+   image still could not show the club unless somebody did that by hand — the same class of fault
+   as #43, one step further out. The mechanism is base code on `main`; what is on this line is
+   `card/`, `card.env` and `.pitchtribe-club`.
+
+The pattern across #43 and #46 is worth naming, because it is the one this line keeps hitting:
+**each was a test that proved the wall worked at a seam no card actually uses.** The engine
+configured directly, then the app handed a club file directly. The fix both times was to test the
+documented install path instead of the convenient one.
 
 ### The one hunk of base code this line owns
 
@@ -113,14 +147,18 @@ then, a base change to `feeds.js` merges forward into a file this line has edite
 is always the same: keep both, because the club file reading is additive to everything the dashboard
 does.
 
-Two smaller things are owed to `main` as hardening rather than fixes, and neither is live there:
+One smaller thing stays here, and one has since gone home:
 
-- **The deploy-script CI check named eight scripts by hand** and had stopped covering the ninth. On
-  this line the ninth is `deploy/soak-watch.sh`; on `main` that file does not exist, so the list is
-  still complete there and nothing is going unchecked. The glob is the durable version regardless.
 - **`soak-watch.sh` watched `/api/health`**, which is behind the dashboard login and answers 401 on
   every properly set-up card — a week-long outage that never happened. The instrument is club-line,
   so this one stays here.
+- **The deploy-script CI check named eight scripts by hand** and had stopped covering the ninth.
+  That is now on `main` (#46) and has arrived back here on the merge forward, which is the rule in
+  the table working as intended. It cost one conflict in `.github/workflows/app.yml` — both lines
+  had written the same `find` with different comments above it — resolved in favour of the base
+  system's wording, because the club line's version named `deploy/soak-watch.sh`, a file `main`
+  does not have. **Prefer the base wording in base files on a merge forward**; it is how the
+  conflict stops recurring.
 
 What v1 does and does not do is in `signage-server/CLUBHOUSE.md`, including the one line of the brief
 it knowingly does not meet: while the wall runs on the `manual` source, somebody types in the week's
@@ -145,11 +183,18 @@ in `app/package.json` and this line leaves it alone.
 
 ## Releasing
 
-**Actions → Release (Caldecote line) → Run workflow**, version `0.0.1`.
+**Actions → Release (Caldecote line) → Run workflow**, version `0.0.3` — whatever
+`caldecote/release.json` currently says.
 
-It tags this branch `caldecote-0.0.1`, refuses the run if `caldecote/release.json` disagrees with the
-version typed in, publishes the release and builds this line's own SD card image — about fifteen
-minutes.
+It tags this branch `caldecote-<version>`, refuses the run if `caldecote/release.json` disagrees
+with the version typed in, publishes the release and builds this line's own SD card image — about
+fifteen minutes.
+
+**0.0.1 and 0.0.2 are superseded and must not be flashed.** Neither can show the club: 0.0.1 served
+the wall with our name on it, and 0.0.2 fixed that but still needed four commands typed on the Pi
+that nobody carrying a card to a pavilion was going to type. 0.0.3 is the first image where
+flashing it is the whole job. Both older tags stay published rather than deleted — deleting a tag
+somebody may have written down is worse than marking it replaced.
 
 **The release is always a prerelease, and that is not cosmetic.** The website's download button
 resolves `/releases/latest`, which GitHub omits prereleases from. Without the flag, publishing

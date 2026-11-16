@@ -1,5 +1,5 @@
 {
-  "_comment": "Caldecote FC's clubhouse wall. Copy this to /var/lib/pitchtribe/clubhouse.json on the card and restart pitchtribe — see signage-server/CLUBHOUSE.md, 'On a card'. Relative paths below resolve against this file, so season.json, the badge and the photo pool sit beside it.",
+  "_comment": "Caldecote FC's clubhouse wall. Everything in this card/ directory is copied into the data directory (/var/lib/pitchtribe) by deploy/club-content.sh when this line is installed or flashed, so a card arrives at the building already being Caldecote — nothing is typed on the Pi. Relative paths below resolve against this file, so season.json, the badge and the photo pool sit beside it, which is why they are in here together. See signage-server/CLUBHOUSE.md and caldecote/README.md.",
   "_unconfirmed": "THREE THINGS IN HERE ARE PLACEHOLDERS AND MUST BE CHECKED WITH THE CLUB BEFORE THE SCREEN GOES ON A WALL: openingHours (only Saturday is known from the brief; every other day is deliberately closed rather than guessed), colours (omitted, so the defaults apply — nobody has told us Caldecote's), and badge (omitted; there isn't one on file). A screen lit during a committee meeting is how installations get unplugged, so this errs towards a dark screen.",
   "title": "Caldecote FC",
   "timezone": "Europe/London",
