@@ -1,15 +1,15 @@
 {
   "line": "caldecote",
-  "version": "0.0.2",
-  "tag": "caldecote-0.0.2",
+  "version": "0.0.3",
+  "tag": "caldecote-0.0.3",
   "club": "Caldecote FC — The Pavilion, Harvey Close, Upper Caldecote",
-  "base": "v0.4.2 +38 (main @ 1d9ec6f)",
+  "base": "v0.4.2 +40 (main @ 6957f2d)",
   "baseRelease": "v0.4.2",
   "baseBranch": "main",
-  "baseCommit": "1d9ec6fa0ed74b2129e6616943c39710890ed37e",
-  "baseCommitsSinceRelease": 38,
+  "baseCommit": "6957f2d85199083312be7f743ba996bed8a6a1ec",
+  "baseCommitsSinceRelease": 40,
   "issue": "PIT-45",
   "notes": "The club line's version of record. The base system's version lives in app/package.json and is NOT touched here, so that merging a base release forward never lands on a version conflict. release-caldecote.yml checks the number below against the version it is asked to publish.",
-  "whyThisCut": "0.0.1 could not show the club. The wall was built and tested against the engine configured directly, but a flashed card runs the app, which embeds the engine under /feeds — and nothing passed a club config to it. So caldecote-0.0.1's image answered /feeds/clubhouse with PitchTribe's name, the countdown, and no football: the right page with the wrong club, which is the one failure nobody catches in a screenshot. PR #43 reads a club file from the data directory and hands its leagues, timezone and clubhouse section to the embedded engine. 0.0.1 should not be flashed; it is left published rather than deleted because deleting a tag somebody may have already written down is worse than marking it superseded.",
-  "baseNote": "The base pointer above is unchanged from 0.0.1's record and is what this line stands on: main @ 1d9ec6f (v0.4.2 +38). 0.0.1 was tagged at main @ e59050a (v0.4.2 +30); main @ efe29eea was merged forward on 14 November 2026 under PIT-49, bringing #39 (release image permissions), #40 (sortEvents total order) and #41 (manual status phrase), and main @ 1d9ec6f was merged forward later the same day under PIT-52, bringing #42, the test-only fix for the 1.95% flaky spot-the-ball assertion. No base merge happened for this cut: 0.0.2 is 0.0.1's base plus the club fix in #43, so if the soak behaves differently the difference is that fix and nothing else. Earlier history: the line was cut at main @ 9bdcbba (v0.4.2 +25) and took the ESPN fixture-clock fix (#35) and the club-line CI change (#38) directly, before each landed on main."
+  "whyThisCut": "0.0.2 could show the club, but only if somebody typed four commands on the Pi after flashing it. A card is flashed, carried to a building and switched on by a volunteer with no keyboard, so in practice 0.0.2's image came up as a playlist player with Caldecote's name on the box — the same fault as 0.0.1 one step further out, and again invisible in a screenshot because the page answers 200 and looks deliberate. 0.0.3 puts the club's content on the card before its first boot: deploy/club-content.sh (base code, #46 on main) copies caldecote/card/* into the data directory and merges caldecote/card.env into the kiosk's environment, and .pitchtribe-club at the top of the checkout is how the installer and the image build know this is a club line at all. Flashing 0.0.3 is the whole job. 0.0.1 and 0.0.2 are superseded and should not be flashed; both are left published rather than deleted.",
+  "baseNote": "This cut moved the base pointer: main @ 1d9ec6f (v0.4.2 +38) -> main @ 6957f2d (v0.4.2 +40), merged forward on 16 November 2026. It brings #44 (bootstrap.sh commit-checks a club-line tag — it tested for a 'v' prefix, so caldecote-* tags, which is exactly what goes on a card in a pavilion, skipped the check silently) and #46 (the club-content mechanism this release depends on, plus two base-wide fixes: kiosk.sh derived its health URL by cutting the page URL at /player, so any card pointed elsewhere waited its full minute on every boot, and the CI deploy-script check now finds scripts rather than naming eight by hand). The merge forward conflicted once, in .github/workflows/app.yml, on comment wording only — both lines had written the same find; the base system's wording won. Earlier history: 0.0.1 was tagged at main @ e59050a (v0.4.2 +30); 0.0.2 stood on main @ 1d9ec6f and was 0.0.1 plus the club fix in #43; the line itself was cut at main @ 9bdcbba (v0.4.2 +25) and took #35 and #38 directly, before each landed on main."
 }
