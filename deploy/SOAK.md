@@ -21,14 +21,21 @@ The product already has two sanctioned ways in, so nothing new has to be built o
 
 Either is enough. Alongside it:
 
-1. **A Pi with a card flashed from this repo**, on a real network, pointed at a real television —
-   `PITCHTRIBE_URL` ending **`/feeds/clubhouse`**, not `/player`. (The card runs the app, which
-   embeds the feed engine under `/feeds`; the bare `/clubhouse` is the standalone server's path and
-   is not served on a card.)
+1. **A Pi with a card flashed from this line's own image**, on a real network, pointed at a real
+   television. `PITCHTRIBE_URL` must end **`/feeds/clubhouse`**, not `/player` — from
+   `caldecote-0.0.3` the image sets that itself, so this is a thing to *check* rather than to do.
+   (The card runs the app, which embeds the feed engine under `/feeds`; the bare `/clubhouse` is the
+   standalone server's path and is not served on a card. `soak-watch.sh` reads the URL from the
+   kiosk's own environment file rather than guessing, so a card pointed at the wrong page shows up in
+   the report instead of looking like an outage.)
 2. **Nine days**, not seven: one to set up and confirm the loop, seven untouched, one to report.
-3. **The club file filled in** (`manual` source), at `/var/lib/pitchtribe/clubhouse.json` — see
-   "On a card" in `signage-server/CLUBHOUSE.md`. The wall renders without it, but then the soak is
-   only testing the countdown and the blackout. The example file is enough if real data is not.
+3. **Results in the season file**, `/var/lib/pitchtribe/season.json`. From `caldecote-0.0.3` the club
+   file and an *empty* season are already on a flashed card, so the wall comes up as Caldecote with
+   nothing typed on the Pi — but an empty season means the soak is only exercising the countdown, the
+   blackout and the photographs. A week of real results, or
+   `signage-server/data/club-season.example.json` copied over it, is what makes the heartbeat slides
+   part of the test. **Editing it on the card is safe across an upgrade**: `club-content.sh` never
+   overwrites a file already in the data directory.
 4. **Two physical events, mid-week, and I cannot do either from a terminal:**
    - **the mains pulled** at the wall, unannounced, ideally at night;
    - **the network cable pulled** and left out for an hour or two.
@@ -64,23 +71,48 @@ What it actually answers, asked rather than assumed:
 | `GET /feeds/clubhouse` | `404` | v0.4.2 predates the wall — it is on this line, not in the base |
 
 So the rig exists, it is reachable, and `tcp/22` is open. It is **not a blank Pi waiting for an
-image**: it is a working v0.4.2 card, which makes the route onto it an in-place upgrade rather than a
-re-flash, and that is a job that can be done over the reach already offered instead of one needing a
-card reader and somebody's hands.
+image**: it is a working v0.4.2 card.
+
+### The route the board chose: a second card
+
+**Asked whether to upgrade `194` in place or flash a second card, the board chose the second card.**
+That is the right answer and it is now also the cheap one, which was not true when the question was
+asked:
+
+```
+Raspberry Pi Imager → Choose OS → Use custom → pitchtribe-rpi-arm64.img.xz
+  from the caldecote-0.0.3 release, then Imager's own customisation for
+  hostname, Wi-Fi and SSH. Write, boot, point the television at it.
+```
+
+**That is the whole job.** Nothing is typed on the Pi. From `caldecote-0.0.3` the image carries
+Caldecote's own content — `clubhouse.json`, an empty `season.json` and the photo pool — and points the
+kiosk at `/feeds/clubhouse` itself, so the card comes up as the club on its first boot. **Do not use
+`caldecote-0.0.1` or `0.0.2`**: neither can show the club unaided, which is the whole reason 0.0.3
+exists.
+
+Flashing also keeps `194` as the thing it already is — a working v0.4.2 card to compare against, and
+the control for any question of the form *"did the club line break this, or was it always like
+that?"*. An in-place upgrade would have destroyed that comparison to save a card reader.
+
+### The in-place route, kept as the fallback
+
+If no spare card or reader turns up, `194` can still be upgraded over the SSH reach already offered,
+without anybody's hands:
 
 ```bash
 # On the card, over SSH. Keeps /var/lib/pitchtribe — the dashboard, the playlists and the
 # password all survive; this replaces /opt/pitchtribe, not the data directory.
-curl -sSL https://pitchtribe.media/install.sh | sudo PITCHTRIBE_REF=caldecote-0.0.2 bash
+curl -sSL https://pitchtribe.media/install.sh | sudo PITCHTRIBE_REF=caldecote-0.0.3 bash
 ```
 
-Then the two club-content commands and the kiosk URL from `caldecote/README.md` → *Putting it on the
-card*, and `/feeds/clubhouse` starts answering.
+`install.sh` places the club content itself on the way through, because the checkout it installs from
+carries `.pitchtribe-club` — so this needs no follow-up commands either, and `/feeds/clubhouse` starts
+answering when it finishes.
 
-**One thing to know before running that on a box somebody is using:** it reinstalls the application
-over the top of a card that currently works, and `caldecote-0.0.2` has never been installed anywhere.
-If `192.168.1.194` is a demo box the board shows people, that is a bad afternoon. On a test rig it is
-the right move; on anything else, flash a second card instead.
+**Before running it on a box somebody is using:** it reinstalls the application over the top of a card
+that currently works. On a test bench that is fine. If `194` is a demo box the board shows people, it
+is a bad afternoon — which is exactly why the second card was the better answer.
 
 ### The access that is still missing
 
