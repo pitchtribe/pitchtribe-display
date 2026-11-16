@@ -47,10 +47,10 @@ jobs:
       - name: Check deploy scripts
         # The job defaults to app/, and these paths are the repo's.
         working-directory: .
-        # Every script, found rather than listed. The list this replaces named eight of
-        # the nine and had silently stopped covering deploy/soak-watch.sh — a list of
-        # files to check is a list that rots, and the whole point of these is that they
-        # run unattended on somebody's Pi.
+        # Every script, found rather than listed. A hand-written list is a list that
+        # rots: the one this replaces named eight files, and the ninth script added to
+        # deploy/ would have gone unchecked without anybody noticing. These run
+        # unattended on somebody's Pi, which is the whole reason to check them.
         run: |
           set -euo pipefail
           found=0

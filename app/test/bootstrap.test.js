@@ -20,7 +20,11 @@ const SHA = 'a'.repeat(40);
  * A PATH holding fake `curl` and `git`, so nothing here touches the network.
  * The stubs log every call, so a test can assert what was *not* asked for too.
  */
-function stubs({ tag = 'v9.9.9', apiSha = SHA, head = SHA, curlFails = false } = {}) {
+function stubs({ tag = 'v9.9.9', apiSha = SHA, head = SHA, curlFails = false, tags = null } = {}) {
+  // Which refs the fake clone would hold as tags. bootstrap.sh decides whether to
+  // commit-check a ref by asking the checkout for refs/tags/<ref>, so the stub has
+  // to answer that honestly or the check reads as covering everything.
+  const tagRefs = (tags || [tag]).join(' ');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-boot-'));
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin);
@@ -44,6 +48,12 @@ if [[ "$1" == clone ]]; then
   mkdir -p "$dest/deploy"
   printf '#!/usr/bin/env bash\\necho INSTALL-RAN\\n' >"$dest/deploy/install.sh"
   exit 0
+fi
+if [[ "$*" == *--verify* ]]; then
+  for t in ${tagRefs}; do
+    if [[ "$*" == *"refs/tags/$t"* ]]; then echo "${head}"; exit 0; fi
+  done
+  exit 1
 fi
 if [[ "$*" == *rev-parse* ]]; then echo "${head}"; exit 0; fi
 exit 0
@@ -98,6 +108,25 @@ test('an explicit ref is still honoured, and a branch is not commit-checked', ()
   assert.match(r.calls, /git clone --depth 1 --branch main/);
   assert.doesNotMatch(r.calls, /releases\/latest/, 'no lookup when the version is named');
   assert.doesNotMatch(r.calls, /commits\/main/, 'a branch has no fixed commit to check');
+});
+
+/* The club line releases as caldecote-X.Y.Z, and that tag is what gets installed on
+   a card in a pavilion. The commit check used to be spelled `$REF == v*`, so it
+   covered the base system's releases and silently skipped every club one. */
+test('a club-line tag is commit-checked too, not just vX.Y.Z', () => {
+  const r = run({ PITCHTRIBE_REF: 'caldecote-0.0.2' }, { tags: ['caldecote-0.0.2'] });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.calls, /git clone --depth 1 --branch caldecote-0\.0\.2/);
+  assert.match(r.calls, /commits\/caldecote-0\.0\.2/, 'the tag is checked against GitHub');
+});
+
+test('a club-line tag that does not name the commit we were given installs nothing', () => {
+  const r = run(
+    { PITCHTRIBE_REF: 'caldecote-0.0.2' },
+    { tags: ['caldecote-0.0.2'], head: 'c'.repeat(40), apiSha: SHA },
+  );
+  assert.notEqual(r.status, 0, 'a pavilion card must not get an unverified build');
+  assert.match(r.stderr, /Nothing was installed/);
 });
 
 test('a mirror has to name its own version rather than falling back to a branch', () => {
