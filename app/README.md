@@ -116,5 +116,32 @@ To back up, copy `DATA_DIR`.
 | `GET/PUT /api/portal`, `GET /api/portal/preview`, `GET /api/portal/guests.csv`, `DELETE /api/portal/guests` | Guest Wi-Fi settings, stats, splash preview, email export |
 | `GET /league/:assetId/:panel` | One FA Full-Time panel of a league slide, sandboxed (no login, LAN only) |
 | `GET /feeds/display`, `/feeds/api/*`, `/feeds/api/widgets/:kind` · `POST /feeds/mcp` | The engine's routes (POST needs its bearer token or a dashboard session) |
+| `GET /healthz` | Liveness plus a few health numbers (no login, LAN only) |
 
 All dashboard calls need the session cookie, and every mutation also needs the `X-PitchTribe: 1` header.
+
+### Watching a card
+
+`GET /healthz` always answers `200` with `ok: true` while the service is
+running — `deploy/kiosk.sh` waits on it before starting the browser, so it must
+never fail just because something needs attention. Alongside that it reports
+free space on the data card, memory, host and process uptime, load, how many
+screens are online, and what the nightly OS update is doing. Anything that needs
+attention appears in `status: "warn"` and a `warnings` list (`disk-low`,
+`memory-low`, `os-unpatched`); screen counts and load are reported but never
+warned on, because a club switching screens off overnight is not a fault. It
+carries no club, screen or package names: it takes no login, so there is nothing
+on it that should not be public on the club's LAN. `lib/health.js` has the
+reasoning.
+
+`scripts/health-probe.mjs` reads it from a machine that is **not** the Pi — a
+watcher sharing a power supply with the thing it watches reports nothing in the
+one case that matters:
+
+```sh
+node scripts/health-probe.mjs --host pitchtribe --fingerprint <sha256> --expect-version 0.4.3
+```
+
+It exits `0` up, `1` needs attention, `2` down, forces IPv4, and pins the card's
+self-signed certificate by fingerprint (from Settings → Secure connection)
+rather than disabling verification. `deploy/monitor/` installs it on a timer.

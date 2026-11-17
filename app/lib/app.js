@@ -14,6 +14,7 @@ const { readPortalFiles, writePortalSettings, portalFile } = require('./portal')
 const { mountBackupRoutes } = require('./backup-routes');
 const { mountRemoteAccessRoutes } = require('./remote-access-routes');
 const { osUpdateView } = require('./os-update');
+const { createHealth } = require('./health');
 const { Feeds, LEAGUE_KEY_RE, SHOW_OPTIONS } = require('./feeds');
 const fulltime = require('./fulltime');
 const auth = require('./auth');
@@ -245,10 +246,10 @@ function createApp(opts = {}) {
     return { weather: w.weather, wikipedia: w.wikipedia, trains: w.trains || null, bods: w.bods || null, kinds: feeds.widgetKinds };
   }
 
-  const screenView = (s) => ({
-    ...s,
-    online: hub.isConnected(s.id) || Date.now() - (s.lastSeen || 0) < ONLINE_MS,
-  });
+  /** One rule for "is this screen with us?", shared by the dashboard and /healthz. */
+  const isOnline = (s) => hub.isConnected(s.id) || Date.now() - (s.lastSeen || 0) < ONLINE_MS;
+
+  const screenView = (s) => ({ ...s, online: isOnline(s) });
 
   // ---------- Content model ----------
   function sanitizeAsset(type, body, existing = {}) {
@@ -1235,7 +1236,21 @@ function createApp(opts = {}) {
   app.use('/portal-assets', express.static(path.join(PUBLIC_DIR, 'portal'), { maxAge: 0 }));
   app.get('/favicon.svg', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'shared', 'favicon.svg')));
   app.get('/', (req, res) => res.redirect('/admin/'));
-  app.get('/healthz', (req, res) => res.json({ ok: true, version: pkg.version }));
+  /* Still a liveness check — always 200, `ok` always true — with the few
+     numbers a watcher off the card needs to see trouble coming. lib/health.js
+     says what is in it and what is deliberately left out. `no-store` because a
+     monitor reading a cached body would report a fault that has been fixed, or
+     miss one that has just started. */
+  const health = createHealth({
+    version: pkg.version,
+    dataDir,
+    screens: () => {
+      const list = data().screens;
+      return { total: list.length, online: list.reduce((n, s) => n + (isOnline(s) ? 1 : 0), 0) };
+    },
+    osUpdate: () => osUpdateView(dataDir),
+  });
+  app.get('/healthz', (req, res) => res.set('Cache-Control', 'no-store').json(health()));
 
   // ---------- Errors ----------
   // eslint-disable-next-line no-unused-vars
