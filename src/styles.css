@@ -148,6 +148,33 @@
     @apply shrink-0 font-bold text-accent;
   }
 
+  /* ---- Amazon quick-buy basket (/buy) ---- */
+  .basket-row {
+    @apply grid grid-cols-[1.125rem_1fr_auto] items-baseline gap-x-3 gap-y-1 py-3;
+  }
+  .basket-tick {
+    @apply size-[1.125rem] shrink-0 cursor-pointer self-center accent-[var(--pt-accent)];
+  }
+  .basket-row label {
+    @apply cursor-pointer text-fg;
+  }
+  /* The price column keeps its width when a row is unticked, so the list does
+     not reflow as the consumer builds the basket up. */
+  .basket-row .basket-price {
+    @apply shrink-0 font-mono tabular-nums text-muted;
+  }
+  .basket-row:has(.basket-tick:not(:checked)) label,
+  .basket-row:has(.basket-tick:not(:checked)) .basket-price {
+    @apply text-dim;
+  }
+  .basket-note {
+    @apply col-start-2 col-end-4 text-[0.8125rem] text-dim;
+  }
+  /* Nothing ticked: the basket link has no items to send, so stop the click. */
+  .basket-go[aria-disabled="true"] {
+    @apply pointer-events-none opacity-50;
+  }
+
   /* ---- Docs (/docs/) ---- */
   .doc { @apply max-w-[72ch] text-[1rem] leading-[1.7] text-muted; }
   .doc > * + * { @apply mt-4; }
