@@ -15,6 +15,7 @@ const { mountBackupRoutes } = require('./backup-routes');
 const { mountRemoteAccessRoutes } = require('./remote-access-routes');
 const { osUpdateView } = require('./os-update');
 const { Feeds, LEAGUE_KEY_RE, SHOW_OPTIONS } = require('./feeds');
+const fulltime = require('./fulltime');
 const auth = require('./auth');
 const v = require('./validate');
 const pkg = require('../package.json');
@@ -35,8 +36,8 @@ const MEDIA_TYPES = {
   'video/quicktime': ['video', '.mov'],
 };
 
-const ASSET_TYPES = ['image', 'video', 'url', 'notice', 'menu', 'fixtures', 'scores', 'widget'];
-const TEXT_TYPES = ['url', 'notice', 'menu', 'fixtures', 'scores', 'widget'];
+const ASSET_TYPES = ['image', 'video', 'url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget'];
+const TEXT_TYPES = ['url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget'];
 const WIDGET_KINDS = ['clock', 'worldclock', 'weather', 'joke', 'phrase', 'trivia', 'quiz', 'history', 'emoji', 'geoquiz', 'country', 'spotball',
   'transport', 'bankholiday', 'floods', 'carbon', 'quakes', 'currency', 'potd', 'births', 'sky', 'headlines', 'events'];
 const CURRENCIES = ['AUD', 'BGN', 'BRL', 'CAD', 'CHF', 'CNY', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD', 'HUF', 'IDR', 'ILS', 'INR', 'ISK', 'JPY', 'KRW', 'MXN', 'MYR', 'NOK', 'NZD', 'PHP', 'PLN', 'RON', 'SEK', 'SGD', 'THB', 'TRY', 'USD', 'ZAR'];
@@ -45,7 +46,7 @@ const WIDGET_DURATION = { clock: 15, worldclock: 15, weather: 15, joke: 14, phra
   transport: 20, bankholiday: 12, floods: 12, carbon: 14, quakes: 14, currency: 12, potd: 15, births: 15, sky: 12, headlines: 18, events: 18 };
 const DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const GRID = { cols: 10, rows: 8 };
-const DEFAULT_DURATION = { image: 10, video: 0, url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, widget: 15 };
+const DEFAULT_DURATION = { image: 10, video: 0, url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, league: 25, widget: 15 };
 const NOTICE_STYLES = ['default', 'accent', 'amber', 'alert', 'light'];
 const ROTATIONS = [0, 90, 180, 270];
 const MAX_SCREENS = 200;
@@ -149,7 +150,7 @@ function createApp(opts = {}) {
         'Content-Security-Policy',
         "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'"
       );
-    } else if (!req.path.startsWith('/media/')) {
+    } else if (!req.path.startsWith('/media/') && !req.path.startsWith('/league/')) {
       res.set({
         'Content-Security-Policy':
           "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'self'",
@@ -290,6 +291,7 @@ function createApp(opts = {}) {
         limit: v.int(c.limit, { min: 1, max: 20, fallback: 8 }),
       };
     }
+    if (type === 'league') a.content = sanitizeLeague(c);
     if (type === 'widget') a.content = sanitizeWidget(c);
     if (type === 'scores') {
       const leagues = Array.isArray(c.leagues) ? c.leagues.filter((k) => typeof k === 'string' && LEAGUE_KEY_RE.test(k)) : [];
@@ -301,6 +303,33 @@ function createApp(opts = {}) {
       };
     }
     return a;
+  }
+
+  /**
+   * A league slide: one to three Full-Time panels (table, fixtures, results)
+   * side by side. Each panel holds the code snippet the club generated in
+   * Full-Time; parsing it here is what turns a bad paste into a 400 the
+   * volunteer can read, instead of a blank screen in the bar.
+   */
+  function sanitizeLeague(c) {
+    const raw = Array.isArray(c.panels) ? c.panels.slice(0, fulltime.MAX_PANELS) : [];
+    const panels = raw
+      .filter((p) => p && v.str(p.snippet, { max: fulltime.MAX_SNIPPET, field: 'Code snippet' }))
+      .map((p, i) => {
+        const label = v.str(p.label, { max: 60, field: 'Panel heading' });
+        const snippet = v.str(p.snippet, { max: fulltime.MAX_SNIPPET, field: 'Code snippet' });
+        fulltime.parseSnippet(snippet, { field: `Panel ${i + 1} ("${label || 'untitled'}")` });
+        return { label, snippet };
+      });
+    if (!panels.length) throw v.bad('Paste at least one Full-Time code snippet (table, fixtures or results)');
+    return {
+      title: v.str(c.title, { max: 200, field: 'Title' }),
+      panels,
+      // 0 = fit the panel, which is what a club wants on a TV. A fixed zoom is
+      // there for the odd snippet whose own height makes the fit too small.
+      zoom: v.int(c.zoom === '' || c.zoom == null ? 0 : Math.round(Number(c.zoom) * 100), { min: 0, max: 600, fallback: 0 }) / 100,
+      credit: v.str(c.credit, { max: 200, field: 'Credit' }) || 'Data from The FA Full-Time',
+    };
   }
 
   function num(value, min, max, fallback) {
@@ -1151,6 +1180,40 @@ function createApp(opts = {}) {
 
   app.use('/api', api);
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
+
+  // ---------- FA Full-Time panels ----------
+  // One panel of a league slide, as its own document. Open on the LAN like the
+  // player and /media: it is a county league table, and a screen has no login.
+  //
+  // The snippet is parsed again here rather than trusted from db.json, and the
+  // document goes out under a CSP that names Full-Time and applies `sandbox`,
+  // so the FA's script renders a table in an opaque origin and never sees the
+  // dashboard's cookie. See lib/fulltime.js.
+  app.get('/league/:assetId/:panel', (req, res) => {
+    const index = Number(req.params.panel);
+    const asset = data().assets.find((a) => a.id === req.params.assetId && a.type === 'league');
+    const panels = (asset && asset.content && asset.content.panels) || [];
+    const panel = Number.isInteger(index) && index >= 0 ? panels[index] : null;
+    if (!panel) return res.status(404).type('text/plain').send('No such league panel');
+    let nodes;
+    try {
+      nodes = fulltime.parseSnippet(panel.snippet);
+    } catch (err) {
+      // Saving validates the same snippet, so reaching here means db.json was
+      // changed outside the dashboard. Say so on the screen rather than framing it.
+      (opts.log || console.error)(`[league] ${asset.id}/${index}: ${err.message}`);
+      return res.status(422).type('text/plain').send('This league panel is not a usable Full-Time snippet');
+    }
+    res.set({
+      'Content-Security-Policy': fulltime.EMBED_CSP,
+      'X-Frame-Options': 'SAMEORIGIN',
+      // Full-Time may well check who is embedding its snippet, so let it see
+      // the Pi's origin — just the origin, never the path.
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Cache-Control': 'no-store',
+    });
+    res.type('html').send(fulltime.embedDocument(nodes, { zoom: asset.content.zoom }));
+  });
 
   // ---------- Static ----------
   app.use(

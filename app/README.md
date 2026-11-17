@@ -16,6 +16,7 @@ One Node.js server runs on a Raspberry Pi. It has two parts:
 | **Playlists** | Drag to reorder (or up/down on phones), per-item duration, on/off toggle, a scrolling ticker, a clock overlay and a live preview. |
 | **Timings** | Per-item start/end dates, days of the week and a daily time window, including windows that run past midnight (e.g. 18:00–01:00). Presets cover Weekdays, Weekends, Lunch, Evenings and Today only. Each item shows a status badge: *Live now*, *Scheduled*, *Off-hours* or *Expired*. |
 | **Screens** | Screens register themselves on first connect. From the dashboard you can rename a screen, assign its playlist, rotate it for portrait mounting, see whether it's online and its resolution, flash its name with **Identify**, or **Reload** it remotely. |
+| **League tables** | Your own grassroots league's table, recent results and next fixtures from [FA Full-Time](https://fulltime.thefa.com/), up to three panels on one screen. The FA publishes no feed, so the slide renders the official embed snippet the club generates under **Media → Code Snippets** and scales Full-Time's fixed 350px insert up to fill the screen. Each panel is served as its own sandboxed document, and only `thefa.com` snippets are accepted. Needs internet on the screen. |
 | **Live scores** | Fixtures, live scores and results from the built-in [`signage-server`](../signage-server/README.md) sports engine (Premier League, Championship, SPFL, Champions League, NFL, NBA). Choose leagues in **Settings → Sports feeds**, then add **Live scores** slides to any playlist. Scores refresh every minute while matches are live and are pushed straight to screens. The engine's display page, JSON API and MCP endpoint are served at `/feeds`. |
 | **Widgets** | From the same engine: **clock** (digital, analogue or countdown to kick-off), **world clocks**, **weather** for your ground (Open-Meteo, no API key), **jokes** with a punchline reveal, club-spirit **phrases**, **Did you know?** trivia and a multiple-choice **quiz** with an answer reveal (both on sport, film & TV, music, geography, culture or a mix), an **emoji quiz** (guess the film, TV show or song), **flags & capitals**, **country of the day**, **on this day** (this day, week or month in sporting or TV/film/music history, optionally with general history from Wikipedia), and **spot the ball**. For spot the ball you mark the ball on your own photo; screens show a grid and a blurred patch, and reveal the answer at the time you choose. The answer isn't sent to screens before then. Everything except weather and Wikipedia is bundled, so it works offline. You can add your own lines, and a fresh selection is picked each day. |
 | **Transport hub** | One slide with any mix of: a **live bus tracker** for chosen routes near the ground (anywhere in England, via the Bus Open Data Service with a free key), **train departures** (National Rail Darwin via a Huxley2 proxy), London **bus arrivals**, **tube & rail line status** and **main roads** (TfL), and **planes overhead** (adsb.lol). |
@@ -88,6 +89,7 @@ app/
   public/player/          kiosk player
   public/shared/          schedule + text-format parsers, shared by server, dashboard and player
   lib/feeds.js            embeds ../signage-server (sports + widgets) and mounts it at /feeds
+  lib/fulltime.js         FA Full-Time snippets: allowlist a club's paste, serve it sandboxed
   lib/portal.js           guest Wi-Fi captive portal (run by portal-server.js as its own service)
   lib/portal-page.js      splash / connected pages (server-rendered, no JavaScript)
 signage-server/           the engine (sports + widgets): a dependency of app/ (file:../signage-server), also runs standalone
@@ -112,6 +114,7 @@ To back up, copy `DATA_DIR`.
 | `PUT /api/settings/sports`, `POST /api/sports/refresh` | Sports feed settings and manual refresh |
 | `PUT /api/settings/widgets`, `GET /api/geocode?q=` | Weather location, Wikipedia on/off, place search |
 | `GET/PUT /api/portal`, `GET /api/portal/preview`, `GET /api/portal/guests.csv`, `DELETE /api/portal/guests` | Guest Wi-Fi settings, stats, splash preview, email export |
+| `GET /league/:assetId/:panel` | One FA Full-Time panel of a league slide, sandboxed (no login, LAN only) |
 | `GET /feeds/display`, `/feeds/api/*`, `/feeds/api/widgets/:kind` · `POST /feeds/mcp` | The engine's routes (POST needs its bearer token or a dashboard session) |
 
 All dashboard calls need the session cookie, and every mutation also needs the `X-PitchTribe: 1` header.
