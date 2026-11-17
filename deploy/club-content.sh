@@ -3,11 +3,11 @@
 #
 #   club-content.sh <club-dir> [data-dir] [kiosk-env-file]
 #
-# Run by deploy/install.sh when the checkout it is installing from is a club
-# line — a build for one named building rather than the system everybody
+# Run by deploy/install.sh when the checkout it is installing from carries a club
+# directory — content for one named building rather than for the system everybody
 # downloads. It is also the whole job by hand on a card that is already running:
 #
-#   sudo deploy/club-content.sh caldecote
+#   sudo deploy/club-content.sh <club-dir>
 #
 # Why it exists: most cards are playlist players, configured from the dashboard
 # after they boot. A single-club card is not — its screen is a wall driven by
@@ -17,8 +17,8 @@
 # is the one failure nobody catches in a screenshot, because the page answers
 # 200 and looks deliberate.
 #
-# What a club directory holds. The club line owns these; the base system never
-# writes them:
+# What a club directory holds. These belong to whoever prepares the card; the
+# base system never writes them:
 #
 #   <club>/card/      everything in here is copied into the data directory
 #   <club>/card.env   KEY=value lines merged into the kiosk's environment file.

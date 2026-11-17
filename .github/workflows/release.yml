@@ -4,8 +4,9 @@ name: Release
 # Actions → Release → Run workflow, enter the version (e.g. v0.2.0).
 #
 # This is the BASE SYSTEM's release, and only main's: it refuses anything that is
-# not vX.Y.Z and it is what the website's download button points at. A club line
-# has its own button and its own numbering — see release-caldecote.yml.
+# not vX.Y.Z and it is what the website's download button points at. This is now
+# the only release button there is — a club's screen ships as config on a base
+# card, not as a build of its own.
 #
 # Tick "replace" to redo a release that went wrong — for example one whose tag
 # points at the wrong commit. That deletes the existing release and its tag
@@ -92,7 +93,8 @@ jobs:
     # A called workflow can only use what its caller grants it, and image.yml signs
     # the released image — so these three have to be listed here as well as there.
     # Granting fewer than it asks for does not warn or skip the signing: the whole
-    # run fails before any job starts. See release-caldecote.yml for the full note.
+    # run fails before any job starts, with no log, no annotation and no clue —
+    # which is how it was found, with a version number already typed in.
     permissions:
       contents: write
       id-token: write

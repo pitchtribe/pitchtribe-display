@@ -1,15 +1,15 @@
 name: Signage app + server
 
-# `caldecote` is a club line, not a feature branch: it carries one club's build
-# on top of the base system and is released separately (release-caldecote.yml).
-# It is listed here because a long-lived branch with no tests is a branch that
-# quietly stops working — see caldecote/README.md on that line.
+# One line, `main`. There was briefly a long-lived club branch listed here as well;
+# it is retired, and a club's own screen is now config on a base card rather than a
+# build of its own. A branch filter naming a dead branch is a trap: it reads as
+# coverage and provides none.
 on:
   push:
-    branches: [main, caldecote]
+    branches: [main]
     paths: ['app/**', 'signage-server/**', 'deploy/**', '.github/workflows/app.yml']
   pull_request:
-    branches: [main, caldecote]
+    branches: [main]
     paths: ['app/**', 'signage-server/**', 'deploy/**', '.github/workflows/app.yml']
   workflow_dispatch:
 

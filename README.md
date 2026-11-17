@@ -246,22 +246,29 @@ A release is a tag on `main` plus the SD card image attached to it, which the we
 
 Publishing a release by hand on GitHub still works too: the tag push starts the same image build.
 
-### Club lines
+### A card for one building
 
-A **club line** is a long-lived branch carrying one club's build on top of the base system, released
-on its own numbering, so that work for one building cannot destabilise the system everybody else
-downloads. `caldecote` is the first — see `caldecote/README.md` **on that branch** for what is club
-and what is base, and how base releases are merged forward into it.
+**There is one line, `main`, and one release button.** A card that shows one club's own wall instead
+of a playlist is a *configured* base card, not a build of its own: the same released image, plus a
+`clubhouse.json` in its data directory and a kiosk pointed at `/feeds/clubhouse`. See
+[`signage-server/CLUBHOUSE.md`](signage-server/CLUBHOUSE.md).
 
-- **To release a club line:** **Actions → Release (Caldecote line) → Run workflow**, version like
-  `0.0.1`. It tags that branch `caldecote-0.0.1`, checks the number against `caldecote/release.json`
-  on the branch, and builds that line's own SD card image.
-- **A club release is always a prerelease.** The download links above resolve `/releases/latest`,
-  which GitHub omits prereleases from — so publishing one village's build must never move the link a
-  stranger clicks. `release-caldecote.yml` and `image.yml` both enforce it; don't unpick it.
-- `app/package.json` is the **base system's** version and the club line does not touch it. A club
-  line keeps its number in `caldecote/release.json`, a file the base never edits, so merging a base
-  release forward never lands on a version conflict.
+This was briefly done the other way — a long-lived `caldecote` branch with its own numbering and its
+own release button, tagged `caldecote-0.0.1` … `0.0.3`. **That line is retired** (archived at
+`archive/caldecote-line`, and those three prereleases are marked *withdrawn — do not flash*). It is
+worth knowing why, because the reasoning applies to the next building that asks:
+
+- A branch per building needs a merge forward per base release, forever, and the base system had to
+  grow a second release workflow, a second version file and four branch filters to carry it. All of
+  that is overhead paid every week to hold content that changes once.
+- Every fault it actually shipped was a **content-delivery** fault, not a code fault — the right page
+  with the wrong club on it, three times over. Config in a data directory has none of those seams.
+- A non-`v*` tag is still forced to a prerelease by `image.yml`, so no such tag could move the
+  download link a stranger clicks. That guard stays, because it costs one line and it is the one that
+  protects the public button.
+
+What survived the retirement is all of it bar the branch: the wall, the six-metre measurement, the
+Full-Time adapter, the soak instrument and `deploy/club-content.sh` are base code on `main`.
 
 ## Conventions worth knowing
 
