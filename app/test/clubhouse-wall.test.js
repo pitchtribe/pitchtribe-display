@@ -234,3 +234,57 @@ test('a photograph is woven into the loop, served from the pool beside the club 
   assert.match(html, /src="photos\/team\.jpg"/, 'the photo pool resolves against the club file');
   assert.doesNotMatch(html, /src="\/photos\//, 'an absolute photo path is the standalone server, not a card');
 });
+
+/* The documented install path, end to end — and nothing in this one is a fixture
+ * the test wrote where the installer's own work should be.
+ *
+ * Three times this was green around a card that could not show the club, each time
+ * because the test used a convenient seam instead of the path a card takes: the
+ * engine configured directly, then the app handed a club file directly, then nothing
+ * putting the file on the card at all. The two halves are each covered now —
+ * club-card.test.js runs the script, the tests above boot the app on a placed file —
+ * and the join between them is where the third one got through.
+ *
+ * So this runs the real script, boots the app on whatever it left behind, and asks
+ * for the URL the script wrote into the kiosk's environment file rather than a URL
+ * typed in here. Point the kiosk somewhere the app does not serve and this fails.
+ */
+test('the real install script, then the real page the kiosk is pointed at', async (t) => {
+  const { spawnSync } = require('node:child_process');
+  const root = path.join(__dirname, '..', '..');
+
+  // A club directory as somebody preparing a card would leave it: card/ for the data
+  // directory, card.env for the kiosk. The club file is the example one, so the thing
+  // under test is the shipped example and not a shape invented for the test.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-install-'));
+  const card = path.join(dir, 'club', 'card');
+  fs.mkdirSync(card, { recursive: true });
+  fs.writeFileSync(path.join(card, 'clubhouse.json'), JSON.stringify(clubFixture(card)));
+  fs.writeFileSync(path.join(dir, 'club', 'card.env'), 'PITCHTRIBE_URL=/feeds/clubhouse\n');
+  const dataDir = path.join(dir, 'data');
+  const kioskEnv = path.join(dir, 'pitchtribe-kiosk');
+  fs.writeFileSync(kioskEnv, 'PITCHTRIBE_URL=http://localhost/player/?screen=@HOSTNAME@\nCHROMIUM=/usr/bin/chromium\n');
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const placed = spawnSync('bash', [path.join(root, 'deploy', 'club-content.sh'), path.join(dir, 'club'), dataDir, kioskEnv], { encoding: 'utf8' });
+  assert.equal(placed.status, 0, placed.stderr);
+
+  // The page the kiosk will open, read out of the file the script just wrote.
+  const url = /^PITCHTRIBE_URL=(.*)$/m.exec(fs.readFileSync(kioskEnv, 'utf8'))[1];
+  const kioskPath = new URL(url).pathname;
+
+  const ctx = createApp({ dataDir, sportsFetch: offline, feedsFetch: offline, log: () => {} });
+  await ctx.feeds.ready;
+  const server = await new Promise((r) => { const s = ctx.app.listen(0, '127.0.0.1', () => r(s)); });
+  t.after(() => { ctx.close(); server.closeAllConnections(); server.close(); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  await ctx.feeds.refresh();
+  const r = await fetch(`${base}${kioskPath}`);
+  assert.equal(r.status, 200, `${kioskPath} is where the kiosk was pointed, so it has to answer`);
+  const html = await r.text();
+  assert.match(html, /Caldecote FC/, 'the card the installer prepared comes up as the club');
+  assert.doesNotMatch(html, /<title>PitchTribe<\/title>/);
+  assert.match(html, /3–2/, 'with the football on it, read from the season file that was placed');
+  assert.doesNotMatch(html, /undefined|NaN|Invalid Date/);
+});
