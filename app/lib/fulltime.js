@@ -55,7 +55,14 @@ const ELEMENTS = {
 };
 const VOID = new Set(['br', 'img', 'input', 'meta', 'link', 'hr']);
 
-const TAG_RE = /<!--[\s\S]*?-->|<\/?([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^>])*?)\/?>/g;
+/* The attribute run excludes quotes from its unquoted branch on purpose. With
+   `[^>]` there, a quote could be consumed either as a quoted value or as one
+   more ordinary character, so a tag that never closes gave the engine two ways
+   to read every `"` and it backtracked exponentially — 24 characters of `""`
+   wedged the parser for a minute. The branches here are mutually exclusive, so
+   each character has one reading and the scan is linear. A tag left with an
+   unbalanced quote now simply fails to match and is escaped as text. */
+const TAG_RE = /<!--[\s\S]*?-->|<\/?([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^>"'])*?)\/?>/g;
 const ATTR_RE = /([a-zA-Z_:][\w:.-]*)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
 const ID_RE = /^[A-Za-z][\w:.-]{0,63}$/;
 

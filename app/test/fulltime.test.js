@@ -86,6 +86,18 @@ test('attribute values from a snippet cannot break out of the markup', () => {
   assert.ok(!doc.includes('<script>alert'), 'no injected inline script');
 });
 
+test('a malformed paste is refused promptly rather than hanging the parser', () => {
+  // An unclosed tag full of empty quotes used to give the regex engine two ways
+  // to read every quote, and it backtracked exponentially: 24 of them took a
+  // minute. parseSnippet runs when a panel is served as well as when it is
+  // saved, so that was every screen's request wedged, not just one save.
+  const nasty = `<A${'""'.repeat(400)}`;
+  const started = Date.now();
+  assert.throws(() => parseSnippet(nasty), /no Full-Time table|not something we can embed/i);
+  const ms = Date.now() - started;
+  assert.ok(ms < 1000, `parsing should stay linear, took ${ms}ms`);
+});
+
 test('attribution text survives but is escaped', () => {
   const doc = html('<script src="https://fulltime.thefa.com/x.js"></script><p>Powered by <a href="https://fulltime.thefa.com/">Full-Time</a> & the FA</p>');
   assert.match(doc, /Powered by/);
