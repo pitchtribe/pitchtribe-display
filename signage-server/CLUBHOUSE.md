@@ -146,6 +146,31 @@ depends on which set the next club owns. If a timer plug switches the television
 closing time, it switches the television only — the card stays powered, because a Pi
 pulled at the mains every night corrupts its SD card eventually.
 
+### The standby line, and why a closed card is not a black screen
+
+**A blacked-out card and a card that never booted look identical.** The first card flashed
+for a real building was reported as *"it didn't load"* — it had loaded perfectly: it was a
+Tuesday, the club opens on Saturdays, and a correct card shows nothing at all for 160 hours
+of the week. Nobody standing in front of a dark television can tell which of those they are
+looking at, and the brief asks both for the picture blacked out outside opening hours *and*
+for never a blank screen.
+
+So a closed card keeps **one dim line**: the club's name, `closed`, and when it next opens
+(`Caldecote FC · closed · opens Saturday at 12:00`). It is 3.4vh — about 13 mm of cap height
+on a 43-inch set, which the six-metre measurement scores at 7.3′ and classes as `fine`,
+below every floor on purpose. Walk up to the television and it tells you the card is alive;
+from six metres in a room that is meant to be dark it is not there. It drifts slowly around
+the screen, because a static glyph on a panel for 160 hours a week is how a borrowed
+television gets damaged.
+
+The next opening is recomputed on the card's own clock every twenty seconds, not written in
+at render time: a card is not reloaded for days, so *"opens tomorrow"* would become a lie by
+the following evening. `nextOpenWords()` in `src/clubhouse.js`, shipped to the browser as
+source text like the other two rules the card keeps with the broadband down.
+
+When commissioning, the reliable check is to ask for the page rather than to look at the
+television: `curl -s localhost/feeds/clubhouse | head -40` answers whatever the hour.
+
 ## What it does when things go wrong
 
 | Condition | What the wall does |

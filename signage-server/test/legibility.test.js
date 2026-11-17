@@ -98,6 +98,22 @@ test('text with no declared purpose fails the measurement', () => {
     'unclassified text passed the measurement');
 });
 
+test('…including text put on the wall rather than on a slide', () => {
+  // The same guard, one layer out, where it did not hold: the whole-wall elements were
+  // kept by name — `footer` and `notice` — so a new fixed overlay was never measured at
+  // all. A guard that exists so new small text cannot arrive unmeasured was dropping
+  // new small text, unmeasured. The standby line is the one that found this.
+  const mutated = wall.html
+    .replace('<style>', '<style>\n  .ticker{font-size:1.2vh}')
+    .replace('<p class="notice"', '<p class="ticker">Sponsored by someone</p>\n<p class="notice"');
+  const report = measurePage(mutated, BASELINE);
+  assert.ok(report.failures.some((f) => f.selector === 'ticker' && /no role/.test(f.why)),
+    'text on the wall but outside a slide passed the measurement');
+  // And the three that are declared are measured rather than skipped.
+  const chrome = report.wall.elements.map((e) => e.selector);
+  for (const s of ['footer', 'notice', 'standby']) assert.ok(chrome.includes(s), `${s} is not measured`);
+});
+
 test('shrinking the date fails the measurement — trust rule 1 has a floor now', () => {
   const shrunk = wall.html.replace('.date{font-size:6.4vh', '.date{font-size:4vh');
   const report = measurePage(shrunk, BASELINE);

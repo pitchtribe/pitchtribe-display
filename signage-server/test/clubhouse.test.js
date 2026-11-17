@@ -16,8 +16,8 @@ import { createHttpServer } from '../src/http.js';
 import { resolveConfig } from '../src/config.js';
 import {
   clubMatcher, ourResults, ourNext, ourAwaiting, ourCalledOff, form, teams, tableWindow,
-  divisionResults, daysToSaturday, countdownWords, isOpen, pickPhotos, seededShuffle,
-  interleave, buildClubhouse, zoneParts,
+  divisionResults, daysToSaturday, countdownWords, isOpen, nextOpenWords, pickPhotos,
+  seededShuffle, interleave, buildClubhouse, zoneParts,
 } from '../src/clubhouse.js';
 import { renderClubhouse } from '../src/clubhouse-render.js';
 import { resolvePhoto, contentType } from '../src/photos.js';
@@ -276,6 +276,89 @@ test('the card keeps the opening hours, including past midnight', () => {
   // Summer time: the hours are local, not UTC.
   assert.equal(isOpen({ sat: [['12:00', '23:00']] }, at('2026-07-04T11:30:00Z'), 'Europe/London'), true);
   assert.equal(isOpen(null, at('2026-11-09T04:00:00Z')), true, 'no hours configured = a test bench, always on');
+});
+
+test('a closed card is not a dead card: it says whose it is and when it opens', () => {
+  const tz = 'Europe/London';
+  const sat = { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [['12:00', '23:30']], sun: [] };
+  // The hours the first real card was flashed with, and the day it was flashed on.
+  // 2026-11-17 is a Tuesday; the card showed nothing, and "nothing" was correct.
+  assert.equal(isOpen(sat, new Date('2026-11-17T20:00:00Z'), tz), false);
+  assert.equal(nextOpenWords(sat, new Date('2026-11-17T20:00:00Z'), tz), 'Saturday at 12:00');
+  // Within a day it says so in the words the room uses.
+  assert.equal(nextOpenWords(sat, new Date('2026-11-20T20:00:00Z'), tz), 'tomorrow at 12:00');
+  assert.equal(nextOpenWords(sat, new Date('2026-11-21T09:00:00Z'), tz), 'later today at 12:00');
+  // Saturday, after closing: the next window is a week away, not "never" — the eighth
+  // day of the search is the whole reason it is eight and not seven.
+  assert.equal(nextOpenWords(sat, new Date('2026-11-21T23:45:00Z'), tz), 'Saturday at 12:00');
+  // Two windows in a day: the next one, not the first one.
+  const twice = { wed: [['12:00', '14:00'], ['19:00', '23:00']] };
+  assert.equal(nextOpenWords(twice, new Date('2026-11-18T15:00:00Z'), tz), 'later today at 19:00');
+  // Nothing to promise, so nothing is promised.
+  assert.equal(nextOpenWords(null, new Date('2026-11-17T20:00:00Z'), tz), null);
+  assert.equal(nextOpenWords({ mon: [], tue: [] }, new Date('2026-11-17T20:00:00Z'), tz), null);
+  // Summer time: the hours are the clubhouse's clock, not UTC.
+  assert.equal(nextOpenWords({ sat: [['12:00', '23:00']] }, new Date('2026-07-01T20:00:00Z'), tz), 'Saturday at 12:00');
+});
+
+/**
+ * Run the page's own client script against a stub DOM and a pinned clock.
+ *
+ * The blackout is the card's job and runs in the browser, so asserting on the markup
+ * would only prove the page mentions the rule. This executes the script the card
+ * actually gets — `Date` is a parameter of the generated function, so the injected
+ * rules close over it and the clock can be put on a Tuesday.
+ */
+function runPage(html, now) {
+  const src = html.slice(html.indexOf('<script>') + '<script>'.length, html.lastIndexOf('</script>'));
+  const el = () => ({ textContent: '', classList: { add() {}, remove() {}, toggle() {} }, dataset: {} });
+  const standby = el();
+  const state = { closed: null };
+  const document = {
+    querySelectorAll: () => [],
+    querySelector: () => null,
+    getElementById: (id) => (id === 'standby' ? standby : el()),
+    body: { classList: { toggle: (name, on) => { if (name === 'closed') state.closed = !!on; } } },
+  };
+  class Pinned extends Date {
+    constructor(...args) { super(...(args.length ? args : [now.getTime()])); }
+    static now() { return now.getTime(); }
+  }
+  // eslint-disable-next-line no-new-func
+  new Function('document', 'sessionStorage', 'setInterval', 'fetch', 'Date', src)(
+    document,
+    { getItem: () => null, setItem: () => {} },
+    () => 0,
+    () => Promise.reject(new Error('offline')),
+    Pinned,
+  );
+  return { closed: state.closed, standby: standby.textContent };
+}
+
+test('the page itself blacks out on a Tuesday and still proves the card is alive', async () => {
+  const { built } = await wall();
+  built.hours = { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [['12:00', '23:30']], sun: [] };
+  built.title = 'Caldecote FC';
+  const html = renderClubhouse(built, { live: false });
+
+  // The rule travels with the page, like the other two the card keeps offline.
+  assert.ok(html.includes('function nextOpenWords'), 'the next opening is worked out on the card');
+  assert.match(html, /id="standby"/);
+  assert.match(html, /body\.closed \.standby\{display:block\}/, 'and is revealed only when closed');
+
+  const tuesday = runPage(html, new Date('2026-11-17T20:00:00Z'));
+  assert.equal(tuesday.closed, true, 'the wall is blacked out, which is the brief');
+  assert.equal(
+    tuesday.standby,
+    'Caldecote FC · closed · opens Saturday at 12:00',
+    'and the one dim line is why this is not reported as "it didn\'t load"',
+  );
+
+  // Saturday afternoon: the wall itself, with no standby line over the top of it.
+  assert.equal(runPage(html, new Date('2026-11-21T14:00:00Z')).closed, false);
+  // A test bench with no hours configured is never blacked out and never nags.
+  built.hours = null;
+  assert.equal(runPage(renderClubhouse(built, { live: false }), new Date('2026-11-17T20:00:00Z')).closed, false);
 });
 
 test('the countdown changes face every day', () => {

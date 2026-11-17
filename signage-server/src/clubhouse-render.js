@@ -10,7 +10,8 @@
 // a volunteer can act on. It never shows a stack trace, a blank screen or a browser error
 // page.
 import {
-  WEEKDAYS, DAY_KEYS, zoneParts, toMinutes, isOpen, daysToSaturday, countdownWords, longDate,
+  WEEKDAYS, DAY_KEYS, zoneParts, toMinutes, isOpen, nextOpenWords, daysToSaturday, countdownWords,
+  longDate,
 } from './clubhouse.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
@@ -28,6 +29,7 @@ const DAY_KEYS = ${JSON.stringify(DAY_KEYS)};
 ${zoneParts}
 ${toMinutes}
 ${isOpen}
+${nextOpenWords}
 ${daysToSaturday}
 ${countdownWords}
 `;
@@ -142,6 +144,22 @@ export function renderClubhouse(wall, opts = {}) {
   /* Outside opening hours the card blacks out its own picture. The television is never
      touched: no CEC, no handshake, nothing to go wrong on the next club's set. */
   body.closed .wall,body.closed .notice{display:none}
+  /* …but not to absolutely nothing. A card blacked out and a card that never booted
+     look identical on a dark television, and the first one flashed for a building was
+     reported as "it didn't load" — on a Tuesday, for a club that opens on Saturdays.
+     So a closed card keeps one dim line saying whose it is and when it next opens:
+     walk up to the set and it tells you it is alive, while a committee meeting six
+     metres away still gets a dark screen. It drifts because a static glyph left on a
+     panel for 160 hours a week is how a borrowed television gets damaged. */
+  .standby{position:fixed;left:0;right:0;top:46vh;display:none;text-align:center;
+    font-size:3.4vh;font-weight:600;letter-spacing:.08em;color:#54545c;
+    animation:drift 1800s linear infinite}
+  body.closed .standby{display:block}
+  @keyframes drift{
+    0%{transform:translate(-17vw,-31vh)}  25%{transform:translate(19vw,-11vh)}
+    50%{transform:translate(15vw,27vh)}   75%{transform:translate(-19vw,9vh)}
+    100%{transform:translate(-17vw,-31vh)}}
+  @media (prefers-reduced-motion:reduce){.standby{animation:none}}
   .wall{position:fixed;inset:0;background:var(--club)}
   .slide{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
     justify-content:center;text-align:center;padding:6vh 6vw;gap:1.6vh;
@@ -201,6 +219,7 @@ export function renderClubhouse(wall, opts = {}) {
   ${footer ? `<footer>${esc(footer)}</footer>` : ''}
 </div>
 <p class="notice" id="notice"></p>
+<p class="standby" id="standby"></p>
 <script>
 (() => {
   'use strict';
@@ -211,6 +230,8 @@ ${CLIENT_RULES}
 
   const slides = [...document.querySelectorAll('.slide')];
   const notice = document.getElementById('notice');
+  const standby = document.getElementById('standby');
+  const CLUB = ${JSON.stringify(wall.title)};
 
   // Pick up where the last page left off, so a reload is not always slide one.
   let i = 0;
@@ -235,7 +256,15 @@ ${CLIENT_RULES}
   // Opening hours, kept by the card. Checked often enough that closing time is not a
   // minute late, and cheap enough to run forever.
   const hours = () => {
-    document.body.classList.toggle('closed', HOURS && !isOpen(HOURS, new Date(), TZ));
+    const shut = HOURS && !isOpen(HOURS, new Date(), TZ);
+    document.body.classList.toggle('closed', shut);
+    // Recomputed each time rather than written once at render: a card is not reloaded
+    // for days, so "opens tomorrow at 12:00" would be a lie by the following evening.
+    if (shut && standby) {
+      const next = nextOpenWords(HOURS, new Date(), TZ);
+      standby.textContent = [CLUB, 'closed', next ? 'opens ' + next : null]
+        .filter(Boolean).join(' \\u00b7 ');
+    }
   };
   hours();
   setInterval(hours, 20000);

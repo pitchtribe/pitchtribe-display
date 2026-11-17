@@ -66,6 +66,11 @@ export const ROLES = {
   notice: 'fact',
   legend: 'fine',
   footer: 'fine',
+  // The standby line on a closed card. Deliberately below every floor: its job is to be
+  // visible to somebody standing at the television and invisible from across a room that
+  // is meant to be dark. Promote it and a committee meeting gets a lit screen, which is
+  // how installations get unplugged.
+  standby: 'fine',
 };
 
 /**
@@ -178,6 +183,18 @@ const roleOf = (classes, parentClass) => {
   return { role: null, by: keys[0] ?? '' };
 };
 
+/**
+ * Text that sits on the wall rather than on a slide: fixed-position overlays, so they
+ * are measured like everything else but take no part in a slide's vertical budget.
+ * All three are empty in the markup and filled in by the card, so the report says what
+ * each one would hold rather than printing a blank line.
+ */
+export const EMPTY_CHROME = {
+  notice: '(the outage banner, empty until it is needed)',
+  standby: '(the standby line, shown only when the club is closed)',
+};
+const CHROME = new Set(['footer', 'notice', 'standby']);
+
 const TEXT_TAGS = /<(p|footer|li)\b([^>]*)>([\s\S]*?)<\/\1>/g;
 const classAttr = (attrs) => (/class="([^"]*)"/.exec(attrs)?.[1] ?? '').split(/\s+/).filter(Boolean);
 const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
@@ -253,10 +270,13 @@ export function measurePage(html, screen = BASELINE) {
     m = sections.exec(html);
   }
 
-  // The footer and the outage banner live outside the slides but on the same wall.
+  // The footer, the outage banner and the standby line live outside the slides but on
+  // the same wall. Everything found out here is measured: this used to keep only the two
+  // selectors it knew by name, which meant the one guard whose whole purpose is that new
+  // small text cannot arrive unmeasured would have dropped new small text, unmeasured.
+  // Anything out here with no role in ROLES now fails, like anything on a slide.
   const chrome = slideElements(html.slice(html.lastIndexOf('</section>')), sizes, screen)
-    .filter((e) => e.selector === 'footer' || e.selector === 'notice')
-    .map((e) => ({ ...e, text: e.text || '(the outage banner, empty until it is needed)' }));
+    .map((e) => ({ ...e, text: e.text || EMPTY_CHROME[e.selector] || '(empty until it is needed)' }));
   const wall = buildSlide('(whole wall)', chrome, screen);
 
   const failures = [...slides, wall].flatMap((s) => s.failures);
@@ -308,7 +328,7 @@ export function verticalBudget(slide, { wrapAt = 1 } = {}) {
   const ROWS = { 'form li': 17 };
   const groups = new Map();
   for (const e of slide.elements) {
-    if (e.selector === 'footer' || e.selector === 'notice') continue;
+    if (CHROME.has(e.selector)) continue; // fixed to the wall, not stacked in the slide
     const key = e.selector.endsWith(' li') ? e.selector : `${e.selector}:${groups.size}`;
     if (ROWS[e.selector]) {
       groups.set(key, ROWS[e.selector]);

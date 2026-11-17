@@ -239,6 +239,44 @@ export function isOpen(hours, now = new Date(), tz = 'Europe/London') {
   return false;
 }
 
+/**
+ * When the card next lights up, in words: "tomorrow at 19:00", "Saturday at 12:00".
+ * Null if the hours never open at all.
+ *
+ * This exists because a blacked-out card and a dead card look identical, and the first
+ * real card flashed for a building was reported as "it didn't load". It had loaded: it
+ * was a Tuesday, the club opens on Saturdays, and a correct card shows nothing at all
+ * for 160 hours of the week. The brief asks for the picture blacked out outside opening
+ * hours and, four paragraphs later, for never a blank screen — so the standby line this
+ * feeds is the smallest thing that can be both.
+ *
+ * Deliberately self-contained (no module constants): the browser gets this function as
+ * source text, so one implementation keeps the hours and nothing can drift.
+ */
+export function nextOpenWords(hours, now = new Date(), tz = 'Europe/London') {
+  if (!hours || !Object.keys(hours).length) return null;
+  const KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const { weekday, minutes } = zoneParts(now, tz);
+  if (weekday < 0) return null;
+  // Eight days, not seven: closed all of today still wants to find next week's window
+  // on the same weekday rather than reporting "never".
+  for (let ahead = 0; ahead < 8; ahead += 1) {
+    const day = (weekday + ahead) % 7;
+    const opens = (hours[KEYS[day]] ?? [])
+      .map(([a]) => toMinutes(a))
+      .filter((m) => m !== null && m < 1440)
+      .sort((a, b) => a - b);
+    for (const open of opens) {
+      if (ahead === 0 && open <= minutes) continue; // already been and gone today
+      const hhmm = `${String(Math.floor(open / 60)).padStart(2, '0')}:${String(open % 60).padStart(2, '0')}`;
+      const when = ahead === 0 ? 'later today' : ahead === 1 ? 'tomorrow' : NAMES[day];
+      return `${when} at ${hhmm}`;
+    }
+  }
+  return null;
+}
+
 // ------------------------------------------------------------------------- the photos
 /** Deterministic shuffle: same day, same order; next day, a different wall. */
 export function seededShuffle(list, seed) {
