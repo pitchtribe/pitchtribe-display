@@ -147,8 +147,10 @@
     }
     hideSplash();
     const sig = signature(item);
-    // A lone web page or image keeps running instead of reloading itself.
-    if (current && current.item.id === item.id && current.sig === sig && (item.type === 'url' || item.type === 'image')) {
+    // A lone web page, image or league table keeps running instead of
+    // reloading itself — for the league slide that also spares Full-Time a
+    // request every rotation.
+    if (current && current.item.id === item.id && current.sig === sig && (item.type === 'url' || item.type === 'image' || item.type === 'league')) {
       advanceTimer = setTimeout(next, Math.max(item.duration, 5) * 1000);
       return;
     }
@@ -342,6 +344,44 @@
           }
         }
         panel.append(fit);
+        slide.append(panel);
+        break;
+      }
+      case 'league': {
+        // Each panel is its own document from this server (see lib/fulltime.js),
+        // which is where the FA's snippet runs and scales itself to the column.
+        // Sandboxed without allow-same-origin: the response already says so, and
+        // repeating it here means a browser that ignores CSP sandbox still
+        // keeps Full-Time's script out of our origin.
+        const panel = el('section', 'panel league');
+        panel.append(el('div', 'kicker', club), el('h1', '', c.title || item.name));
+        const fit = el('div', 'fit');
+        const panels = (c.panels || []).slice(0, 3);
+        if (!panels.length) {
+          fit.append(el('p', 'empty-note', t('noMatches')));
+        } else {
+          const row = el('div', 'league-panels');
+          const loaded = [];
+          panels.forEach((p, i) => {
+            const col = el('div', 'league-panel');
+            if (p.label) col.append(el('h2', '', p.label));
+            const frame = el('iframe');
+            // The route already answers no-store; the timestamp is there so an
+            // edited snippet cannot be held by a cache between here and the Pi.
+            frame.src = `/league/${encodeURIComponent(item.assetId)}/${i}?r=${encodeURIComponent(item.updatedAt || '')}`;
+            frame.setAttribute('sandbox', 'allow-scripts');
+            frame.setAttribute('scrolling', 'no');
+            loaded.push(new Promise((r) => frame.addEventListener('load', r, { once: true })));
+            col.append(frame);
+            row.append(col);
+          });
+          fit.append(row);
+          // Full-Time fills its insert in after the frame loads, so give it a
+          // moment to render before the slide fades in.
+          ready = withTimeout(Promise.all(loaded).then(() => new Promise((r) => setTimeout(r, 900))), 8000);
+        }
+        panel.append(fit);
+        if (c.credit) panel.append(el('div', 'credit', c.credit));
         slide.append(panel);
         break;
       }
