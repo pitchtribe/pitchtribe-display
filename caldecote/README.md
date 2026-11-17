@@ -2,7 +2,10 @@
 
 **You are on a club line, not on the base system.** This branch carries one club's build — Caldecote
 FC, The Pavilion, Harvey Close, Upper Caldecote — on top of PitchTribe, and is released on its own
-numbering. The current version is **caldecote 0.0.2** (`caldecote/release.json`).
+numbering. The current version is **caldecote 0.0.3** (`caldecote/release.json`), published as the
+prerelease tag [`caldecote-0.0.3`](https://github.com/pitchtribe/pitchtribe-display/releases/tag/caldecote-0.0.3)
+with a flashable SD-card image. **It is the first club image where flashing it is the whole job** —
+`0.0.1` and `0.0.2` are superseded and must not be flashed.
 
 It exists so that work for one building cannot destabilise the system everybody else downloads. The
 base system is at `v0.4.2` and is happy there; the clubhouse wall, the Full-Time feed and the soak
@@ -189,6 +192,10 @@ in `app/package.json` and this line leaves it alone.
 It tags this branch `caldecote-<version>`, refuses the run if `caldecote/release.json` disagrees
 with the version typed in, publishes the release and builds this line's own SD card image — about
 fifteen minutes.
+
+`caldecote-0.0.3` was published this way on 17 November 2026, tagged on this branch at `5afd947`.
+The next cut bumps `caldecote/release.json` first; the workflow will refuse the version otherwise,
+which is the point of that check.
 
 **0.0.1 and 0.0.2 are superseded and must not be flashed.** Neither can show the club: 0.0.1 served
 the wall with our name on it, and 0.0.2 fixed that but still needed four commands typed on the Pi
