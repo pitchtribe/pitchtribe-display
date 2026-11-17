@@ -17,6 +17,17 @@ import {
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/**
+ * A value handed to the card's own script.
+ *
+ * `JSON.stringify` alone is not enough inside a `<script>`: it leaves `<` as itself, so a
+ * club file whose title contained `</script>` would close the element and the rest would
+ * be parsed as markup. Everything in here comes out of a config file rather than off the
+ * internet, which makes it unlikely rather than impossible — and the club file is the one
+ * thing on a card that a volunteer is meant to edit.
+ */
+const js = (value) => JSON.stringify(value ?? null).replace(/</g, '\\u003c');
+
 const DASH = '–'; // en dash: a score is 3–2, not 3-2
 const score = (n) => (n === null || n === undefined ? '?' : esc(n));
 const where = (homeAway) => (homeAway === 'home' ? 'at home' : 'away');
@@ -224,14 +235,14 @@ export function renderClubhouse(wall, opts = {}) {
 (() => {
   'use strict';
 ${CLIENT_RULES}
-  const TZ = ${JSON.stringify(wall.tz)};
-  const HOURS = ${JSON.stringify(wall.hours)};
-  const LAST_READ = ${JSON.stringify(wall.source.fetchedAt)};
+  const TZ = ${js(wall.tz)};
+  const HOURS = ${js(wall.hours)};
+  const LAST_READ = ${js(wall.source.fetchedAt)};
 
   const slides = [...document.querySelectorAll('.slide')];
   const notice = document.getElementById('notice');
   const standby = document.getElementById('standby');
-  const CLUB = ${JSON.stringify(wall.title)};
+  const CLUB = ${js(wall.title)};
 
   // Pick up where the last page left off, so a reload is not always slide one.
   let i = 0;

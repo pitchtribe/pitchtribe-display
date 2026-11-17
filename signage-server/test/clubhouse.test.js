@@ -361,6 +361,30 @@ test('the page itself blacks out on a Tuesday and still proves the card is alive
   assert.equal(runPage(renderClubhouse(built, { live: false }), new Date('2026-11-17T20:00:00Z')).closed, false);
 });
 
+test('the club file cannot break out of the card\'s own script', () => {
+  // The title now reaches the script as well as the markup, and JSON.stringify leaves
+  // `<` alone — so without escaping, a title holding `</script>` would end the element
+  // and the rest would be parsed as HTML. It comes from a config file rather than off the
+  // internet, but the club file is the one thing on a card a volunteer is meant to edit.
+  const built = {
+    title: '</script><img src=x onerror=alert(1)>',
+    tz: 'Europe/London',
+    hours: { sat: [['12:00', '23:30']] },
+    colours: { primary: '#000', ink: '#fff', accent: '#ff0' },
+    credit: '',
+    source: { league: 'club', fetchedAt: null, error: null, updatedAt: null },
+    slides: [{ kind: 'identity', name: 'x', strapline: '', badge: '' }],
+  };
+  const html = renderClubhouse(built, { live: false });
+  const script = html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>'));
+  assert.ok(!script.includes('</script'), 'the club title closed the script element');
+  assert.ok(script.includes('\\u003c/script'), 'the title should arrive escaped, not dropped');
+  assert.ok(!html.includes('<img src=x'), 'and it is escaped in the markup too');
+  // Still usable: the card reads it back as the original string.
+  assert.equal(runPage(html, new Date('2026-11-17T20:00:00Z')).standby,
+    '</script><img src=x onerror=alert(1)> \u00b7 closed \u00b7 opens Saturday at 12:00');
+});
+
 test('the countdown changes face every day', () => {
   const tz = 'Europe/London';
   assert.equal(daysToSaturday(new Date('2026-11-07T18:00:00Z'), tz), 0);
