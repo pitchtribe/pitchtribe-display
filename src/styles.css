@@ -148,7 +148,39 @@
     @apply shrink-0 font-bold text-accent;
   }
 
-  /* ---- Amazon quick-buy basket (/buy) ---- */
+  /* ---- Quick-buy baskets (/buy) ----
+     The radios drive the panel swap in CSS, so the shop switch works with JS
+     off. They are hidden from sight but not from the keyboard or a screen
+     reader, and the label carries the focus ring on their behalf. */
+  .supplier-switch {
+    @apply grid grid-cols-2 gap-2 rounded-[14px] border border-line bg-surface p-1.5;
+  }
+  .supplier-tick {
+    @apply sr-only;
+  }
+  .supplier-switch label {
+    @apply cursor-pointer rounded-[10px] border-[1.5px] border-transparent px-4 py-2.5 text-center transition hover:bg-surface-2;
+  }
+  .supplier-switch input:checked + label {
+    @apply border-accent bg-surface-2;
+  }
+  .supplier-switch input:focus-visible + label {
+    @apply outline outline-2 outline-offset-2 outline-accent;
+  }
+  .supplier-name {
+    @apply block text-[0.9375rem] font-semibold text-fg;
+  }
+  .supplier-note {
+    @apply mt-0.5 block text-[0.75rem] text-dim;
+  }
+  /* One shop's list at a time. Where :has() is missing, both lists simply show,
+     which still reads: each carries its own prices and its own button. */
+  #quick-buy:has(#qb-sup-amazon:checked) [data-basket="pihut"],
+  #quick-buy:has(#qb-sup-pihut:checked) [data-basket="amazon"] {
+    @apply hidden;
+  }
+
+  /* ---- Quick-buy basket rows (/buy) ---- */
   .basket-row {
     @apply grid grid-cols-[1.125rem_1fr_auto] items-baseline gap-x-3 gap-y-1 py-3;
   }
