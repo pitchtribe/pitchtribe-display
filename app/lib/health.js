@@ -10,18 +10,23 @@
 
    So this reports the few numbers that come *before* those outages, and no
    more. `/healthz` is the one route served without a login (app.js says why),
-   which means everything here has to be safe for anyone on the club's LAN to
-   read: counts and percentages, never a club name, a screen name, a file path,
-   or the apt output in the OS-update message.
+   which means everything here has to be safe for anyone who can reach the card
+   to read: counts and percentages, never a club name, a screen name, a file
+   path, or the apt output in the OS-update message. It also means no number
+   here should say *how far behind* the card is, only that something is — see
+   osUpdateState.
 
    Two deliberate non-decisions:
 
    - The response stays 200 and `ok` stays true whatever the numbers say.
      deploy/kiosk.sh waits for `curl -fsS .../healthz` before it starts the
-     browser, so failing this route when the card is nearly full would stop
-     every screen in the club from booting — turning a warning into exactly the
-     outage it was meant to prevent. Degradation goes in `status` and
-     `warnings`, where only a monitor looks.
+     browser. It does carry on after ~60s whether the route ever answers or
+     not, so failing here would not black out a club permanently — but it would
+     cost every screen in it a minute of black screen on every power cut, which
+     is a warning turning itself into a smaller version of the outage it exists
+     to prevent. Degradation goes in `status` and `warnings`, where only a
+     monitor looks. health.test.js pins this through the route, not just through
+     this module, because the route is where it would actually be broken.
 
    - Screens and load are counted, not judged. Clubs switch screens off at the
      wall overnight and over the summer, so "2 of 4 online" is not a fault here;
@@ -89,22 +94,37 @@ function uptimeView() {
   return { hostSeconds: Math.round(os.uptime()), appSeconds: Math.round(process.uptime()) };
 }
 
-/** The nightly OS update, reduced to what is safe to serve without a login. */
-function osUpdateView(osUpdate) {
+/**
+ * The nightly OS update, reduced to what is safe to serve without a login.
+ *
+ * Two separate cuts, for two different reasons.
+ *
+ * `packages` and `message` are out because they carry apt's own text, which
+ * names the exact versions installed on the card — a list of what to try.
+ *
+ * `unpatched`, `silent`, `daysSincePatched` and `daysSinceCheck` are out for a
+ * subtler reason: on an open route they read as "this host has not been patched
+ * in 40 days". The package names were the detail; these are the *prioritisation
+ * signal* — across a fleet of club cards they say which one is worth somebody's
+ * time. A watcher needs to know something is wrong, which `warnings` tells it;
+ * it does not need to know how far behind. The dashboard has all of it behind
+ * the login, from `/api/state`.
+ *
+ * `rebootRequired` stays: it is the one field an operator acts on directly, and
+ * a reboot pending since last night says nothing about a sustained patch gap.
+ *
+ * @returns {{view: object, unpatched: boolean}} what to publish, and whether to warn
+ */
+function osUpdateState(osUpdate) {
   const u = osUpdate();
-  if (!u || !u.available) return { available: false };
-  // Deliberately not `packages` or `message`: both carry apt's own text, which
-  // names the exact versions installed on the card. That belongs on the
-  // dashboard behind the login, not on an open route.
+  if (!u || !u.available) return { view: { available: false }, unpatched: false };
   return {
-    available: true,
-    level: u.level,
-    result: u.result,
-    rebootRequired: u.rebootRequired,
-    daysSinceCheck: u.daysSinceCheck,
-    daysSincePatched: u.daysSincePatched,
-    unpatched: u.unpatched,
-    silent: u.silent,
+    view: { available: true, rebootRequired: Boolean(u.rebootRequired) },
+    // `unpatched` already means "the runs happen and none of them works" — the
+    // one OS-update failure that looks like success from the outside. `silent`
+    // means nothing has run at all. Computed from the full view, published only
+    // as a warning name.
+    unpatched: Boolean(u.unpatched || u.silent),
   };
 }
 
@@ -136,14 +156,12 @@ function createHealth({ version, dataDir, screens, osUpdate, cacheMs = CACHE_MS,
 
     const disk = diskView(dataDir, statfs);
     const memory = memoryView();
-    const osUpdates = osUpdateView(osUpdate);
+    const osUpdates = osUpdateState(osUpdate);
 
     const warnings = [];
     if (disk && disk.usedPercent >= DISK_WARN_PERCENT) warnings.push('disk-low');
     if (memory && memory.usedPercent >= MEMORY_WARN_PERCENT) warnings.push('memory-low');
-    // `unpatched` already means "the runs happen and none of them works" — the
-    // one OS-update failure that looks like success from the outside.
-    if (osUpdates.available && (osUpdates.unpatched || osUpdates.silent)) warnings.push('os-unpatched');
+    if (osUpdates.unpatched) warnings.push('os-unpatched');
 
     cached = {
       // `ok` and `version` first and unchanged: kiosk.sh and the older probes
@@ -160,7 +178,7 @@ function createHealth({ version, dataDir, screens, osUpdate, cacheMs = CACHE_MS,
         cpus: os.cpus().length,
       },
       screens: screens(),
-      osUpdate: osUpdates,
+      osUpdate: osUpdates.view,
     };
     cachedAt = at;
     return cached;

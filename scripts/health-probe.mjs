@@ -64,6 +64,13 @@ function usage(message) {
   --http                 plain HTTP, for a card with HTTPS switched off
   --insecure             skip the fingerprint check (says so in the output)
   --json                 machine-readable result on stdout
+
+Environment:
+  PITCHTRIBE_FINGERPRINT   used when --fingerprint is not given, and enough on
+                           its own to satisfy the requirement above. A stale
+                           value left in a shell will be used, so prefer the
+                           flag in anything scripted. A wrong value still fails
+                           closed, with exit 2.
 `);
   process.exit(message ? 64 : 0);
 }
@@ -92,7 +99,10 @@ function parseArgs(argv) {
     else usage(`unknown option ${a}`);
   }
   // Fail closed: without a fingerprint and without being told to skip it, this
-  // would quietly become a probe that trusts any certificate at all.
+  // would quietly become a probe that trusts any certificate at all. Note that
+  // PITCHTRIBE_FINGERPRINT satisfies this too (see --help) — which is a
+  // convenience, not a hole: a wrong value is rejected below at exit 2, so
+  // nothing unverified is ever trusted.
   if (!o.http && !o.insecure && !o.fingerprint) {
     usage('--fingerprint is required for HTTPS (or pass --insecure, or --http)');
   }
@@ -137,9 +147,9 @@ function probe(o) {
           const got = normalise(cert.fingerprint256 || '');
           if (!got || got !== normalise(o.fingerprint)) {
             res.destroy();
-            return reject(Object.assign(new Error(
+            return reject(new Error(
               `certificate fingerprint does not match (got ${cert.fingerprint256 || 'none'}) — a reimaged card, or the wrong host`
-            ), { fatal: true }));
+            ));
           }
         }
       }

@@ -70,6 +70,14 @@ nothing. Pinning the fingerprint is stronger than CA verification here, and it
 also catches a reimaged or swapped card, because a new card makes a new key.
 Reflashing a card means updating this file.
 
+One thing to know about that refusal: the probe also accepts a fingerprint from
+`PITCHTRIBE_FINGERPRINT` in its environment, and that is enough to satisfy it.
+The unit passes `--fingerprint` explicitly, so this never applies to the timer —
+but a stale export in an operator's shell will be picked up by a hand-run probe.
+A wrong value is still rejected, exit `2`, "certificate fingerprint does not
+match", so nothing unverified is ever trusted. It only means an interactive
+probe can pass the *refusal* check using a value you did not mean to give it.
+
 **`PROBE_EXTRA` is where version drift goes**, e.g.
 `PROBE_EXTRA=--expect-version 0.4.3`. Leave it empty unless you want the timer
 to report failure for the whole time a release is pending — which is honest, and

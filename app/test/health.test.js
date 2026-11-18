@@ -96,10 +96,42 @@ test('a nearly full card warns without failing the route', () => {
   const full = createHealth(base({ statfs: fakeStatfs(32, DISK_WARN_PERCENT + 5) }))();
   assert.equal(full.status, 'warn');
   assert.deepEqual(full.warnings, ['disk-low']);
-  // The point of the whole design: a full card must not stop screens booting.
   assert.equal(full.ok, true);
   assert.ok(full.disk.freeBytes > 0);
   assert.equal(full.disk.usedPercent, DISK_WARN_PERCENT + 5);
+});
+
+/* The one above proves the *body* is right on a full card. It cannot prove the
+   route is, because it never goes through Express and so cannot see a status
+   code at all — and the status code is the thing at risk. Making the route 503
+   when degraded is a one-line change that looks like a fix, and with only the
+   tests above it passes: the healthy-card test asserts 200 but never degrades,
+   and this one degrades but never asks Express. So this test is the pin: the
+   real route, a full card, and the status code asserted together. */
+test('healthz: the route itself keeps its 200 on a card that is nearly full', async (t) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pitchtribe-health-'));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const ctx = createApp({ dataDir, log: () => {}, statfs: fakeStatfs(32, DISK_WARN_PERCENT + 5) });
+  t.after(ctx.close);
+  const server = await new Promise((resolve) => {
+    const s = ctx.app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  t.after(() => { server.closeAllConnections(); server.close(); });
+
+  const res = await fetch(`http://127.0.0.1:${server.address().port}/healthz`);
+  const body = await res.json();
+
+  // deploy/kiosk.sh gates the browser on `curl -fsS` of this route, which fails
+  // on any non-2xx. It does carry on after ~60s regardless, so a 503 here is a
+  // minute of black screen on every screen in the club after every power cut,
+  // not a permanent blackout — still a warning causing its own small outage.
+  assert.equal(res.status, 200);
+  assert.equal(body.ok, true);
+
+  // The degradation is reported, just not by failing.
+  assert.equal(body.status, 'warn');
+  assert.deepEqual(body.warnings, ['disk-low']);
+  assert.equal(body.disk.usedPercent, DISK_WARN_PERCENT + 5);
 });
 
 test('a card with no statfs reports no disk rather than guessing', () => {
@@ -109,7 +141,7 @@ test('a card with no statfs reports no disk rather than guessing', () => {
   assert.equal(view.ok, true);
 });
 
-test('OS updates: warns when patching has stopped, without repeating apt', () => {
+test('OS updates: warns when patching has stopped, without saying how far behind', () => {
   const unpatched = {
     available: true, level: 'warn', result: 'offline', rebootRequired: false,
     daysSinceCheck: 0, daysSincePatched: 40, unpatched: true, silent: false,
@@ -118,17 +150,37 @@ test('OS updates: warns when patching has stopped, without repeating apt', () =>
   };
   const view = createHealth(base({ osUpdate: () => unpatched }))();
 
+  // A watcher learns that something is wrong...
   assert.equal(view.status, 'warn');
   assert.deepEqual(view.warnings, ['os-unpatched']);
-  assert.equal(view.osUpdate.daysSincePatched, 40);
 
-  // Package names and apt's message say which versions are on the card. They
-  // stay on the dashboard, behind the login.
-  assert.equal('packages' in view.osUpdate, false);
-  assert.equal('message' in view.osUpdate, false);
+  // ...and nothing more than that. This is an allowlist of two fields, so a
+  // field added to os-update.js cannot start appearing here by itself.
+  assert.deepEqual(view.osUpdate, { available: true, rebootRequired: false });
+
+  // Package names and apt's message say which versions are on the card.
+  // The day counts say which card in a fleet is worth an attacker's time.
+  // Both stay on the dashboard, behind the login. health.js says why.
+  // (Checked by name, not by value: a day count like `40` would match the
+  // digits of some byte count or uptime and pass for the wrong reason.)
+  for (const gone of ['packages', 'message', 'daysSincePatched', 'daysSinceCheck', 'unpatched', 'silent', 'result', 'level']) {
+    assert.equal(gone in view.osUpdate, false, `/healthz must not carry osUpdate.${gone}`);
+  }
   const json = JSON.stringify(view);
-  assert.equal(json.includes('openssl'), false);
-  assert.equal(json.includes('deb.debian.org'), false);
+  for (const text of ['openssl', 'libc6', 'deb.debian.org', '2026-10-08']) {
+    assert.equal(json.includes(text), false, `/healthz must not carry ${text}`);
+  }
+});
+
+test('a pending reboot is reported, because an operator acts on it', () => {
+  const view = createHealth(base({
+    osUpdate: () => ({ available: true, level: 'due', result: 'ok', rebootRequired: true, unpatched: false, silent: false, daysSincePatched: 0 }),
+  }))();
+  assert.deepEqual(view.osUpdate, { available: true, rebootRequired: true });
+  // Not a warning: a reboot pending since last night's update would otherwise
+  // page somebody nightly, and `warnings` has to stay worth waking up for.
+  assert.deepEqual(view.warnings, []);
+  assert.equal(view.status, 'ok');
 });
 
 test('a silent nightly update is a warning too', () => {
@@ -136,6 +188,7 @@ test('a silent nightly update is a warning too', () => {
     osUpdate: () => ({ available: true, level: 'warn', result: 'ok', silent: true, unpatched: false, daysSinceCheck: 9 }),
   }))();
   assert.deepEqual(view.warnings, ['os-unpatched']);
+  assert.equal(JSON.stringify(view).includes('silent'), false);
 });
 
 test('the view is cached, so an open route cannot be made to hammer the card', () => {
