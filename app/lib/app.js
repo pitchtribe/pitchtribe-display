@@ -1268,6 +1268,10 @@ function createApp(opts = {}) {
     // So a test can stand the real route up against a full card; the route
     // keeping its 200 is the whole point and it is only breakable here.
     statfs: opts.statfs,
+    // Same again for memory. Without this the route's own tests assert about
+    // whatever machine they run on, so `warnings` is empty on an idle CI runner
+    // and holds `memory-low` on a busy one.
+    meminfo: opts.meminfo,
   });
   app.get('/healthz', (req, res) => res.set('Cache-Control', 'no-store').json(health()));
 
