@@ -13,6 +13,7 @@
     "copy:install": "node -e \"require('fs').copyFileSync('deploy/bootstrap.sh','dist/install.sh')\"",
     "build:css": "tailwindcss -i ./src/styles.css -o ./dist/assets/app.css --minify",
     "fingerprint": "node scripts/fingerprint.mjs",
+    "health:probe": "node scripts/health-probe.mjs",
     "build": "npm run clean && npm run copy && npm run copy:install && npm run i18n && npm run docs && npm run build:css && npm run fingerprint",
     "docs": "node scripts/docs-build.mjs",
     "dev": "npm run clean && npm run copy && tailwindcss -i ./src/styles.css -o ./dist/assets/app.css --watch",

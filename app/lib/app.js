@@ -14,6 +14,7 @@ const { readPortalFiles, writePortalSettings, portalFile } = require('./portal')
 const { mountBackupRoutes } = require('./backup-routes');
 const { mountRemoteAccessRoutes } = require('./remote-access-routes');
 const { osUpdateView } = require('./os-update');
+const { createHealth } = require('./health');
 const { Feeds, LEAGUE_KEY_RE, SHOW_OPTIONS } = require('./feeds');
 const fulltime = require('./fulltime');
 const auth = require('./auth');
@@ -245,10 +246,10 @@ function createApp(opts = {}) {
     return { weather: w.weather, wikipedia: w.wikipedia, trains: w.trains || null, bods: w.bods || null, kinds: feeds.widgetKinds };
   }
 
-  const screenView = (s) => ({
-    ...s,
-    online: hub.isConnected(s.id) || Date.now() - (s.lastSeen || 0) < ONLINE_MS,
-  });
+  /** One rule for "is this screen with us?", shared by the dashboard and /healthz. */
+  const isOnline = (s) => hub.isConnected(s.id) || Date.now() - (s.lastSeen || 0) < ONLINE_MS;
+
+  const screenView = (s) => ({ ...s, online: isOnline(s) });
 
   // ---------- Content model ----------
   function sanitizeAsset(type, body, existing = {}) {
@@ -1235,7 +1236,40 @@ function createApp(opts = {}) {
   app.use('/portal-assets', express.static(path.join(PUBLIC_DIR, 'portal'), { maxAge: 0 }));
   app.get('/favicon.svg', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'shared', 'favicon.svg')));
   app.get('/', (req, res) => res.redirect('/admin/'));
-  app.get('/healthz', (req, res) => res.json({ ok: true, version: pkg.version }));
+  /* Still a liveness check — always 200, `ok` always true — with the few
+     numbers a watcher off the card needs to see trouble coming. lib/health.js
+     says what is in it and what is deliberately left out. `no-store` because a
+     monitor reading a cached body would report a fault that has been fixed, or
+     miss one that has just started.
+
+     Who can reach this. On a card running the guest portal, the one rule that
+     keeps guests off it is the **default drop at the end of the `input` chain**
+     in deploy/portal/portal-apply.sh: guests get DHCP, DNS, ping and the portal
+     port, and everything else from `br-guest` to this Pi is dropped. If you are
+     tidying that chain's accept list, that last `drop` is load-bearing for this
+     route. (The RFC1918 drop in the `forward` chain is *not* — that governs
+     traffic routed through the Pi to other hosts, and a request addressed to
+     the Pi itself never reaches `forward`.) Port 80 is separately DNAT'd to the
+     portal in `prerouting`, so it cannot land here either.
+
+     Two limits on that, both deployment assumptions rather than anything the
+     code enforces: a card with no guest portal has no such ruleset at all, so
+     this route is open to whatever network the Pi is plugged into — a shared
+     venue network, say. That is why health.js keeps the body to things that are
+     safe for a stranger on the same wire, not merely for a club member. */
+  const health = createHealth({
+    version: pkg.version,
+    dataDir,
+    screens: () => {
+      const list = data().screens;
+      return { total: list.length, online: list.reduce((n, s) => n + (isOnline(s) ? 1 : 0), 0) };
+    },
+    osUpdate: () => osUpdateView(dataDir),
+    // So a test can stand the real route up against a full card; the route
+    // keeping its 200 is the whole point and it is only breakable here.
+    statfs: opts.statfs,
+  });
+  app.get('/healthz', (req, res) => res.set('Cache-Control', 'no-store').json(health()));
 
   // ---------- Errors ----------
   // eslint-disable-next-line no-unused-vars

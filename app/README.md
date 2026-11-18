@@ -116,5 +116,42 @@ To back up, copy `DATA_DIR`.
 | `GET/PUT /api/portal`, `GET /api/portal/preview`, `GET /api/portal/guests.csv`, `DELETE /api/portal/guests` | Guest Wi-Fi settings, stats, splash preview, email export |
 | `GET /league/:assetId/:panel` | One FA Full-Time panel of a league slide, sandboxed (no login, LAN only) |
 | `GET /feeds/display`, `/feeds/api/*`, `/feeds/api/widgets/:kind` · `POST /feeds/mcp` | The engine's routes (POST needs its bearer token or a dashboard session) |
+| `GET /healthz` | Liveness plus a few health numbers (no login, LAN only) |
 
 All dashboard calls need the session cookie, and every mutation also needs the `X-PitchTribe: 1` header.
+
+### Watching a card
+
+`GET /healthz` always answers `200` with `ok: true` while the service is
+running — `deploy/kiosk.sh` waits on it before starting the browser, so it must
+never fail just because something needs attention. (That wait gives up after
+about a minute and starts the browser anyway, so a failing route costs every
+screen in the club a minute of black screen after a power cut rather than
+blacking it out for good — still a warning causing a smaller version of the
+outage it exists to prevent.) Alongside that it reports free space on the data
+card, memory, host and process uptime, load, how many screens are online, and
+whether the nightly OS update is configured and a reboot is pending. Anything
+that needs attention appears in `status: "warn"` and a `warnings` list
+(`disk-low`, `memory-low`, `os-unpatched`); screen counts and load are reported
+but never warned on, because a club switching screens off overnight is not a
+fault.
+
+It takes no login, so it carries no club, screen or package names — and no
+figure for how far behind the card's patching is either, only the
+`os-unpatched` warning. The day counts and apt's own text are on the dashboard,
+behind the login. Note that "LAN only" above is an assumption about how the card
+is deployed, not something the route enforces: see the comment on the route in
+`lib/app.js` for which firewall rule actually does that, and when there isn't
+one. `lib/health.js` has the rest of the reasoning.
+
+`scripts/health-probe.mjs` reads it from a machine that is **not** the Pi — a
+watcher sharing a power supply with the thing it watches reports nothing in the
+one case that matters:
+
+```sh
+node scripts/health-probe.mjs --host pitchtribe --fingerprint <sha256> --expect-version 0.4.3
+```
+
+It exits `0` up, `1` needs attention, `2` down, forces IPv4, and pins the card's
+self-signed certificate by fingerprint (from Settings → Secure connection)
+rather than disabling verification. `deploy/monitor/` installs it on a timer.
