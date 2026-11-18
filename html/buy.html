@@ -126,6 +126,7 @@
           <li>Mounting and the cable run are yours to sort</li>
         </ul>
         <a href="#parts" class="btn btn-ghost mt-auto w-full">See the parts list</a>
+        <a href="#quick-buy" class="btn btn-ghost mt-2 w-full">Or quick-buy the basket</a>
       </article>
 
       <!-- Route 2 -->
@@ -221,6 +222,263 @@
         Raspberry Pi board prices rose three times through 2026 on the back of global memory
         shortages, so treat this as a snapshot on the date above rather than a firm quote. We
         re-check it when we touch this page, not continuously.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== QUICK BUY =====================
+     One basket for the build, from either of the two shops the parts list
+     above already uses. They fill a basket by completely different means, and
+     that difference is the whole reason both are offered:
+
+     - The Pi Hut runs on Shopify, so `/cart/<variant>:<qty>,…` fills a real
+       basket with no sign-in and no account. `?storefront=true` is
+       load-bearing: without it Shopify drops the shopper straight into
+       checkout instead of the basket page. Verified end to end on 17 November
+       2026 — the five default rows arrive as five lines totalling £162.10 —
+       and a variant that is out of stock still appears in the basket rather
+       than quietly vanishing from it.
+     - Amazon has retired the public remote add-to-basket link, so
+       `/gp/aws/cart/add.html` now sends the shopper through an Amazon sign-in
+       before it fills the basket. Hence the caption on that button, and hence
+       every row also being a direct product link, which is the path that
+       always works.
+
+     The Pi Hut is the default panel because it is the only one of the two that
+     can sell the 4 GB board this page recommends. Amazon has no buy-box offer
+     on that board at all, and an Amazon basket link silently drops an ASIN
+     with no offer — which would hand a volunteer an incomplete basket and no
+     warning — so the Amazon panel is accessories only, with the 8 GB board as
+     an opt-in row and the catch spelled out below both lists.
+
+     Prices and item codes were checked by hand against both shops on
+     17 November 2026. `data-price` feeds the running total only, so a stale
+     number there is cosmetic, never a wrong product. -->
+<section id="quick-buy" class="pb-20">
+  <div class="mx-auto w-full max-w-3xl px-4 sm:px-6">
+    <div class="reveal mb-8">
+      <p class="eyebrow">Route one, in one go</p>
+      <h2 class="section-title mb-3">Quick buy: one basket</h2>
+      <p class="text-[1.0625rem] text-muted">
+        The parts list above, ticked up and handed to a shop in one click. Untick anything you
+        already have and the basket follows. Two shops, because they are good at different things —
+        and still no affiliate tag on either link, so we are paid nothing whichever you use. Prices
+        including VAT, checked 17 November 2026.
+      </p>
+    </div>
+
+    <div class="reveal">
+      <div class="supplier-switch" role="radiogroup" aria-label="Which shop to fill a basket at">
+        <input id="qb-sup-pihut" type="radio" name="qb-supplier" class="supplier-tick" checked>
+        <label for="qb-sup-pihut">
+          <span class="supplier-name">The Pi Hut</span>
+          <span class="supplier-note">The whole build, no sign-in</span>
+        </label>
+        <input id="qb-sup-amazon" type="radio" name="qb-supplier" class="supplier-tick">
+        <label for="qb-sup-amazon">
+          <span class="supplier-name">Amazon</span>
+          <span class="supplier-note">Cheaper, but no board</span>
+        </label>
+      </div>
+
+      <!-- The Pi Hut: every part except the long network lead, board included. -->
+      <div data-basket="pihut" class="mt-4 overflow-hidden rounded-[18px] border border-line bg-surface px-5 py-4 sm:px-6">
+        <div class="divide-y divide-line text-[0.9375rem]">
+
+          <div class="basket-row">
+            <input id="ph-board" type="checkbox" class="basket-tick" data-item="42531604922563" data-price="105.60" checked>
+            <label for="ph-board">Raspberry Pi 5, 4&nbsp;GB</label>
+            <span class="basket-price">£105.60</span>
+            <p class="basket-note">
+              The board we recommend, and the one the ready-built units use. ·
+              <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://thepihut.com/products/raspberry-pi-5" target="_blank" rel="noopener noreferrer">View at The Pi Hut</a>
+            </p>
+          </div>
+
+          <div class="basket-row">
+            <input id="ph-case" type="checkbox" class="basket-tick" data-item="42531604660419" data-price="9.60" checked>
+            <label for="ph-case">Official Pi 5 case, with fan and heatsink</label>
+            <span class="basket-price">£9.60</span>
+            <p class="basket-note">
+              <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://thepihut.com/products/raspberry-pi-5-case" target="_blank" rel="noopener noreferrer">View at The Pi Hut</a>
+            </p>
+          </div>
+
+          <div class="basket-row">
+            <input id="ph-psu" type="checkbox" class="basket-tick" data-item="42531604070595" data-price="11.50" checked>
+            <label for="ph-psu">Official 27&nbsp;W USB-C power supply, UK plug</label>
+            <span class="basket-price">£11.50</span>
+            <p class="basket-note">
+              <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://thepihut.com/products/raspberry-pi-27w-usb-c-power-supply" target="_blank" rel="noopener noreferrer">View at The Pi Hut</a>
+            </p>
+          </div>
+
+          <div class="basket-row">
+            <input id="ph-sd" type="checkbox" class="basket-tick" data-item="31604721287230" data-price="30.60" checked>
+            <label for="ph-sd">Official 64&nbsp;GB A2 microSD card</label>
+            <span class="basket-price">£30.60</span>
+            <p class="basket-note">
+              It arrives with Raspberry Pi OS on it, which flashing PitchTribe overwrites — the A2
+              rating is what you are paying for. ·
+              <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://thepihut.com/products/noobs-preinstalled-sd-card" target="_blank" rel="noopener noreferrer">View at The Pi Hut</a>
+            </p>
+          </div>
+
+          <div class="basket-row">
+            <input id="ph-hdmi" type="checkbox" class="basket-tick" data-item="31597424934974" data-price="4.80" checked>
+            <label for="ph-hdmi">Micro-HDMI to HDMI cable, 1&nbsp;m</label>
+            <span class="basket-price">£4.80</span>
+            <p class="basket-note">
+              <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://thepihut.com/products/micro-hdmi-to-standard-hdmi-a-cable" target="_blank" rel="noopener noreferrer">View at The Pi Hut</a>
+            </p>
+          </div>
+
+          <div class="basket-row">
+            <input id="ph-lan" type="checkbox" class="basket-tick" data-item="20063167873086" data-price="3.00">
+            <label for="ph-lan">Cat5e network lead, 5&nbsp;m</label>
+            <span class="basket-price">£3.00</span>
+            <p class="basket-note">
+              Optional — the Pi 5 has Wi-Fi built in. Five metres is the longest lead The Pi Hut
+              stocks; the 15&nbsp;m one in the parts list is somebody else’s. ·
+              <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://thepihut.com/products/rj45-cat5e-ethernet-lan-cable-5m-black" target="_blank" rel="noopener noreferrer">View at The Pi Hut</a>
+            </p>
+          </div>
+
+          <div class="basket-row">
+            <input id="ph-usb" type="checkbox" class="basket-tick" data-item="55251080184193" data-price="28.80">
+            <label for="ph-usb">Official Raspberry Pi flash drive, 128&nbsp;GB</label>
+            <span class="basket-price">£28.80</span>
+            <p class="basket-note">
+              Leave it in the Pi and PitchTribe backs up to it nightly. Amazon’s 64&nbsp;GB stick
+              does the same job for £11.34. ·
+              <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://thepihut.com/products/raspberry-pi-flash-drive" target="_blank" rel="noopener noreferrer">View at The Pi Hut</a>
+            </p>
+          </div>
+
+          <div class="flex items-baseline justify-between gap-3 py-3 font-semibold text-fg">
+            <span><span data-basket-count>5</span> parts ticked</span>
+            <span class="shrink-0 font-mono tabular-nums text-accent" data-basket-total>£162.10</span>
+          </div>
+        </div>
+
+        <a class="btn btn-primary basket-go mt-4 w-full" data-basket-link
+           href="https://thepihut.com/cart/42531604922563:1,42531604660419:1,42531604070595:1,31604721287230:1,31597424934974:1?storefront=true"
+           target="_blank" rel="noopener noreferrer">Fill my Pi Hut basket</a>
+        <p class="mt-3 text-center text-[0.8125rem] text-dim">
+          No account and no sign-in: the link drops the parts into the basket and you check it over
+          before paying anything. Add roughly £4 for delivery.
+        </p>
+      </div>
+
+      <!-- Amazon: accessories only, because of the board. See the note below. -->
+      <div data-basket="amazon" class="mt-4 overflow-hidden rounded-[18px] border border-line bg-surface px-5 py-4 sm:px-6">
+        <div class="divide-y divide-line text-[0.9375rem]">
+
+          <div class="basket-row">
+            <input id="qb-case" type="checkbox" class="basket-tick" data-item="B0CN5Q28TX" data-price="8.89" checked>
+            <label for="qb-case">Official Pi 5 case, with fan and heatsink</label>
+            <span class="basket-price">£8.89</span>
+            <p class="basket-note">
+              <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://www.amazon.co.uk/dp/B0CN5Q28TX" target="_blank" rel="noopener noreferrer">View on Amazon</a>
+            </p>
+          </div>
+
+          <div class="basket-row">
+            <input id="qb-psu" type="checkbox" class="basket-tick" data-item="B0CLY1671K" data-price="11.48" checked>
+            <label for="qb-psu">Official 27&nbsp;W USB-C power supply, UK plug</label>
+            <span class="basket-price">£11.48</span>
+            <p class="basket-note">
+              <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://www.amazon.co.uk/dp/B0CLY1671K" target="_blank" rel="noopener noreferrer">View on Amazon</a>
+            </p>
+          </div>
+
+          <div class="basket-row">
+            <input id="qb-sd" type="checkbox" class="basket-tick" data-item="B09X7CXWQQ" data-price="18.19" checked>
+            <label for="qb-sd">SanDisk Extreme 64&nbsp;GB microSD card</label>
+            <span class="basket-price">£18.19</span>
+            <p class="basket-note">
+              A2, U3, V30 — the rating the Pi wants. ·
+              <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://www.amazon.co.uk/dp/B09X7CXWQQ" target="_blank" rel="noopener noreferrer">View on Amazon</a>
+            </p>
+          </div>
+
+          <div class="basket-row">
+            <input id="qb-hdmi" type="checkbox" class="basket-tick" data-item="B08P5QSG5M" data-price="8.74" checked>
+            <label for="qb-hdmi">Micro-HDMI to HDMI cable, 1&nbsp;m</label>
+            <span class="basket-price">£8.74</span>
+            <p class="basket-note">
+              <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://www.amazon.co.uk/dp/B08P5QSG5M" target="_blank" rel="noopener noreferrer">View on Amazon</a>
+            </p>
+          </div>
+
+          <div class="basket-row">
+            <input id="qb-lan" type="checkbox" class="basket-tick" data-item="B018M7BC4K" data-price="6.01" checked>
+            <label for="qb-lan">Cat6 network lead, 15&nbsp;m</label>
+            <span class="basket-price">£6.01</span>
+            <p class="basket-note">
+              Optional — the Pi 5 has Wi-Fi built in. ·
+              <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://www.amazon.co.uk/dp/B018M7BC4K" target="_blank" rel="noopener noreferrer">View on Amazon</a>
+            </p>
+          </div>
+
+          <div class="basket-row">
+            <input id="qb-usb" type="checkbox" class="basket-tick" data-item="B077VYCV37" data-price="11.34">
+            <label for="qb-usb">SanDisk Ultra Fit 64&nbsp;GB USB stick</label>
+            <span class="basket-price">£11.34</span>
+            <p class="basket-note">
+              Leave it in the Pi and PitchTribe backs up to it nightly. ·
+              <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://www.amazon.co.uk/dp/B077VYCV37" target="_blank" rel="noopener noreferrer">View on Amazon</a>
+            </p>
+          </div>
+
+          <div class="basket-row">
+            <input id="qb-board" type="checkbox" class="basket-tick" data-item="B0CK2FCG1K" data-price="168.00">
+            <label for="qb-board">Raspberry Pi 5, 8&nbsp;GB</label>
+            <span class="basket-price">£168.00</span>
+            <p class="basket-note">
+              Read the note below before you tick this one. ·
+              <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://www.amazon.co.uk/dp/B0CK2FCG1K" target="_blank" rel="noopener noreferrer">View on Amazon</a>
+            </p>
+          </div>
+
+          <div class="flex items-baseline justify-between gap-3 py-3 font-semibold text-fg">
+            <span><span data-basket-count>5</span> parts ticked</span>
+            <span class="shrink-0 font-mono tabular-nums text-accent" data-basket-total>£53.31</span>
+          </div>
+        </div>
+
+        <a class="btn btn-primary basket-go mt-4 w-full" data-basket-link
+           href="https://www.amazon.co.uk/gp/aws/cart/add.html?ASIN.1=B0CN5Q28TX&amp;Quantity.1=1&amp;ASIN.2=B0CLY1671K&amp;Quantity.2=1&amp;ASIN.3=B09X7CXWQQ&amp;Quantity.3=1&amp;ASIN.4=B08P5QSG5M&amp;Quantity.4=1&amp;ASIN.5=B018M7BC4K&amp;Quantity.5=1"
+           target="_blank" rel="noopener noreferrer">Fill my Amazon basket</a>
+        <p class="mt-3 text-center text-[0.8125rem] text-dim">
+          Amazon asks you to sign in first, then fills the basket. If you would rather not, the
+          “View on Amazon” link on each row adds that one part the ordinary way.
+        </p>
+      </div>
+    </div>
+
+    <div class="reveal mt-6 space-y-3 text-[0.9375rem] text-muted">
+      <p>
+        <strong class="font-semibold text-fg">The board decides it.</strong>
+        Amazon has no offer on the bare 4&nbsp;GB Pi 5 we recommend — only the 8&nbsp;GB board at
+        £168, and resellers’ starter kits at around £170 that bundle a case and a card you did not
+        choose. The Pi Hut has it at £105.60, which is why its basket is the whole build in one
+        order at <strong class="font-semibold text-fg">£162.10</strong> and the Amazon one is
+        accessories.
+      </p>
+      <p>
+        Amazon is the cheaper half. Its case, power supply, card and cable come to
+        <strong class="font-semibold text-fg">£47.30</strong> against The Pi Hut’s £56.50, so the
+        board from The Pi Hut and those four from Amazon is about
+        <strong class="font-semibold text-fg">£152.90</strong> — roughly £9 saved, for two orders
+        and two deliveries instead of one. Neither figure includes delivery, and the long network
+        lead is extra either way.
+      </p>
+      <p class="text-[0.875rem] text-dim">
+        Both shops move their prices, so treat the figures here as the snapshot they are. We check
+        them when we touch this page, not continuously — and if a row has gone up, the parts list
+        above is the fallback.
       </p>
     </div>
   </div>

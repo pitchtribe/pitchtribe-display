@@ -65,6 +65,10 @@ jobs:
             fi
           done
           test "$missing" -eq 0
+          # The quick-buy baskets on /buy fail quietly when they are wrong -- a
+          # short basket still opens and still looks right -- so they get their
+          # own checks rather than riding on "the page rendered".
+          npm run verify:baskets
           ls -lR dist
 
       - name: Upload build artifact
