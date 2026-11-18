@@ -157,6 +157,15 @@ through the code-snippet feeds a club's own league issues to it, weekly and cach
 scrape the public pages. The reasoning, the config shape and what we still have to validate are in
 [FULL_TIME.md](FULL_TIME.md). Read that before writing anything that talks to Full-Time.
 
+**The club's photographs (the archive wall): route decided, count outstanding.** The evergreen photo
+pool comes from the club's own Facebook Page, handed over once by a Page admin as an export or a
+short-lived Page token — not scraped, because Facebook's `robots.txt` prohibits automated collection
+and the logged-out Page contains no photographs to collect in any case. How many usable photographs
+exist has never been counted and decides how much of the weekly loop the wall can carry;
+`npm run photos:count` is the instrument that answers it the hour an export or a token arrives.
+The route, the evidence and the outstanding consent requirement are in
+[FACEBOOK_PHOTOS.md](FACEBOOK_PHOTOS.md). Read that before writing anything that talks to Meta.
+
 Each ESPN refresh asks for a whole calendar month per league (`?dates=YYYYMM`) and then trims the
 result to `daysBack`/`daysAhead` — normally one request per league, two when the window crosses a
 month end. ESPN answers `HTTP 400` to the day-range form (`?dates=YYYYMMDD-YYYYMMDD`).
