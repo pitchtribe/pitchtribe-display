@@ -42,7 +42,11 @@ const AFFILIATE = ["tag=", "linkCode=", "ascsubtag=", "ref=as_li", "utm_"];
 
 const failures = [];
 const fail = (page, msg) => failures.push(`${page}: ${msg}`);
-const decode = (s) => s.replace(/&amp;/g, "&").replace(/&quot;/g, '"');
+// One pass, not a chain of replaces: unescaping &amp; before the others turns
+// a literal "&amp;quot;" into a quote, which is a different string from the one
+// the page actually contains.
+const ENTITIES = { "&amp;": "&", "&quot;": '"', "&#39;": "'", "&lt;": "<", "&gt;": ">" };
+const decode = (s) => s.replace(/&(?:amp|quot|#39|lt|gt);/g, (e) => ENTITIES[e]);
 
 // Every data-basket key in the markup needs a builder in main.js, or the JS
 // bails out and the ticks silently stop rebuilding the link.
