@@ -12,6 +12,9 @@
  *   0  up and nothing to report
  *   1  up, but something needs attention (a warning, version drift, cert expiry)
  *   2  down: unreachable, not a 200, or the wrong certificate
+ *   3  unobservable: this watcher never reached the card, so its state is
+ *      unknown. Not the same as down, and reporting it as down is a lie that
+ *      costs someone a drive to the clubhouse — see UNOBSERVABLE below.
  *
  * Three things here look like fussiness and are each a false alarm already
  * found the hard way against a real card:
@@ -52,6 +55,31 @@ const DEFAULTS = {
   certWarnDays: 30,
 };
 
+/* Failures of the watcher's own network, not of the card.
+ *
+ * A probe that cannot resolve the name or has no route to the subnet has
+ * observed nothing: no TCP connection, no TLS handshake, no certificate, no
+ * body. Reporting that as "down" was how a watcher with no path to the club LAN
+ * came to file a critical "the card is down" report about a card nobody had
+ * looked at (PIT-71). These exit 3 instead, and say the state is unknown.
+ *
+ * ECONNREFUSED and a timeout are deliberately NOT here. On a watcher that
+ * normally reaches the card, a refusal is the service having stopped and a
+ * timeout is the card wedged or firewalled — the two faults this probe exists
+ * to catch. They are only ambiguous on a watcher that was never on the right
+ * network, and a watcher in that state says so through this list first. */
+const UNOBSERVABLE = new Set([
+  'ENOTFOUND',     // no such name
+  'EAI_AGAIN',     // resolver did not answer
+  'ENETUNREACH',   // no route to that network
+  'EHOSTUNREACH',  // no route to that host
+  'ENETDOWN',      // this watcher has no network at all
+  'EADDRNOTAVAIL', // nothing local to send from
+]);
+
+/** The error's own code, or the one the TLS/socket layer wrapped underneath. */
+const errorCode = (err) => err?.code || err?.cause?.code || '';
+
 function usage(message) {
   if (message) process.stderr.write(`health-probe: ${message}\n\n`);
   process.stderr.write(`Usage: node scripts/health-probe.mjs --host <name> --fingerprint <sha256> [options]
@@ -64,6 +92,13 @@ function usage(message) {
   --http                 plain HTTP, for a card with HTTPS switched off
   --insecure             skip the fingerprint check (says so in the output)
   --json                 machine-readable result on stdout
+
+Exit codes:
+  0  up and nothing to report
+  1  up, but something needs attention
+  2  down: unreachable, not a 200, or the wrong certificate
+  3  unobservable: this watcher could not resolve or reach the host, so the
+     card's state is unknown. Fix the watcher's network, not the card.
 
 Environment:
   PITCHTRIBE_FINGERPRINT   used when --fingerprint is not given, and enough on
@@ -231,10 +266,19 @@ async function main() {
   try {
     res = await probe(o);
   } catch (err) {
-    const out = { at, host: o.host, up: false, code: 2, error: err.message };
+    /* `up: null`, not `false`: an unobservable probe did not find the card
+       down, it failed to look. Anything reading this has to be able to tell
+       those apart, because only one of them is about the card. */
+    const blind = UNOBSERVABLE.has(errorCode(err));
+    const out = blind
+      ? { at, host: o.host, up: null, code: 3, reason: 'unobservable', error: err.message }
+      : { at, host: o.host, up: false, code: 2, error: err.message };
     if (o.json) process.stdout.write(`${JSON.stringify(out)}\n`);
-    else process.stderr.write(`DOWN  ${o.host}: ${err.message}\n`);
-    process.exit(2);
+    else if (blind) {
+      process.stderr.write(`BLIND ${o.host}: ${err.message}\n`);
+      process.stderr.write('      this watcher cannot reach the host, so the card\'s state is unknown — not down\n');
+    } else process.stderr.write(`DOWN  ${o.host}: ${err.message}\n`);
+    process.exit(blind ? 3 : 2);
   }
 
   const v = assess(res, o);
