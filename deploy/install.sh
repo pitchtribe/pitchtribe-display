@@ -35,11 +35,12 @@
 #   PITCHTRIBE_IMAGE_BUILD=1      used by image/build.sh: install into a mounted SD card
 #                                 image from a chroot. Services are enabled for the
 #                                 first boot but not started now.
-#   PITCHTRIBE_CLUB_DIR=caldecote one club's own card content (a clubhouse wall rather
+#   PITCHTRIBE_CLUB_DIR=<club>    one club's own card content (a clubhouse wall rather
 #                                 than a playlist player): a directory in this checkout
 #                                 holding card/ and card.env — see deploy/club-content.sh.
-#                                 A club line names its own in a .pitchtribe-club file at
-#                                 the top of the checkout, so this is usually not typed.
+#                                 Optional, and there is no such directory in this repo:
+#                                 the ordinary route is to put clubhouse.json in the data
+#                                 directory on the card (signage-server/CLUBHOUSE.md).
 set -euo pipefail
 
 log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
@@ -352,6 +353,13 @@ if [[ "${PITCHTRIBE_NO_KIOSK:-0}" != 1 ]]; then
   cat >/etc/default/pitchtribe-kiosk <<EOF
 # Read by pitchtribe-kiosk.service. @HOSTNAME@ becomes this Pi's hostname when the
 # kiosk starts, so each Pi shows its own screen (and an SD card image works on any Pi).
+#
+# For a single-club clubhouse wall instead of the playlist player, put the club's own
+# file at ${DATA_DIR}/clubhouse.json, restart pitchtribe, then point this line at the
+# wall and restart pitchtribe-kiosk (see signage-server/CLUBHOUSE.md, "On a card"):
+#   PITCHTRIBE_URL=${SERVER%/}/feeds/clubhouse
+# Without that file the page answers, but with our name on it and no football — so the
+# file comes first.
 PITCHTRIBE_URL=${SERVER%/}/player/?screen=@HOSTNAME@
 CHROMIUM=${CHROMIUM}
 EOF
@@ -371,9 +379,9 @@ fi
 # files in the data directory, and the only person near it is a volunteer with no
 # keyboard — so those files have to be on the card before its first boot.
 #
-# A club line says which directory is its own in a .pitchtribe-club file at the
-# top of the checkout. There is no such file on main, so this is inert for the
-# system everybody downloads.
+# A checkout prepared for one building names its club directory in a
+# .pitchtribe-club file at the top of it. There is no such file in this repo, so
+# this is inert for the system everybody downloads.
 CLUB_DIR="${PITCHTRIBE_CLUB_DIR:-}"
 if [[ -z "$CLUB_DIR" && -f "$SRC_DIR/.pitchtribe-club" ]]; then
   CLUB_DIR="$(tr -d '[:space:]' <"$SRC_DIR/.pitchtribe-club")"

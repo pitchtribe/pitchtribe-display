@@ -81,6 +81,10 @@ function createApp(opts = {}) {
     fetchImpl: opts.feedsFetch || opts.sportsFetch,
     log: opts.log || console.error,
     publicUrl: `${(lanUrls(port)[0] || `http://localhost:${port}/`).replace(/\/$/, '')}/feeds`,
+    // One club's wall at /feeds/clubhouse, from a file in the data directory —
+    // /var/lib/pitchtribe/clubhouse.json on a card. Absent on a playlist player,
+    // which is most of them, and then nothing about this card changes.
+    clubFile: opts.clubFile ?? process.env.PITCHTRIBE_CLUB_FILE ?? path.join(dataDir, 'clubhouse.json'),
   });
   const configureFeeds = () =>
     feeds.configure({
