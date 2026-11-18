@@ -234,6 +234,31 @@ html, body {
 
 .empty-note { color: var(--muted); font-size: 1.1em; }
 
+/* League (FA Full-Time) ------------------------------------------------ */
+/* Each column frames one Full-Time panel. The frame fills its column and the
+   document inside it scales the FA's 350px-wide insert to fit, so the table
+   is legible from the bar rather than a stamp in the middle of the screen. */
+.league .fit { display: flex; }
+.league-panels { display: flex; flex: 1; min-height: 0; gap: 2.4cqmin; width: 100%; }
+.league-panel { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.league-panel h2 {
+  font-size: 0.78em;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.5em;
+}
+.league-panel iframe {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  display: block;
+  border-radius: 1.2cqmin;
+  background: #fff;
+}
+
 /* Chrome --------------------------------------------------------------- */
 #clock {
   position: absolute;

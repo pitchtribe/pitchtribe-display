@@ -1,0 +1,17 @@
+[Unit]
+Description=Check a club's Pi every five minutes
+
+[Timer]
+# Five minutes is deliberate: the dashboard counts a screen offline after 2.5
+# minutes (ONLINE_MS in app/lib/app.js), so this is the shortest interval that
+# cannot report a screen as missing purely because it checked too soon.
+OnBootSec=1min
+OnUnitActiveSec=5min
+# systemd would otherwise group timers up to a minute apart to save power. On a
+# mains-powered watcher that is a minute of blur on every measurement.
+AccuracySec=10s
+# Not Persistent=true: there is nothing to catch up on. A probe of how the card
+# was an hour ago is worse than no probe, because it reads as current.
+
+[Install]
+WantedBy=timers.target

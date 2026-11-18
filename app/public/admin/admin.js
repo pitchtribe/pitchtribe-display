@@ -39,6 +39,7 @@
     notice: 'M4 10v4h3l6 4V6L7 10z M16 9a4 4 0 0 1 0 6 M18.5 6.5a7.5 7.5 0 0 1 0 11',
     menu: 'M5 4h14v16H5z M8 8h8 M8 12h8 M8 16h5',
     fixtures: 'M4 6h16v14H4z M4 10h16 M8 3v5 M16 3v5 M8 14h3',
+    league: 'M4 5h16v14H4z M4 9.5h16 M4 14h16 M9 5v14',
     weather: 'M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 11 3.5 3.5 0 0 0 7 18z',
     smile: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M8 14s1.5 2 4 2 4-2 4-2 M9 9h.01 M15 9h.01',
     quote: 'M7 7h4v5c0 3-2 5-4 5 M14 7h4v5c0 3-2 5-4 5',
@@ -104,7 +105,7 @@
     return svg;
   }
 
-  const TYPE_LABEL = { image: 'Image', video: 'Video', url: 'Web page', notice: 'Notice', menu: 'Menu board', fixtures: 'Fixtures', scores: 'Live scores', widget: 'Widget' };
+  const TYPE_LABEL = { image: 'Image', video: 'Video', url: 'Web page', notice: 'Notice', menu: 'Menu board', fixtures: 'Fixtures', scores: 'Live scores', league: 'League table', widget: 'Widget' };
   const WIDGETS = {
     clock: { name: 'Clock', icon: 'clock', blurb: 'Big digital or analogue clock, or a countdown to kick-off.' },
     worldclock: { name: 'World clocks', icon: 'globe', blurb: 'The time in up to eight cities around the world.' },
@@ -521,7 +522,7 @@
   function viewContent() {
     const fileInput = h('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime', hidden: true, onchange: () => { startUploads([...fileInput.files]); fileInput.value = ''; } });
 
-    const filters = [['all', 'All'], ['image', 'Images'], ['video', 'Videos'], ['notice', 'Notices'], ['menu', 'Menus'], ['fixtures', 'Fixtures'], ['scores', 'Scores'], ['widget', 'Widgets'], ['url', 'Web pages']];
+    const filters = [['all', 'All'], ['image', 'Images'], ['video', 'Videos'], ['notice', 'Notices'], ['menu', 'Menus'], ['fixtures', 'Fixtures'], ['scores', 'Scores'], ['league', 'League tables'], ['widget', 'Widgets'], ['url', 'Web pages']];
     const list = state.assets
       .filter((a) => contentFilter === 'all' || a.type === contentFilter)
       .filter((a) => !contentSearch || a.name.toLowerCase().includes(contentSearch.toLowerCase()))
@@ -551,6 +552,7 @@
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'fixtures' }) }, icon('fixtures'), 'Fixtures'),
           h('button', { class: 'btn', type: 'button', onclick: pickWidget }, icon('widget'), 'Widgets'),
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'scores' }) }, icon('scores'), 'Live scores'),
+          h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'league' }) }, icon('league'), 'League table'),
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'url' }) }, icon('url'), 'Web page'),
           fileInput)),
       h('div', { class: 'dropzone' }, 'Drop photos or videos here to upload', h('br'), h('span', { class: 'small' }, `JPG, PNG, GIF, WebP, SVG, MP4, WebM · up to ${state.maxUploadMb} MB each`)),
@@ -624,14 +626,14 @@
     const isNew = !asset.id;
     const type = asset.type;
     const c = asset.content || {};
-    const defaults = { url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, widget: { clock: 15, worldclock: 15, weather: 15, joke: 14, phrase: 10, trivia: 12, quiz: 20, history: 18, emoji: 16, geoquiz: 16, country: 14, spotball: 20, transport: 20, bankholiday: 12, floods: 12, carbon: 14, quakes: 14, currency: 12, potd: 15, births: 15, sky: 12, headlines: 18, events: 18 }[c.kind] };
+    const defaults = { url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, league: 25, widget: { clock: 15, worldclock: 15, weather: 15, joke: 14, phrase: 10, trivia: 12, quiz: 20, history: 18, emoji: 16, geoquiz: 16, country: 14, spotball: 20, transport: 20, bankholiday: 12, floods: 12, carbon: 14, quakes: 14, currency: 12, potd: 15, births: 15, sky: 12, headlines: 18, events: 18 }[c.kind] };
     const f = {}; // field elements
     const body = h('form', { class: 'form-grid', onsubmit: (e) => { e.preventDefault(); save(); } });
 
     if (type === 'image') body.append(h('img', { class: 'preview-media', src: asset.src, alt: '' }));
     if (type === 'video') body.append(h('video', { class: 'preview-media', src: asset.src, controls: true, muted: true, preload: 'metadata' }));
 
-    f.name = h('input', { type: 'text', value: asset.name || (type === 'widget' ? WIDGETS[c.kind]?.name : '') || '', maxlength: 120, required: true, placeholder: { notice: 'e.g. AGM notice', menu: 'e.g. Bar menu', fixtures: 'e.g. First team fixtures', scores: 'e.g. Premier League scores', url: 'e.g. League table' }[type] });
+    f.name = h('input', { type: 'text', value: asset.name || (type === 'widget' ? WIDGETS[c.kind]?.name : '') || '', maxlength: 120, required: true, placeholder: { notice: 'e.g. AGM notice', menu: 'e.g. Bar menu', fixtures: 'e.g. First team fixtures', scores: 'e.g. Premier League scores', league: 'e.g. County League', url: 'e.g. League table' }[type] });
     f.duration = h('input', { type: 'number', min: type === 'video' ? 0 : 1, max: 86400, value: asset.duration ?? defaults[type] ?? 10, required: true });
     body.append(h('div', { class: 'row-2' },
       h('label', { class: 'field' }, 'Name', f.name),
@@ -707,6 +709,35 @@
       body.append(h('div', { class: 'row-2' }, h('label', { class: 'field' }, 'Show', f.show), h('label', { class: 'field' }, 'At most (matches)', f.limit)));
       body.append(h('p', { class: 'small muted' }, 'Scores update on screen by themselves: every minute during live matches, every 10 minutes otherwise.'));
     }
+    if (type === 'league') {
+      // Full-Time has no public feed, so the club brings its own code snippets
+      // from Full-Time → Media → Code Snippets. Three panels is what fits a TV
+      // across: table, recent results, next fixtures.
+      const PANELS = [['Table', 'Table'], ['Results', 'Recent Results'], ['Fixtures', 'Upcoming Fixtures']];
+      const saved = c.panels || [];
+      f.title = h('input', { type: 'text', value: c.title || '', maxlength: 200, placeholder: 'Bedfordshire County League' });
+      body.append(h('label', { class: 'field' }, 'Heading on screen', f.title));
+      body.append(h('details', { class: 'help', open: isNew }, h('summary', {}, 'Where do I get these?'),
+        h('p', { style: 'margin-top:8px' }, 'The FA does not publish Full-Time as a feed, so this slide shows the official embed code your league gives you. Sign in at ',
+          h('a', { href: 'https://fulltime.thefa.com/', target: '_blank', rel: 'noreferrer' }, 'fulltime.thefa.com'),
+          ' as a team or league admin, go to Media → Code Snippets, pick your division and season, create the snippet and paste it below. One snippet per panel.'),
+        h('p', {}, 'Leave a panel empty to drop it. Full-Time deletes a snippet that has gone unused for 30 days, so create them, paste them here, and check the slide in Preview.'),
+        h('p', {}, 'Screens need internet for this slide: the table is drawn by Full-Time, not stored on the Pi.')));
+      f.panels = PANELS.map(([label, placeholder], i) => {
+        const labelInput = h('input', { type: 'text', value: saved[i]?.label ?? (isNew ? label : ''), maxlength: 60, placeholder: label });
+        const snippet = h('textarea', { class: 'code', spellcheck: false, rows: 4, maxlength: 4000, placeholder: `Full-Time “${placeholder}” embed code` }, saved[i]?.snippet || '');
+        body.append(h('div', { class: 'row-2' },
+          h('label', { class: 'field' }, `Panel ${i + 1} heading`, labelInput),
+          h('label', { class: 'field' }, 'Code snippet', snippet)));
+        return { labelInput, snippet };
+      });
+      f.zoom = h('select', {}, [['0', 'Fit the panel (recommended)'], ['1', 'No zoom (350px as Full-Time sends it)'], ['1.5', '1.5×'], ['2', '2×'], ['3', '3×']]
+        .map(([v, l]) => h('option', { value: v, selected: String(c.zoom ?? 0) === v }, l)));
+      f.credit = h('input', { type: 'text', value: c.credit ?? 'Data from The FA Full-Time', maxlength: 200 });
+      body.append(h('div', { class: 'row-2' },
+        h('label', { class: 'field' }, 'Size on screen', f.zoom, h('span', { class: 'hint' }, 'Full-Time sends a fixed 350px-wide table; “fit” scales it up to fill the panel.')),
+        h('label', { class: 'field' }, 'Credit line', f.credit)));
+    }
     if (type === 'widget') widgetFields(c, body, f, () => m);
     if (isNew && state.playlists.length) {
       f.addTo = h('select', {}, h('option', { value: '' }, 'Don’t add yet'),
@@ -722,7 +753,7 @@
     const m = modal({
       title: type === 'widget' ? `${isNew ? 'New' : 'Edit'} ${typeLabel(asset).toLowerCase()} widget` : isNew ? `New ${TYPE_LABEL[type].toLowerCase()}` : `Edit ${TYPE_LABEL[type].toLowerCase()}`,
       body,
-      wide: type === 'menu' || type === 'fixtures',
+      wide: type === 'menu' || type === 'fixtures' || type === 'league',
       footer: (close) => [
         !isNew && h('button', { class: 'btn danger', type: 'button', onclick: remove }, icon('trash'), 'Delete'),
         h('span', { class: 'spacer' }),
@@ -742,6 +773,17 @@
       if (type === 'menu') payload.content = { title: f.title.value, text: f.text.value };
       if (type === 'fixtures') payload.content = { title: f.title.value, text: f.text.value, limit: Number(f.limit.value) };
       if (type === 'scores') payload.content = { title: f.title.value, leagues: f.leagues.value, show: f.show.value, limit: Number(f.limit.value) };
+      if (type === 'league') {
+        payload.content = {
+          title: f.title.value,
+          zoom: Number(f.zoom.value),
+          credit: f.credit.value,
+          panels: f.panels
+            .map((p) => ({ label: p.labelInput.value, snippet: p.snippet.value.trim() }))
+            .filter((p) => p.snippet),
+        };
+        if (!payload.content.panels.length) return toast('Paste at least one Full-Time code snippet', 'error');
+      }
       if (type === 'widget') payload.content = f.widget();
       saveBtn.disabled = true;
       try {

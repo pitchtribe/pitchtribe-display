@@ -28,7 +28,7 @@ const current = [...new Set(PAGES.flatMap((p) => extract(pagesHtml[p])))];
 const unknown = current.filter((s) => !index.has(s));
 
 // Strings that are the same in every language (names, specs, codes) — not reported as missing.
-const SAME = /^(PITCH|TRIBE|EN|PitchTribe|GitHub|FAQ|OS|CPU|RAM|GPU|USB|4K|PCIe 2\.0|Micro-HDMI ×2|USB 3\.0 ×2|VideoCore VII|BCM2712 · 4× A76|2\.4 GHz|GbE \+ Wi-Fi|microSD \/ NVMe|hostapd \+ dnsmasq \+ nftables|Raspberry Pi( 5| OS| OS Lite \((?:Bookworm|Trixie)\)| 5\.)?|English|Français|Español|Deutsch|Italiano|Português|Polski|Русский|中文|日本語|[A-D]|\d.*|.*@.*|Riverside FC|Rovers United|Northdale Ath|City Athletic|Hilltop Town|Valley Wanderers|Parkside|Old Boys XI|Reading|Glastonbury|Isle of Wight|Download|London Kings Cross|Peterborough|Brighton|Victoria|Central|Elizabeth line|EZY45TK|RYR92QF|RiversideFC-Guest|A320 · .*|B38M · .*|PITCHTRIBE · HDMI OUT|Daniel Newbury.*|— Riverside FC)$/;
+const SAME = /^(PITCH|TRIBE|EN|PitchTribe|GitHub|Amazon|The Pi Hut|FAQ|OS|CPU|RAM|GPU|USB|4K|PCIe 2\.0|Micro-HDMI ×2|USB 3\.0 ×2|VideoCore VII|BCM2712 · 4× A76|2\.4 GHz|GbE \+ Wi-Fi|microSD \/ NVMe|hostapd \+ dnsmasq \+ nftables|Raspberry Pi( 5| OS| OS Lite \((?:Bookworm|Trixie)\)| 5\.)?|English|Français|Español|Deutsch|Italiano|Português|Polski|Русский|中文|日本語|[A-D]|\d.*|.*@.*|Riverside FC|Rovers United|Northdale Ath|City Athletic|Hilltop Town|Valley Wanderers|Parkside|Old Boys XI|Reading|Glastonbury|Isle of Wight|Download|London Kings Cross|Peterborough|Brighton|Victoria|Central|Elizabeth line|EZY45TK|RYR92QF|RiversideFC-Guest|A320 · .*|B38M · .*|PITCHTRIBE · HDMI OUT|Daniel Newbury.*|— Riverside FC)$/;
 
 if (mode === '--update') {
   if (!unknown.length) console.log('i18n: source.json is up to date');
