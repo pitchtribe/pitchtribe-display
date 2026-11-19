@@ -291,12 +291,19 @@ function createApp(opts = {}) {
           mode: 'bar',
           title: v.str(c.title, { max: 200, field: 'Title' }),
           drinks: raw
-            .map((d) => ({
-              name: v.str(d?.name, { max: 100, field: 'Drink name' }),
-              color: HEX6.test(d?.color || '') ? d.color : '#888888',
-              price: v.str(d?.price, { max: 20, field: 'Price' }),
-              memberPrice: v.str(d?.memberPrice, { max: 20, field: 'Member price' }),
-            }))
+            .map((d) => {
+              const logoAssetId = d?.logoAssetId || null;
+              const logoAsset = logoAssetId ? data().assets.find((a) => a.id === logoAssetId && a.type === 'image') : null;
+              const logoUrl = !logoAsset && typeof d?.logoUrl === 'string' ? d.logoUrl.trim().slice(0, 2048) : '';
+              return {
+                name: v.str(d?.name, { max: 100, field: 'Drink name' }),
+                color: HEX6.test(d?.color || '') ? d.color : '#888888',
+                price: v.str(d?.price, { max: 20, field: 'Price' }),
+                memberPrice: v.str(d?.memberPrice, { max: 20, field: 'Member price' }),
+                ...(logoAsset ? { logoAssetId: logoAsset.id } : {}),
+                ...(logoUrl ? { logoUrl } : {}),
+              };
+            })
             .filter((d) => d.name),
         };
       } else {
@@ -522,6 +529,19 @@ function createApp(opts = {}) {
     return asset.file ? `/media/${asset.file.filename}` : undefined;
   }
 
+  function resolveContent(content, assets) {
+    if (!content || content.mode !== 'bar') return content;
+    return {
+      ...content,
+      drinks: (content.drinks || []).map((d) => {
+        if (!d.logoAssetId) return d;
+        const a = assets.get(d.logoAssetId);
+        const src = a ? mediaUrl(a) : undefined;
+        return src ? { ...d, logoSrc: src } : d;
+      }),
+    };
+  }
+
   function buildManifest(playlist, screen) {
     const d = data();
     const assets = new Map(d.assets.map((a) => [a.id, a]));
@@ -540,7 +560,7 @@ function createApp(opts = {}) {
         url: a.url,
         fit: a.fit,
         muted: a.muted,
-        content: a.content,
+        content: resolveContent(a.content, assets),
         data: slideData(a, assets),
         updatedAt: a.updatedAt,
       });

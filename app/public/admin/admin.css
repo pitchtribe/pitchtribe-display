@@ -404,7 +404,11 @@ input[type="color"] { width: 100%; height: 40px; padding: 2px; border: 1px solid
 .bar-drink-header { display: grid; grid-template-columns: 32px 1fr 1.4fr 80px 80px 32px; gap: 6px; padding: 4px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
 .bar-drinks-editor { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
 .bar-drink-row { display: grid; grid-template-columns: 32px 1fr 1.4fr 80px 80px 32px; gap: 6px; align-items: center; }
-.bar-drink-row input[type="text"], .bar-drink-row input[type="url"] { width: 100%; }
+.bar-drink-row input[type="text"] { width: 100%; }
+.bar-logo-cell { display: flex; align-items: center; gap: 4px; overflow: hidden; }
+.bar-logo-cell .btn { flex-shrink: 0; font-size: 12px; padding: 4px 8px; }
+.bar-logo-preview { height: 28px; width: auto; max-width: 60px; border-radius: 4px; object-fit: contain; border: 1px solid var(--line-hi); background: #fff; }
+.bar-logo-status { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar-color-pick { width: 32px; height: 32px; padding: 2px; border: 1px solid var(--line-hi); border-radius: 8px; background: var(--bg); cursor: pointer; }
 .btn-icon { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--line-hi); border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
 .btn-icon:hover { border-color: var(--danger); color: var(--danger); }
