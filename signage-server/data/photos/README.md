@@ -23,6 +23,11 @@ For Caldecote the plan is to fill this folder once from the club's own Facebook 
 admin's export, or one short-lived Page token — and then leave it alone. The route, and why
 the Page is not scraped, is in [FACEBOOK_PHOTOS.md](../../FACEBOOK_PHOTOS.md).
 
+**That folder is empty for version one, on purpose** (board decision, 19 November 2026): nobody
+outside the club can see the photographs, so the pool waits on a human handover rather than version
+one waiting on the pool. An empty folder is a supported state — the wall just has no photo slides
+in it — so dropping files in here later is all it takes to turn the archive wall on.
+
 Two things about that are worth knowing while standing in this folder:
 
 - **Size decides more than you would think.** The wall crops to 16:9 for a 1080p television,

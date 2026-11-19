@@ -5,13 +5,17 @@ over by a Page admin** — either as a Page content export or through one short-
 token. **We do not scrape the Page**, and not only for politeness: the photographs are not in the
 public page at all. See [Why scraping is not a fallback here](#why-scraping-is-not-a-fallback-here).
 
-**Status:** route decided 18 November 2026. **The count is not done, and it cannot be done from
-here.** One two-minute job by a club admin produces both the count and the pool; until then there is
-no honest number to put on PIT-42. The instrument that turns that one click into the
-number is built and tested: `npm run photos:count`.
+**Status: shelved for version one — board decision, 19 November 2026.** The route above is the route,
+and nothing here walks it back; what changed is the timing. The count cannot be taken from outside the
+club — every door was tried and recorded below — so the archive wall depends on a club admin's export
+or token arriving, and the board has chosen not to make version one wait on it. **No pool is being
+asked for and no harvest is being built.** What stays is this record, so the access question is not
+re-litigated from scratch, and the counting instrument, so the count takes minutes rather than an
+afternoon whenever the club does hand something over. See
+[What would unshelve this](#what-would-unshelve-this).
 
-**Consent is outstanding and blocks the wall, not the count.** See
-[Consent](#consent-outstanding).
+**Consent is outstanding, and as of 19 November 2026 nobody knows whether the club has ever been
+asked.** The user is checking. It blocks the wall, not the count. See [Consent](#consent-outstanding).
 
 ---
 
@@ -213,6 +217,13 @@ These are a real club's photographs of real people, going on a screen in that cl
 *Publicly visible on their Page* is not the same as *cleared for display*. Before the pool goes on a
 wall there needs to be a one-line yes from the club.
 
+**As of 19 November 2026 that yes has not been recorded, and it is not known whether the club has
+ever been asked.** Asked directly, the answer was "not sure — treat it as outstanding, I will check."
+So it stays outstanding here: not refused, not granted, unknown. The shelving of the wall for version
+one means nothing is waiting on the answer right now, which is the good kind of luck — but the day a
+pool arrives, this is the question that has to be settled before a single photograph is shown, and an
+unanswered question is a no.
+
 - **The count does not need consent.** Counting is not displaying, and the count is what decides
   version one's slide mix. The two asks can travel together but they do not block each other.
 - **The pool does.** No harvested photograph goes on the wall until that yes exists.
@@ -240,11 +251,11 @@ different on Wednesday from Sunday, and `src/photos.js` streams them off local d
 photographs and four hundred run the same code. See
 [data/photos/README.md](data/photos/README.md).
 
-**The harvest is deliberately not built yet.** De-duplication and the one-time downscale into
-`data/photos/` are the remaining work, and the brief sequences them after the count on purpose: if the
-pool is under sixty, version one's slide mix changes rather than the code, and a harvest pipeline
-would be a pipeline for nothing. Two things are known about it already and are worth recording before
-they are rediscovered:
+**The harvest is deliberately not built**, and with the wall shelved for version one it stays that
+way. De-duplication and the one-time downscale into `data/photos/` are the remaining work, and the
+brief sequences them after the count on purpose: if the pool is under sixty, version one's slide mix
+changes rather than the code, and with no pool at all a harvest pipeline would be a pipeline for
+nothing. Two things are known about it already and are worth recording before they are rediscovered:
 
 - **De-duplication needs pixels, not metadata.** Facebook albums repeat the same shot, and the
   repeats have different ids, different filenames and often different byte sizes after re-encoding.
@@ -266,13 +277,28 @@ they are rediscovered:
   feed to go stale and no scheduled job to fail at the worst moment. Once the pool is on the card it
   is as durable as the card.
 
-## What would make us revisit this
+## What would unshelve this
 
-- **The club says no, or cannot produce either artefact.** Then the pool is not coming from Facebook,
-  and that goes back to PIT-42 as a question about version one's slide mix — not to a
-  scraper.
-- **The count comes back under about sixty.** Then the archive wall is not the backbone of the
-  Sunday-to-Friday loop and something else has to be, which is a board decision and not a build.
+The wall is shelved, not cancelled, and it is cheap to restart because the expensive half was the
+question rather than the code. Two things would do it, and they are independent:
+
+1. **A club admin hands over an export or a short-lived Page token.** Then
+   `npm run photos:count` answers the count the same hour, and the result decides whether the harvest
+   is worth building: a deep pool is the backbone of the Sunday-to-Friday loop, and a shallow one
+   changes version one's slide mix instead. Nothing needs re-deciding before that command runs.
+2. **The club says yes to the photographs going on the bar wall.** Unknown today, see
+   [Consent](#consent-outstanding). Needed before a single slide, and not needed for the count.
+
+Version one ships without this, which is a slide-mix consequence rather than a missing feature: the
+pool is simply empty, `listPhotos` answers "no photographs", and the loop has no photo slides in it.
+Nothing is broken and nothing has to be removed — the display half has supported photographs since
+before this issue and does not care that the folder is empty.
+
+Two other things would change the shape of the question rather than just the timing:
+
+- **The club cannot or will not produce either artefact.** Then the pool is not coming from Facebook
+  at all, and the honest alternatives are the scanned-photographs route the brief ruled out or a
+  permanently different slide mix. That is a board question for PIT-42, not a cleverer fetch.
 - **The club wants new photographs to keep arriving.** This document covers a one-time import on
   purpose. A standing sync is a different thing with different costs — a stored long-lived token, a
   scheduled job, and a card that phones Meta — and none of those are things we should acquire without

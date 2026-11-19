@@ -157,13 +157,14 @@ through the code-snippet feeds a club's own league issues to it, weekly and cach
 scrape the public pages. The reasoning, the config shape and what we still have to validate are in
 [FULL_TIME.md](FULL_TIME.md). Read that before writing anything that talks to Full-Time.
 
-**The club's photographs (the archive wall): route decided, count outstanding.** The evergreen photo
-pool comes from the club's own Facebook Page, handed over once by a Page admin as an export or a
-short-lived Page token — not scraped, because Facebook's `robots.txt` prohibits automated collection
-and the logged-out Page contains no photographs to collect in any case. How many usable photographs
-exist has never been counted and decides how much of the weekly loop the wall can carry;
-`npm run photos:count` is the instrument that answers it the hour an export or a token arrives.
-The route, the evidence and the outstanding consent requirement are in
+**The club's photographs (the archive wall): route decided, shelved for version one.** The evergreen
+photo pool would come from the club's own Facebook Page, handed over once by a Page admin as an export
+or a short-lived Page token — not scraped, because Facebook's `robots.txt` prohibits automated
+collection and the logged-out Page contains no photographs to collect in any case. Nobody outside the
+club can count them, so the wall waits on a human handover that version one is no longer holding for
+(board decision, 19 November 2026). Nothing needs removing: with an empty pool the loop simply has no
+photo slides. `npm run photos:count` is the instrument that answers the count the hour an export or a
+token does arrive. The route, the evidence and the outstanding consent requirement are in
 [FACEBOOK_PHOTOS.md](FACEBOOK_PHOTOS.md). Read that before writing anything that talks to Meta.
 
 Each ESPN refresh asks for a whole calendar month per league (`?dates=YYYYMM`) and then trims the
