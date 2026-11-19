@@ -284,10 +284,27 @@ function createApp(opts = {}) {
       if (!a.content.title && !a.content.body) throw v.bad('A notice needs a title or a message');
     }
     if (type === 'menu') {
-      a.content = {
-        title: v.str(c.title, { max: 200, field: 'Title' }),
-        text: v.str(c.text, { max: 20000, field: 'Menu' }),
-      };
+      if (c.mode === 'bar') {
+        const HEX6 = /^#[0-9a-fA-F]{6}$/;
+        const raw = Array.isArray(c.drinks) ? c.drinks.slice(0, 50) : [];
+        a.content = {
+          mode: 'bar',
+          title: v.str(c.title, { max: 200, field: 'Title' }),
+          drinks: raw
+            .map((d) => ({
+              name: v.str(d?.name, { max: 100, field: 'Drink name' }),
+              color: HEX6.test(d?.color || '') ? d.color : '#888888',
+              price: v.str(d?.price, { max: 20, field: 'Price' }),
+              memberPrice: v.str(d?.memberPrice, { max: 20, field: 'Member price' }),
+            }))
+            .filter((d) => d.name),
+        };
+      } else {
+        a.content = {
+          title: v.str(c.title, { max: 200, field: 'Title' }),
+          text: v.str(c.text, { max: 20000, field: 'Menu' }),
+        };
+      }
     }
     if (type === 'fixtures') {
       a.content = {

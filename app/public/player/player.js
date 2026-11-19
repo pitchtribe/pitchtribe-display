@@ -280,18 +280,36 @@
         const panel = el('section', 'panel menu');
         panel.append(el('div', 'kicker', club), el('h1', '', c.title || item.name));
         const fit = el('div', 'fit');
-        for (const section of PTFormats.parseMenu(c.text)) {
-          const sec = el('div', 'menu-section');
-          if (section.title) sec.append(el('h2', '', section.title));
-          for (const it of section.items) {
-            const row = el('div', `menu-item${it.soldOut ? ' sold-out' : ''}`);
-            const name = el('div', 'name', it.name);
-            if (it.soldOut) name.append(el('span', 'badge', t('soldOut')));
-            if (it.notes) name.append(el('span', 'notes', it.notes));
-            row.append(name, el('div', 'dots'), el('div', 'price', it.price));
-            sec.append(row);
+        if (c.mode === 'bar') {
+          const header = el('div', 'bar-col-header');
+          header.append(el('span', 'bar-col-drink', ''), el('span', 'bar-col-price', 'Price'), el('span', 'bar-col-mp', 'Members'));
+          fit.append(header);
+          for (const d of (c.drinks || [])) {
+            const row = el('div', 'bar-drink-row');
+            const badge = el('span', 'brand-badge');
+            badge.style.background = d.color || '#888';
+            badge.textContent = d.name.slice(0, 2).toUpperCase();
+            const name = el('span', 'brand-name', d.name);
+            const drink = el('span', 'bar-col-drink');
+            drink.append(badge, name);
+            row.append(drink, el('span', 'bar-col-price', d.price), el('span', 'bar-col-mp', d.memberPrice));
+            fit.append(row);
           }
-          fit.append(sec);
+          fit.append(el('p', 'bar-footer', 'Member prices · Must show membership card'));
+        } else {
+          for (const section of PTFormats.parseMenu(c.text)) {
+            const sec = el('div', 'menu-section');
+            if (section.title) sec.append(el('h2', '', section.title));
+            for (const it of section.items) {
+              const row = el('div', `menu-item${it.soldOut ? ' sold-out' : ''}`);
+              const name = el('div', 'name', it.name);
+              if (it.soldOut) name.append(el('span', 'badge', t('soldOut')));
+              if (it.notes) name.append(el('span', 'notes', it.notes));
+              row.append(name, el('div', 'dots'), el('div', 'price', it.price));
+              sec.append(row);
+            }
+            fit.append(sec);
+          }
         }
         panel.append(fit);
         slide.append(panel);

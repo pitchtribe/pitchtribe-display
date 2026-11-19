@@ -549,6 +549,7 @@
           h('button', { class: 'btn primary', type: 'button', onclick: () => fileInput.click() }, icon('upload'), 'Upload'),
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'notice' }) }, icon('notice'), 'Notice'),
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'menu' }) }, icon('menu'), 'Menu'),
+          h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'menu', content: { mode: 'bar' } }) }, icon('menu'), 'Bar menu'),
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'fixtures' }) }, icon('fixtures'), 'Fixtures'),
           h('button', { class: 'btn', type: 'button', onclick: pickWidget }, icon('widget'), 'Widgets'),
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'scores' }) }, icon('scores'), 'Live scores'),
@@ -666,8 +667,40 @@
       f.style = { get value() { return style; } };
       body.append(h('label', { class: 'field' }, 'Headline', f.title), h('label', { class: 'field' }, 'Message', f.body, h('span', { class: 'hint' }, 'New lines start new paragraphs. Long text shrinks to fit the screen.')), h('div', { class: 'field' }, 'Colour', picker));
     }
-    if (type === 'menu' || type === 'fixtures') {
-      f.title = h('input', { type: 'text', value: c.title || '', maxlength: 200, placeholder: type === 'menu' ? 'Bar & Kitchen — Today’s Menu' : 'Upcoming Fixtures' });
+    if (type === ‘menu’ && c.mode === ‘bar’) {
+      f.title = h(‘input’, { type: ‘text’, value: c.title || ‘’, maxlength: 200, placeholder: ‘Draught Beer & Cider’ });
+      body.append(h(‘label’, { class: ‘field’ }, ‘Heading on screen’, f.title));
+      const drinks = Array.isArray(c.drinks) ? c.drinks.map((d) => ({ ...d })) : [];
+      const drinksContainer = h(‘div’, { class: ‘bar-drinks-editor’ });
+      function renderDrinks() {
+        drinksContainer.replaceChildren(
+          ...drinks.map((d, i) => {
+            const colorIn = h(‘input’, { type: ‘color’, value: d.color || ‘#888888’, title: ‘Brand colour’, class: ‘bar-color-pick’ });
+            colorIn.addEventListener(‘input’, (e) => { d.color = e.target.value; });
+            const nameIn = h(‘input’, { type: ‘text’, value: d.name || ‘’, maxlength: 100, placeholder: ‘e.g. Guinness’, ‘aria-label’: ‘Brand name’ });
+            nameIn.addEventListener(‘input’, (e) => { d.name = e.target.value; });
+            const priceIn = h(‘input’, { type: ‘text’, value: d.price || ‘’, maxlength: 20, placeholder: ‘£4.00’, ‘aria-label’: ‘Price’ });
+            priceIn.addEventListener(‘input’, (e) => { d.price = e.target.value; });
+            const mpIn = h(‘input’, { type: ‘text’, value: d.memberPrice || ‘’, maxlength: 20, placeholder: ‘£3.60’, ‘aria-label’: ‘Member price’ });
+            mpIn.addEventListener(‘input’, (e) => { d.memberPrice = e.target.value; });
+            const removeBtn = h(‘button’, { type: ‘button’, class: ‘btn-icon danger’, title: ‘Remove drink’, onclick: () => { drinks.splice(i, 1); renderDrinks(); } }, icon(‘trash’));
+            return h(‘div’, { class: ‘bar-drink-row’ }, colorIn, nameIn, priceIn, mpIn, removeBtn);
+          }),
+          h(‘button’, { type: ‘button’, class: ‘btn’, onclick: () => { drinks.push({ name: ‘’, color: ‘#888888’, price: ‘’, memberPrice: ‘’ }); renderDrinks(); setTimeout(() => drinksContainer.querySelectorAll(‘.bar-drink-row input[aria-label="Brand name"]’)[drinks.length - 1]?.focus(), 30); } }, ‘+ Add drink’)
+        );
+      }
+      renderDrinks();
+      body.append(
+        h(‘div’, { class: ‘field’ },
+          h(‘div’, { class: ‘bar-drink-header’ },
+            h(‘span’, {}, ‘Colour’), h(‘span’, {}, ‘Brand’), h(‘span’, {}, ‘Price’), h(‘span’, {}, ‘Members’)),
+          drinksContainer,
+          h(‘span’, { class: ‘hint’ }, ‘Set a brand colour and enter the name, standard price, and member price for each drink.’))
+      );
+      f.drinks = { get value() { return drinks; } };
+    }
+    if ((type === ‘menu’ && c.mode !== ‘bar’) || type === ‘fixtures’) {
+      f.title = h(‘input’, { type: ‘text’, value: c.title || ‘’, maxlength: 200, placeholder: type === ‘menu’ ? ‘Bar & Kitchen — Today’s Menu’ : ‘Upcoming Fixtures’ });
       f.text = h('textarea', { class: 'code', spellcheck: false, maxlength: type === 'menu' ? 20000 : 50000 }, c.text || (isNew ? (type === 'menu' ? MENU_EXAMPLE : fixturesExample()) : ''));
       const summary = h('p', { class: 'parse-summary' });
       const update = () => { summary.textContent = type === 'menu' ? menuSummary(f.text.value) : fixturesSummary(f.text.value); };
@@ -750,8 +783,9 @@
     }
 
     const saveBtn = h('button', { class: 'btn primary', type: 'button', onclick: () => save() }, isNew ? 'Create' : 'Save');
+    const modalLabel = (type === 'menu' && c.mode === 'bar') ? 'bar menu' : (type === 'widget' ? `${typeLabel(asset).toLowerCase()} widget` : TYPE_LABEL[type]?.toLowerCase() ?? type);
     const m = modal({
-      title: type === 'widget' ? `${isNew ? 'New' : 'Edit'} ${typeLabel(asset).toLowerCase()} widget` : isNew ? `New ${TYPE_LABEL[type].toLowerCase()}` : `Edit ${TYPE_LABEL[type].toLowerCase()}`,
+      title: isNew ? `New ${modalLabel}` : `Edit ${modalLabel}`,
       body,
       wide: type === 'menu' || type === 'fixtures' || type === 'league',
       footer: (close) => [
@@ -770,7 +804,8 @@
       if (f.muted) payload.muted = f.muted.checked;
       if (f.url) payload.url = f.url.value;
       if (type === 'notice') payload.content = { title: f.title.value, body: f.body.value, style: f.style.value };
-      if (type === 'menu') payload.content = { title: f.title.value, text: f.text.value };
+      if (type === 'menu' && c.mode !== 'bar') payload.content = { title: f.title.value, text: f.text.value };
+      if (type === 'menu' && c.mode === 'bar') payload.content = { mode: 'bar', title: f.title.value, drinks: f.drinks.value };
       if (type === 'fixtures') payload.content = { title: f.title.value, text: f.text.value, limit: Number(f.limit.value) };
       if (type === 'scores') payload.content = { title: f.title.value, leagues: f.leagues.value, show: f.show.value, limit: Number(f.limit.value) };
       if (type === 'league') {

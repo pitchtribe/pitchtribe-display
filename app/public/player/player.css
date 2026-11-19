@@ -155,6 +155,17 @@ html, body {
 .menu-item .price { font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
 .menu-item .notes { display: block; font-size: 0.62em; color: var(--muted); font-weight: 400; margin-top: 0.1em; }
 .menu-item.sold-out .name, .menu-item.sold-out .price { text-decoration: line-through; opacity: 0.45; }
+
+/* Bar menu (branded drinks list) */
+.bar-col-header, .bar-drink-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.8em; padding: 0.4em 0; border-bottom: 1px solid var(--line); }
+.bar-col-header { font-size: 0.65em; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); border-bottom-color: var(--line); }
+.bar-col-drink { display: flex; align-items: center; gap: 0.55em; }
+.bar-col-price { font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.bar-col-mp { font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; min-width: 4em; }
+.brand-badge { width: 1.9em; height: 1.9em; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.6em; font-weight: 900; letter-spacing: 0.03em; color: #fff; flex-shrink: 0; }
+.brand-name { font-weight: 600; }
+.bar-footer { font-size: 0.6em; color: var(--muted); text-align: right; margin-top: 0.6em; opacity: 0.7; }
+
 .badge {
   display: inline-block;
   font-size: 0.55em;
