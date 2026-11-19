@@ -163,6 +163,7 @@ html, body {
 .bar-col-price { font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
 .bar-col-mp { font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; min-width: 4em; }
 .brand-badge { width: 1.9em; height: 1.9em; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.6em; font-weight: 900; letter-spacing: 0.03em; color: #fff; flex-shrink: 0; }
+.brand-logo { width: auto; height: 1.9em; max-width: 4em; object-fit: contain; flex-shrink: 0; display: block; }
 .brand-name { font-weight: 600; }
 .bar-footer { font-size: 0.6em; color: var(--muted); text-align: right; margin-top: 0.6em; opacity: 0.7; }
 

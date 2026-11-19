@@ -401,11 +401,11 @@ input[type="color"] { width: 100%; height: 40px; padding: 2px; border: 1px solid
 }
 
 /* Bar menu editor */
-.bar-drink-header { display: grid; grid-template-columns: 36px 1fr 90px 90px 36px; gap: 6px; padding: 4px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.bar-drink-header { display: grid; grid-template-columns: 32px 1fr 1.4fr 80px 80px 32px; gap: 6px; padding: 4px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
 .bar-drinks-editor { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
-.bar-drink-row { display: grid; grid-template-columns: 36px 1fr 90px 90px 36px; gap: 6px; align-items: center; }
-.bar-drink-row input[type="text"] { width: 100%; }
-.bar-color-pick { width: 36px; height: 36px; padding: 2px; border: 1px solid var(--line-hi); border-radius: 8px; background: var(--bg); cursor: pointer; }
+.bar-drink-row { display: grid; grid-template-columns: 32px 1fr 1.4fr 80px 80px 32px; gap: 6px; align-items: center; }
+.bar-drink-row input[type="text"], .bar-drink-row input[type="url"] { width: 100%; }
+.bar-color-pick { width: 32px; height: 32px; padding: 2px; border: 1px solid var(--line-hi); border-radius: 8px; background: var(--bg); cursor: pointer; }
 .btn-icon { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--line-hi); border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
 .btn-icon:hover { border-color: var(--danger); color: var(--danger); }
 .btn-icon.danger { border-color: transparent; }

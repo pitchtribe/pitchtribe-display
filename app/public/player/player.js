@@ -286,9 +286,18 @@
           fit.append(header);
           for (const d of (c.drinks || [])) {
             const row = el('div', 'bar-drink-row');
-            const badge = el('span', 'brand-badge');
-            badge.style.background = d.color || '#888';
-            badge.textContent = d.name.slice(0, 2).toUpperCase();
+            let badge;
+            if (d.logoUrl) {
+              badge = document.createElement('img');
+              badge.className = 'brand-logo';
+              badge.src = d.logoUrl;
+              badge.alt = d.name;
+              badge.loading = 'eager';
+            } else {
+              badge = el('span', 'brand-badge');
+              badge.style.background = d.color || '#888';
+              badge.textContent = d.name.slice(0, 2).toUpperCase();
+            }
             const name = el('span', 'brand-name', d.name);
             const drink = el('span', 'bar-col-drink');
             drink.append(badge, name);

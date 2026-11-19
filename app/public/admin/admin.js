@@ -675,27 +675,29 @@
       function renderDrinks() {
         drinksContainer.replaceChildren(
           ...drinks.map((d, i) => {
-            const colorIn = h(‘input’, { type: ‘color’, value: d.color || ‘#888888’, title: ‘Brand colour’, class: ‘bar-color-pick’ });
+            const colorIn = h(‘input’, { type: ‘color’, value: d.color || ‘#888888’, title: ‘Brand colour (used when no logo image is set)’, class: ‘bar-color-pick’ });
             colorIn.addEventListener(‘input’, (e) => { d.color = e.target.value; });
             const nameIn = h(‘input’, { type: ‘text’, value: d.name || ‘’, maxlength: 100, placeholder: ‘e.g. Guinness’, ‘aria-label’: ‘Brand name’ });
             nameIn.addEventListener(‘input’, (e) => { d.name = e.target.value; });
+            const logoIn = h(‘input’, { type: ‘url’, value: d.logoUrl || ‘’, maxlength: 2048, placeholder: ‘https://…/logo.png (optional)’, ‘aria-label’: ‘Logo image URL’ });
+            logoIn.addEventListener(‘input’, (e) => { d.logoUrl = e.target.value.trim(); });
             const priceIn = h(‘input’, { type: ‘text’, value: d.price || ‘’, maxlength: 20, placeholder: ‘£4.00’, ‘aria-label’: ‘Price’ });
             priceIn.addEventListener(‘input’, (e) => { d.price = e.target.value; });
             const mpIn = h(‘input’, { type: ‘text’, value: d.memberPrice || ‘’, maxlength: 20, placeholder: ‘£3.60’, ‘aria-label’: ‘Member price’ });
             mpIn.addEventListener(‘input’, (e) => { d.memberPrice = e.target.value; });
             const removeBtn = h(‘button’, { type: ‘button’, class: ‘btn-icon danger’, title: ‘Remove drink’, onclick: () => { drinks.splice(i, 1); renderDrinks(); } }, icon(‘trash’));
-            return h(‘div’, { class: ‘bar-drink-row’ }, colorIn, nameIn, priceIn, mpIn, removeBtn);
+            return h(‘div’, { class: ‘bar-drink-row’ }, colorIn, nameIn, logoIn, priceIn, mpIn, removeBtn);
           }),
-          h(‘button’, { type: ‘button’, class: ‘btn’, onclick: () => { drinks.push({ name: ‘’, color: ‘#888888’, price: ‘’, memberPrice: ‘’ }); renderDrinks(); setTimeout(() => drinksContainer.querySelectorAll(‘.bar-drink-row input[aria-label="Brand name"]’)[drinks.length - 1]?.focus(), 30); } }, ‘+ Add drink’)
+          h(‘button’, { type: ‘button’, class: ‘btn’, onclick: () => { drinks.push({ name: ‘’, color: ‘#888888’, logoUrl: ‘’, price: ‘’, memberPrice: ‘’ }); renderDrinks(); setTimeout(() => drinksContainer.querySelectorAll(‘.bar-drink-row input[aria-label="Brand name"]’)[drinks.length - 1]?.focus(), 30); } }, ‘+ Add drink’)
         );
       }
       renderDrinks();
       body.append(
         h(‘div’, { class: ‘field’ },
           h(‘div’, { class: ‘bar-drink-header’ },
-            h(‘span’, {}, ‘Colour’), h(‘span’, {}, ‘Brand’), h(‘span’, {}, ‘Price’), h(‘span’, {}, ‘Members’)),
+            h(‘span’, {}, ‘Colour’), h(‘span’, {}, ‘Brand’), h(‘span’, {}, ‘Logo image URL’), h(‘span’, {}, ‘Price’), h(‘span’, {}, ‘Members’)),
           drinksContainer,
-          h(‘span’, { class: ‘hint’ }, ‘Set a brand colour and enter the name, standard price, and member price for each drink.’))
+          h(‘span’, { class: ‘hint’ }, ‘Paste a brand logo image URL to show the actual logo on screen. Leave blank to use a colour badge instead.’))
       );
       f.drinks = { get value() { return drinks; } };
     }
