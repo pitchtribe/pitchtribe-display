@@ -79,6 +79,7 @@
     target: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8 M12 11.5v1',
     refresh: 'M20 12a8 8 0 1 1-2.3-5.6 M20 4v5h-5',
     external: 'M14 4h6v6 M20 4l-9 9 M18 14v6H4V6h6',
+    sponsor: 'M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 15.8l-4.9 2.4.9-5.5-4-3.9 5.5-.8z',
   };
   function icon(name) {
     const NS = 'http://www.w3.org/2000/svg';
@@ -105,7 +106,7 @@
     return svg;
   }
 
-  const TYPE_LABEL = { image: 'Image', video: 'Video', url: 'Web page', notice: 'Notice', menu: 'Menu board', fixtures: 'Fixtures', scores: 'Live scores', league: 'League table', widget: 'Widget' };
+  const TYPE_LABEL = { image: 'Image', video: 'Video', url: 'Web page', notice: 'Notice', menu: 'Menu board', fixtures: 'Fixtures', scores: 'Live scores', league: 'League table', widget: 'Widget', sponsor: 'Sponsors' };
   const WIDGETS = {
     clock: { name: 'Clock', icon: 'clock', blurb: 'Big digital or analogue clock, or a countdown to kick-off.' },
     worldclock: { name: 'World clocks', icon: 'globe', blurb: 'The time in up to eight cities around the world.' },
@@ -522,7 +523,7 @@
   function viewContent() {
     const fileInput = h('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime', hidden: true, onchange: () => { startUploads([...fileInput.files]); fileInput.value = ''; } });
 
-    const filters = [['all', 'All'], ['image', 'Images'], ['video', 'Videos'], ['notice', 'Notices'], ['menu', 'Menus'], ['fixtures', 'Fixtures'], ['scores', 'Scores'], ['league', 'League tables'], ['widget', 'Widgets'], ['url', 'Web pages']];
+    const filters = [['all', 'All'], ['image', 'Images'], ['video', 'Videos'], ['notice', 'Notices'], ['menu', 'Menus'], ['sponsor', 'Sponsors'], ['fixtures', 'Fixtures'], ['scores', 'Scores'], ['league', 'League tables'], ['widget', 'Widgets'], ['url', 'Web pages']];
     const list = state.assets
       .filter((a) => contentFilter === 'all' || a.type === contentFilter)
       .filter((a) => !contentSearch || a.name.toLowerCase().includes(contentSearch.toLowerCase()))
@@ -550,6 +551,7 @@
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'notice' }) }, icon('notice'), 'Notice'),
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'menu' }) }, icon('menu'), 'Menu'),
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'menu', content: { mode: 'bar' } }) }, icon('menu'), 'Bar menu'),
+          h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'sponsor' }) }, icon('sponsor'), 'Sponsors'),
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'fixtures' }) }, icon('fixtures'), 'Fixtures'),
           h('button', { class: 'btn', type: 'button', onclick: pickWidget }, icon('widget'), 'Widgets'),
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'scores' }) }, icon('scores'), 'Live scores'),
@@ -627,14 +629,14 @@
     const isNew = !asset.id;
     const type = asset.type;
     const c = asset.content || {};
-    const defaults = { url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, league: 25, widget: { clock: 15, worldclock: 15, weather: 15, joke: 14, phrase: 10, trivia: 12, quiz: 20, history: 18, emoji: 16, geoquiz: 16, country: 14, spotball: 20, transport: 20, bankholiday: 12, floods: 12, carbon: 14, quakes: 14, currency: 12, potd: 15, births: 15, sky: 12, headlines: 18, events: 18 }[c.kind] };
+    const defaults = { url: 30, notice: 12, menu: 20, sponsor: 20, fixtures: 15, scores: 15, league: 25, widget: { clock: 15, worldclock: 15, weather: 15, joke: 14, phrase: 10, trivia: 12, quiz: 20, history: 18, emoji: 16, geoquiz: 16, country: 14, spotball: 20, transport: 20, bankholiday: 12, floods: 12, carbon: 14, quakes: 14, currency: 12, potd: 15, births: 15, sky: 12, headlines: 18, events: 18 }[c.kind] };
     const f = {}; // field elements
     const body = h('form', { class: 'form-grid', onsubmit: (e) => { e.preventDefault(); save(); } });
 
     if (type === 'image') body.append(h('img', { class: 'preview-media', src: asset.src, alt: '' }));
     if (type === 'video') body.append(h('video', { class: 'preview-media', src: asset.src, controls: true, muted: true, preload: 'metadata' }));
 
-    f.name = h('input', { type: 'text', value: asset.name || (type === 'widget' ? WIDGETS[c.kind]?.name : '') || '', maxlength: 120, required: true, placeholder: { notice: 'e.g. AGM notice', menu: 'e.g. Bar menu', fixtures: 'e.g. First team fixtures', scores: 'e.g. Premier League scores', league: 'e.g. County League', url: 'e.g. League table' }[type] });
+    f.name = h('input', { type: 'text', value: asset.name || (type === 'widget' ? WIDGETS[c.kind]?.name : '') || '', maxlength: 120, required: true, placeholder: { notice: 'e.g. AGM notice', menu: 'e.g. Bar menu', sponsor: 'e.g. Main sponsors', fixtures: 'e.g. First team fixtures', scores: 'e.g. Premier League scores', league: 'e.g. County League', url: 'e.g. League table' }[type] });
     f.duration = h('input', { type: 'number', min: type === 'video' ? 0 : 1, max: 86400, value: asset.duration ?? defaults[type] ?? 10, required: true });
     body.append(h('div', { class: 'row-2' },
       h('label', { class: 'field' }, 'Name', f.name),
@@ -738,6 +740,76 @@
       );
       f.drinks = { get value() { return drinks; } };
     }
+    if (type === 'sponsor') {
+      f.title = h('input', { type: 'text', value: c.title || '', maxlength: 200, placeholder: 'Thank you to our sponsors' });
+      body.append(h('label', { class: 'field' }, 'Heading on screen', f.title));
+      f.layout = h('select', {},
+        h('option', { value: 'grid', selected: (c.layout || 'grid') === 'grid' }, 'Grid (logos in columns)'),
+        h('option', { value: 'row', selected: c.layout === 'row' }, 'Row (logos in a strip)'));
+      body.append(h('label', { class: 'field' }, 'Layout', f.layout));
+      const sponsors = Array.isArray(c.sponsors) ? c.sponsors.map((s) => ({ ...s })) : [];
+      const sponsorsContainer = h('div', { class: 'sponsor-editor' });
+      const TIERS = [['', 'No tier'], ['gold', 'Gold'], ['silver', 'Silver'], ['bronze', 'Bronze'], ['partner', 'Partner']];
+      function renderSponsors() {
+        sponsorsContainer.replaceChildren(
+          ...sponsors.map((s, i) => {
+            const nameIn = h('input', { type: 'text', value: s.name || '', maxlength: 100, placeholder: 'e.g. Acme Corp', 'aria-label': 'Sponsor name' });
+            nameIn.addEventListener('input', (e) => { s.name = e.target.value; });
+            const taglineIn = h('input', { type: 'text', value: s.tagline || '', maxlength: 200, placeholder: 'Official Kit Sponsor', 'aria-label': 'Tagline' });
+            taglineIn.addEventListener('input', (e) => { s.tagline = e.target.value; });
+            const tierSel = h('select', { 'aria-label': 'Tier' }, ...TIERS.map(([v, l]) => h('option', { value: v, selected: (s.tier || '') === v }, l)));
+            tierSel.addEventListener('change', (e) => { s.tier = e.target.value; });
+
+            const fileIn = h('input', { type: 'file', accept: 'image/*', style: 'display:none', 'aria-label': 'Upload logo' });
+            const existingAsset = s.logoAssetId ? assetById(s.logoAssetId) : null;
+            const initSrc = (existingAsset && existingAsset.src) || s.logoUrl || '';
+            const logoPreview = h('img', { class: 'bar-logo-preview', style: initSrc ? '' : 'display:none', alt: 'logo', src: initSrc });
+            const uploadStatus = h('span', { class: 'bar-logo-status' });
+            const uploadBtn = h('button', { type: 'button', class: 'btn sm', title: 'Upload logo' }, icon('upload'), 'Upload');
+            const clearBtn = h('button', { type: 'button', class: 'btn-icon sm', title: 'Remove logo', style: s.logoAssetId || s.logoUrl ? '' : 'display:none' }, icon('trash'));
+            uploadBtn.addEventListener('click', () => fileIn.click());
+            fileIn.addEventListener('change', async () => {
+              const file = fileIn.files[0];
+              if (!file) return;
+              uploadStatus.textContent = 'Uploading…';
+              uploadBtn.disabled = true;
+              try {
+                const result = await uploadFile(file, () => {});
+                s.logoAssetId = result.id;
+                s.logoUrl = '';
+                logoPreview.src = result.src || '';
+                logoPreview.style.display = '';
+                clearBtn.style.display = '';
+                uploadStatus.textContent = '';
+              } catch (err) {
+                uploadStatus.textContent = err.message || 'Upload failed';
+              } finally {
+                uploadBtn.disabled = false;
+              }
+            });
+            clearBtn.addEventListener('click', () => {
+              s.logoAssetId = '';
+              s.logoUrl = '';
+              logoPreview.src = '';
+              logoPreview.style.display = 'none';
+              clearBtn.style.display = 'none';
+            });
+            const logoCell = h('div', { class: 'bar-logo-cell' }, logoPreview, fileIn, uploadBtn, clearBtn, uploadStatus);
+            const removeBtn = h('button', { type: 'button', class: 'btn-icon danger', title: 'Remove sponsor', onclick: () => { sponsors.splice(i, 1); renderSponsors(); } }, icon('trash'));
+            return h('div', { class: 'sponsor-row' }, nameIn, taglineIn, tierSel, logoCell, removeBtn);
+          }),
+          h('button', { type: 'button', class: 'btn', onclick: () => { sponsors.push({ name: '', tagline: '', tier: '', logoAssetId: '', logoUrl: '' }); renderSponsors(); setTimeout(() => sponsorsContainer.querySelectorAll('.sponsor-row input[aria-label="Sponsor name"]')[sponsors.length - 1]?.focus(), 30); } }, '+ Add sponsor')
+        );
+      }
+      renderSponsors();
+      body.append(
+        h('div', { class: 'field' },
+          h('div', { class: 'sponsor-row-header' }, h('span', {}, 'Name'), h('span', {}, 'Tagline'), h('span', {}, 'Tier'), h('span', {}, 'Logo')),
+          sponsorsContainer,
+          h('span', { class: 'hint' }, 'Upload a logo to show it on screen. Leave blank to use an initial badge.'))
+      );
+      f.sponsors = { get value() { return sponsors; } };
+    }
     if ((type === 'menu' && c.mode !== 'bar') || type === 'fixtures') {
       f.title = h('input', { type: 'text', value: c.title || '', maxlength: 200, placeholder: type === 'menu' ? 'Bar & Kitchen — Today’s Menu' : 'Upcoming Fixtures' });
       f.text = h('textarea', { class: 'code', spellcheck: false, maxlength: type === 'menu' ? 20000 : 50000 }, c.text || (isNew ? (type === 'menu' ? MENU_EXAMPLE : fixturesExample()) : ''));
@@ -826,7 +898,7 @@
     const m = modal({
       title: isNew ? `New ${modalLabel}` : `Edit ${modalLabel}`,
       body,
-      wide: type === 'menu' || type === 'fixtures' || type === 'league',
+      wide: type === 'menu' || type === 'fixtures' || type === 'league' || type === 'sponsor',
       footer: (close) => [
         !isNew && h('button', { class: 'btn danger', type: 'button', onclick: remove }, icon('trash'), 'Delete'),
         h('span', { class: 'spacer' }),
@@ -845,6 +917,7 @@
       if (type === 'notice') payload.content = { title: f.title.value, body: f.body.value, style: f.style.value };
       if (type === 'menu' && c.mode !== 'bar') payload.content = { title: f.title.value, text: f.text.value };
       if (type === 'menu' && c.mode === 'bar') payload.content = { mode: 'bar', title: f.title.value, drinks: f.drinks.value };
+      if (type === 'sponsor') payload.content = { title: f.title.value, layout: f.layout.value, sponsors: f.sponsors.value };
       if (type === 'fixtures') payload.content = { title: f.title.value, text: f.text.value, limit: Number(f.limit.value) };
       if (type === 'scores') payload.content = { title: f.title.value, leagues: f.leagues.value, show: f.show.value, limit: Number(f.limit.value) };
       if (type === 'league') {

@@ -402,6 +402,10 @@ input[type="color"] { width: 100%; height: 40px; padding: 2px; border: 1px solid
 
 /* Bar menu editor */
 .bar-drink-header { display: grid; grid-template-columns: 32px 1fr 1.4fr 80px 80px 32px; gap: 6px; padding: 4px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.sponsor-editor { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
+.sponsor-row { display: grid; grid-template-columns: 1fr 1fr 100px 1.4fr 32px; gap: 6px; align-items: center; }
+.sponsor-row input[type="text"] { width: 100%; }
+.sponsor-row-header { display: grid; grid-template-columns: 1fr 1fr 100px 1.4fr 32px; gap: 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 0 0 2px; }
 .bar-drinks-editor { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
 .bar-drink-row { display: grid; grid-template-columns: 32px 1fr 1.4fr 80px 80px 32px; gap: 6px; align-items: center; }
 .bar-drink-row input[type="text"] { width: 100%; }

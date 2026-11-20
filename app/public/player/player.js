@@ -324,6 +324,43 @@
         slide.append(panel);
         break;
       }
+      case 'sponsor': {
+        const panel = el('section', `panel sponsor layout-${c.layout || 'grid'}`);
+        const fit = el('div', 'fit');
+        fit.append(el('div', 'kicker', club));
+        if (c.title) fit.append(el('h1', '', c.title));
+        const grid = el('div', 'sponsor-grid');
+        const TIER_COLORS = { gold: '#c9a000', silver: '#909090', bronze: '#a0522d', partner: '#2a6a9a' };
+        for (const s of (c.sponsors || [])) {
+          const card = el('div', 'sponsor-card');
+          let badge;
+          if (s.logoSrc || s.logoUrl) {
+            badge = document.createElement('img');
+            badge.className = 'sponsor-logo';
+            badge.src = s.logoSrc || s.logoUrl;
+            badge.alt = s.name;
+            badge.loading = 'eager';
+          } else {
+            badge = el('span', 'brand-badge');
+            badge.style.background = TIER_COLORS[s.tier] || '#5a5a5a';
+            badge.textContent = s.name.slice(0, 2).toUpperCase();
+          }
+          card.append(badge);
+          const info = el('div', 'sponsor-info');
+          info.append(el('span', 'sponsor-name', s.name));
+          if (s.tagline) info.append(el('span', 'sponsor-tagline', s.tagline));
+          if (s.tier) {
+            const tierBadge = el('span', `tier-badge tier-${s.tier}`, s.tier.charAt(0).toUpperCase() + s.tier.slice(1));
+            info.append(tierBadge);
+          }
+          card.append(info);
+          grid.append(card);
+        }
+        fit.append(grid);
+        panel.append(fit);
+        slide.append(panel);
+        break;
+      }
       case 'fixtures': {
         const panel = el('section', 'panel fixtures');
         panel.append(el('div', 'kicker', club), el('h1', '', c.title || item.name));

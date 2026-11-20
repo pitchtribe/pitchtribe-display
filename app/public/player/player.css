@@ -182,6 +182,21 @@ html, body {
   text-decoration: none;
 }
 
+/* Sponsors */
+.sponsor .fit { display: flex; flex-direction: column; justify-content: center; }
+.sponsor-grid { display: flex; flex-wrap: wrap; gap: 1.4cqmin; justify-content: center; align-items: center; padding: 0.6em 0; }
+.layout-row .sponsor-grid { flex-wrap: nowrap; overflow: hidden; }
+.sponsor-card { display: flex; align-items: center; gap: 0.7em; background: rgb(14 30 48 / 0.6); border: 1px solid var(--line); border-radius: 0.6em; padding: 0.6em 1em; }
+.sponsor-logo { height: 2.4em; width: auto; max-width: 6em; object-fit: contain; display: block; }
+.sponsor-info { display: flex; flex-direction: column; gap: 0.15em; }
+.sponsor-name { font-weight: 700; font-size: 0.85em; }
+.sponsor-tagline { font-size: 0.65em; color: var(--muted); }
+.tier-badge { font-size: 0.55em; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; padding: 0.2em 0.5em; border-radius: 0.3em; display: inline-block; margin-top: 0.1em; }
+.tier-gold { background: #c9a000; color: #000; }
+.tier-silver { background: #909090; color: #fff; }
+.tier-bronze { background: #a0522d; color: #fff; }
+.tier-partner { background: #2a6a9a; color: #fff; }
+
 /* Fixtures */
 .fixtures-list { list-style: none; display: flex; flex-direction: column; gap: 0.5em; }
 .fixture {

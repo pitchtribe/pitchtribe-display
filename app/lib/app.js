@@ -37,8 +37,8 @@ const MEDIA_TYPES = {
   'video/quicktime': ['video', '.mov'],
 };
 
-const ASSET_TYPES = ['image', 'video', 'url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget'];
-const TEXT_TYPES = ['url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget'];
+const ASSET_TYPES = ['image', 'video', 'url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget', 'sponsor'];
+const TEXT_TYPES = ['url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget', 'sponsor'];
 const WIDGET_KINDS = ['clock', 'worldclock', 'weather', 'joke', 'phrase', 'trivia', 'quiz', 'history', 'emoji', 'geoquiz', 'country', 'spotball',
   'transport', 'bankholiday', 'floods', 'carbon', 'quakes', 'currency', 'potd', 'births', 'sky', 'headlines', 'events'];
 const CURRENCIES = ['AUD', 'BGN', 'BRL', 'CAD', 'CHF', 'CNY', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD', 'HUF', 'IDR', 'ILS', 'INR', 'ISK', 'JPY', 'KRW', 'MXN', 'MYR', 'NOK', 'NZD', 'PHP', 'PLN', 'RON', 'SEK', 'SGD', 'THB', 'TRY', 'USD', 'ZAR'];
@@ -47,7 +47,7 @@ const WIDGET_DURATION = { clock: 15, worldclock: 15, weather: 15, joke: 14, phra
   transport: 20, bankholiday: 12, floods: 12, carbon: 14, quakes: 14, currency: 12, potd: 15, births: 15, sky: 12, headlines: 18, events: 18 };
 const DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const GRID = { cols: 10, rows: 8 };
-const DEFAULT_DURATION = { image: 10, video: 0, url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, league: 25, widget: 15 };
+const DEFAULT_DURATION = { image: 10, video: 0, url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, league: 25, widget: 15, sponsor: 20 };
 const NOTICE_STYLES = ['default', 'accent', 'amber', 'alert', 'light'];
 const ROTATIONS = [0, 90, 180, 270];
 const MAX_SCREENS = 200;
@@ -331,6 +331,28 @@ function createApp(opts = {}) {
         limit: v.int(c.limit, { min: 1, max: 30, fallback: 10 }),
       };
     }
+    if (type === 'sponsor') {
+      const SPONSOR_TIERS = ['gold', 'silver', 'bronze', 'partner'];
+      const raw = Array.isArray(c.sponsors) ? c.sponsors.slice(0, 50) : [];
+      a.content = {
+        title: v.str(c.title, { max: 200, field: 'Title' }),
+        layout: v.oneOf(c.layout, ['grid', 'row'], 'grid'),
+        sponsors: raw
+          .map((s) => {
+            const logoAssetId = s?.logoAssetId || null;
+            const logoAsset = logoAssetId ? data().assets.find((x) => x.id === logoAssetId && x.type === 'image') : null;
+            const logoUrl = !logoAsset && typeof s?.logoUrl === 'string' ? s.logoUrl.trim().slice(0, 2048) : '';
+            return {
+              name: v.str(s?.name, { max: 100, field: 'Sponsor name' }),
+              tagline: v.str(s?.tagline, { max: 200, field: 'Tagline' }),
+              tier: v.oneOf(s?.tier, SPONSOR_TIERS, null) || '',
+              ...(logoAsset ? { logoAssetId: logoAsset.id } : {}),
+              ...(logoUrl ? { logoUrl } : {}),
+            };
+          })
+          .filter((s) => s.name),
+      };
+    }
     return a;
   }
 
@@ -530,16 +552,30 @@ function createApp(opts = {}) {
   }
 
   function resolveContent(content, assets) {
-    if (!content || content.mode !== 'bar') return content;
-    return {
-      ...content,
-      drinks: (content.drinks || []).map((d) => {
-        if (!d.logoAssetId) return d;
-        const a = assets.get(d.logoAssetId);
-        const src = a ? mediaUrl(a) : undefined;
-        return src ? { ...d, logoSrc: src } : d;
-      }),
-    };
+    if (!content) return content;
+    if (content.mode === 'bar') {
+      return {
+        ...content,
+        drinks: (content.drinks || []).map((d) => {
+          if (!d.logoAssetId) return d;
+          const a = assets.get(d.logoAssetId);
+          const src = a ? mediaUrl(a) : undefined;
+          return src ? { ...d, logoSrc: src } : d;
+        }),
+      };
+    }
+    if (Array.isArray(content.sponsors)) {
+      return {
+        ...content,
+        sponsors: content.sponsors.map((s) => {
+          if (!s.logoAssetId) return s;
+          const a = assets.get(s.logoAssetId);
+          const src = a ? mediaUrl(a) : undefined;
+          return src ? { ...s, logoSrc: src } : s;
+        }),
+      };
+    }
+    return content;
   }
 
   function buildManifest(playlist, screen) {
