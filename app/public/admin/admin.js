@@ -667,79 +667,79 @@
       f.style = { get value() { return style; } };
       body.append(h('label', { class: 'field' }, 'Headline', f.title), h('label', { class: 'field' }, 'Message', f.body, h('span', { class: 'hint' }, 'New lines start new paragraphs. Long text shrinks to fit the screen.')), h('div', { class: 'field' }, 'Colour', picker));
     }
-    if (type === ‘menu’ && c.mode === ‘bar’) {
-      f.title = h(‘input’, { type: ‘text’, value: c.title || ‘’, maxlength: 200, placeholder: ‘Draught Beer & Cider’ });
-      body.append(h(‘label’, { class: ‘field’ }, ‘Heading on screen’, f.title));
+    if (type === 'menu' && c.mode === 'bar') {
+      f.title = h('input', { type: 'text', value: c.title || '', maxlength: 200, placeholder: 'Draught Beer & Cider' });
+      body.append(h('label', { class: 'field' }, 'Heading on screen', f.title));
       const drinks = Array.isArray(c.drinks) ? c.drinks.map((d) => ({ ...d })) : [];
-      const drinksContainer = h(‘div’, { class: ‘bar-drinks-editor’ });
+      const drinksContainer = h('div', { class: 'bar-drinks-editor' });
       function renderDrinks() {
         drinksContainer.replaceChildren(
           ...drinks.map((d, i) => {
-            const colorIn = h(‘input’, { type: ‘color’, value: d.color || ‘#888888’, title: ‘Brand colour (used when no logo image is set)’, class: ‘bar-color-pick’ });
-            colorIn.addEventListener(‘input’, (e) => { d.color = e.target.value; });
-            const nameIn = h(‘input’, { type: ‘text’, value: d.name || ‘’, maxlength: 100, placeholder: ‘e.g. Guinness’, ‘aria-label’: ‘Brand name’ });
-            nameIn.addEventListener(‘input’, (e) => { d.name = e.target.value; });
+            const colorIn = h('input', { type: 'color', value: d.color || '#888888', title: 'Brand colour (used when no logo image is set)', class: 'bar-color-pick' });
+            colorIn.addEventListener('input', (e) => { d.color = e.target.value; });
+            const nameIn = h('input', { type: 'text', value: d.name || '', maxlength: 100, placeholder: 'e.g. Guinness', 'aria-label': 'Brand name' });
+            nameIn.addEventListener('input', (e) => { d.name = e.target.value; });
 
-            const fileIn = h(‘input’, { type: ‘file’, accept: ‘image/*’, style: ‘display:none’, ‘aria-label’: ‘Upload logo image’ });
+            const fileIn = h('input', { type: 'file', accept: 'image/*', style: 'display:none', 'aria-label': 'Upload logo image' });
             const existingAsset = d.logoAssetId ? assetById(d.logoAssetId) : null;
-            const initSrc = (existingAsset && existingAsset.src) || d.logoUrl || ‘’;
-            const logoPreview = h(‘img’, { class: ‘bar-logo-preview’, style: initSrc ? ‘’ : ‘display:none’, alt: ‘logo’, src: initSrc });
-            const uploadStatus = h(‘span’, { class: ‘bar-logo-status’ });
-            const uploadBtn = h(‘button’, { type: ‘button’, class: ‘btn sm’, title: ‘Upload logo image’ }, icon(‘upload’), ‘Upload’);
-            const clearBtn = h(‘button’, { type: ‘button’, class: ‘btn-icon sm’, title: ‘Remove logo’, style: d.logoAssetId || d.logoUrl ? ‘’ : ‘display:none’ }, icon(‘trash’));
+            const initSrc = (existingAsset && existingAsset.src) || d.logoUrl || '';
+            const logoPreview = h('img', { class: 'bar-logo-preview', style: initSrc ? '' : 'display:none', alt: 'logo', src: initSrc });
+            const uploadStatus = h('span', { class: 'bar-logo-status' });
+            const uploadBtn = h('button', { type: 'button', class: 'btn sm', title: 'Upload logo image' }, icon('upload'), 'Upload');
+            const clearBtn = h('button', { type: 'button', class: 'btn-icon sm', title: 'Remove logo', style: d.logoAssetId || d.logoUrl ? '' : 'display:none' }, icon('trash'));
 
-            uploadBtn.addEventListener(‘click’, () => fileIn.click());
-            fileIn.addEventListener(‘change’, async () => {
+            uploadBtn.addEventListener('click', () => fileIn.click());
+            fileIn.addEventListener('change', async () => {
               const file = fileIn.files[0];
               if (!file) return;
-              uploadStatus.textContent = ‘Uploading…’;
+              uploadStatus.textContent = 'Uploading…';
               uploadBtn.disabled = true;
               try {
                 const result = await uploadFile(file, () => {});
                 d.logoAssetId = result.id;
-                d.logoUrl = ‘’;
-                logoPreview.src = result.src || ‘’;
-                logoPreview.style.display = ‘’;
-                clearBtn.style.display = ‘’;
-                uploadStatus.textContent = ‘’;
+                d.logoUrl = '';
+                logoPreview.src = result.src || '';
+                logoPreview.style.display = '';
+                clearBtn.style.display = '';
+                uploadStatus.textContent = '';
               } catch (err) {
-                uploadStatus.textContent = err.message || ‘Upload failed’;
+                uploadStatus.textContent = err.message || 'Upload failed';
               } finally {
                 uploadBtn.disabled = false;
               }
             });
-            clearBtn.addEventListener(‘click’, () => {
-              d.logoAssetId = ‘’;
-              d.logoUrl = ‘’;
-              logoPreview.src = ‘’;
-              logoPreview.style.display = ‘none’;
-              clearBtn.style.display = ‘none’;
+            clearBtn.addEventListener('click', () => {
+              d.logoAssetId = '';
+              d.logoUrl = '';
+              logoPreview.src = '';
+              logoPreview.style.display = 'none';
+              clearBtn.style.display = 'none';
             });
 
-            const logoCell = h(‘div’, { class: ‘bar-logo-cell’ }, logoPreview, fileIn, uploadBtn, clearBtn, uploadStatus);
+            const logoCell = h('div', { class: 'bar-logo-cell' }, logoPreview, fileIn, uploadBtn, clearBtn, uploadStatus);
 
-            const priceIn = h(‘input’, { type: ‘text’, value: d.price || ‘’, maxlength: 20, placeholder: ‘£4.00’, ‘aria-label’: ‘Price’ });
-            priceIn.addEventListener(‘input’, (e) => { d.price = e.target.value; });
-            const mpIn = h(‘input’, { type: ‘text’, value: d.memberPrice || ‘’, maxlength: 20, placeholder: ‘£3.60’, ‘aria-label’: ‘Member price’ });
-            mpIn.addEventListener(‘input’, (e) => { d.memberPrice = e.target.value; });
-            const removeBtn = h(‘button’, { type: ‘button’, class: ‘btn-icon danger’, title: ‘Remove drink’, onclick: () => { drinks.splice(i, 1); renderDrinks(); } }, icon(‘trash’));
-            return h(‘div’, { class: ‘bar-drink-row’ }, colorIn, nameIn, logoCell, priceIn, mpIn, removeBtn);
+            const priceIn = h('input', { type: 'text', value: d.price || '', maxlength: 20, placeholder: '£4.00', 'aria-label': 'Price' });
+            priceIn.addEventListener('input', (e) => { d.price = e.target.value; });
+            const mpIn = h('input', { type: 'text', value: d.memberPrice || '', maxlength: 20, placeholder: '£3.60', 'aria-label': 'Member price' });
+            mpIn.addEventListener('input', (e) => { d.memberPrice = e.target.value; });
+            const removeBtn = h('button', { type: 'button', class: 'btn-icon danger', title: 'Remove drink', onclick: () => { drinks.splice(i, 1); renderDrinks(); } }, icon('trash'));
+            return h('div', { class: 'bar-drink-row' }, colorIn, nameIn, logoCell, priceIn, mpIn, removeBtn);
           }),
-          h(‘button’, { type: ‘button’, class: ‘btn’, onclick: () => { drinks.push({ name: ‘’, color: ‘#888888’, logoAssetId: ‘’, logoUrl: ‘’, price: ‘’, memberPrice: ‘’ }); renderDrinks(); setTimeout(() => drinksContainer.querySelectorAll(‘.bar-drink-row input[aria-label="Brand name"]’)[drinks.length - 1]?.focus(), 30); } }, ‘+ Add drink’)
+          h('button', { type: 'button', class: 'btn', onclick: () => { drinks.push({ name: '', color: '#888888', logoAssetId: '', logoUrl: '', price: '', memberPrice: '' }); renderDrinks(); setTimeout(() => drinksContainer.querySelectorAll('.bar-drink-row input[aria-label="Brand name"]')[drinks.length - 1]?.focus(), 30); } }, '+ Add drink')
         );
       }
       renderDrinks();
       body.append(
-        h(‘div’, { class: ‘field’ },
-          h(‘div’, { class: ‘bar-drink-header’ },
-            h(‘span’, {}, ‘Colour’), h(‘span’, {}, ‘Brand’), h(‘span’, {}, ‘Logo’), h(‘span’, {}, ‘Price’), h(‘span’, {}, ‘Members’)),
+        h('div', { class: 'field' },
+          h('div', { class: 'bar-drink-header' },
+            h('span', {}, 'Colour'), h('span', {}, 'Brand'), h('span', {}, 'Logo'), h('span', {}, 'Price'), h('span', {}, 'Members')),
           drinksContainer,
-          h(‘span’, { class: ‘hint’ }, ‘Upload a brand logo image to show it on screen. Leave blank to use a colour badge instead.’))
+          h('span', { class: 'hint' }, 'Upload a brand logo image to show it on screen. Leave blank to use a colour badge instead.'))
       );
       f.drinks = { get value() { return drinks; } };
     }
-    if ((type === ‘menu’ && c.mode !== ‘bar’) || type === ‘fixtures’) {
-      f.title = h(‘input’, { type: ‘text’, value: c.title || ‘’, maxlength: 200, placeholder: type === ‘menu’ ? ‘Bar & Kitchen — Today’s Menu’ : ‘Upcoming Fixtures’ });
+    if ((type === 'menu' && c.mode !== 'bar') || type === 'fixtures') {
+      f.title = h('input', { type: 'text', value: c.title || '', maxlength: 200, placeholder: type === 'menu' ? 'Bar & Kitchen — Today’s Menu' : 'Upcoming Fixtures' });
       f.text = h('textarea', { class: 'code', spellcheck: false, maxlength: type === 'menu' ? 20000 : 50000 }, c.text || (isNew ? (type === 'menu' ? MENU_EXAMPLE : fixturesExample()) : ''));
       const summary = h('p', { class: 'parse-summary' });
       const update = () => { summary.textContent = type === 'menu' ? menuSummary(f.text.value) : fixturesSummary(f.text.value); };
