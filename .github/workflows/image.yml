@@ -120,9 +120,14 @@ jobs:
           entry["url"] = sys.argv[1]
           json.dump({"os_list": [entry]}, open("out/pitchtribe-imager.json", "w"), indent=2)
           PY
-          # A club-line tag is never the website's download: keep it a prerelease so
-          # /releases/latest stays on the base system.
-          pre=''; [[ "$TAG" == v* ]] || pre='--prerelease'
+          # Only a finished version is the website's download. A club-line tag and a
+          # pre-release version (v0.5.0-pre.2) are both prereleases, so
+          # /releases/latest stays on the last shipped base system: the download
+          # button on the site, and the Imager repository in docs, point at that.
+          # Written as what a release looks like rather than what it doesn't, because
+          # `v*` called v0.5.0-pre.1 a release and would have put a test card on the
+          # front page.
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then pre=''; else pre='--prerelease'; fi
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "PitchTribe $TAG" --generate-notes $pre
           gh release upload "$TAG" --clobber \
             out/$IMAGE_NAME.img.xz out/$IMAGE_NAME.img.xz.sha256 out/pitchtribe-imager.json
