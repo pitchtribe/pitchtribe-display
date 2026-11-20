@@ -13,6 +13,7 @@ const { DEFAULT_PORTAL, renderSplash, themeCss } = require('./portal-page');
 const { readPortalFiles, writePortalSettings, portalFile } = require('./portal');
 const { mountBackupRoutes } = require('./backup-routes');
 const { mountRemoteAccessRoutes } = require('./remote-access-routes');
+const { mountUserRoutes } = require('./user-routes');
 const { osUpdateView } = require('./os-update');
 const { createHealth } = require('./health');
 const { Feeds, LEAGUE_KEY_RE, SHOW_OPTIONS } = require('./feeds');
@@ -780,6 +781,13 @@ function createApp(opts = {}) {
 
   // Remote access: switch SSH on or off (via the root helper).
   mountRemoteAccessRoutes({ api, dataDir, limiter, adminHash: () => data().settings.adminHash, hashPassword: opts.hashSshPassword });
+
+  /* Settings → People: the club's dashboard logins. `currentUser` is what the
+     sign-in flow will fill in — until a session names the volunteer it holds,
+     there is nobody in particular signed in, only somebody who knew the club's
+     shared dashboard password, and lib/user-routes.js treats that as the owner
+     it is. */
+  mountUserRoutes({ api, store, limiter, adminHash: () => data().settings.adminHash, currentUser: opts.currentUser });
 
   // Secure connection (Settings → Secure connection).
   api.get('/tls', (req, res) => res.set('Cache-Control', 'no-store').json(tlsView()));
