@@ -244,7 +244,17 @@ A release is a tag on `main` plus the SD card image attached to it, which the we
 - **To release:** open **Actions → Release → Run workflow** and enter the version (e.g. `v0.2.0`, matching `app/package.json`). The workflow tags `main`, creates the release and builds the image. That build runs `.github/workflows/image.yml` as a reusable workflow, and takes about 15 minutes.
 - **To redo a release that went wrong** (for example one whose tag points at the wrong commit): run it again with **replace** ticked. It deletes the old release and tag first.
 
-Publishing a release by hand on GitHub still works too: the tag push starts the same image build.
+**It publishes second.** The release is created as a *prerelease*, the image is attached over the following
+quarter of an hour, and a last job flips it to the latest release only once `pitchtribe-rpi-arm64.img.xz`
+and `pitchtribe-imager.json` are both downloadable from it. That ordering is the point: `/releases/latest`
+is the download button on the site and the Imager repository in the docs, so it must not answer a version
+before there is an image behind it — and a build that fails leaves a prerelease nobody is pointed at
+instead of a public download that 404s. If a release is still marked *pre-release* after a run, read the
+run's log: the image never finished, and the version is not shipped.
+
+Publishing a release by hand on GitHub still works — the tag push starts the same image build — but use the
+Release button for a finished `vX.Y.Z`: a full release created by hand becomes `/releases/latest`
+immediately, with nothing to download until the build catches up.
 
 ### A card for one building
 
