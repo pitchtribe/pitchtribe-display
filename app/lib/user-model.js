@@ -8,7 +8,8 @@
 
    A record looks like:
      { id, username, name, email, role, active, passwordHash,
-       mustChangePassword, createdAt, updatedAt, lastLoginAt }
+       mustChangePassword, createdAt, updatedAt, lastLoginAt,
+       tokensValidFrom }
 
    passwordHash is scrypt (lib/auth.js) and must never reach the browser —
    send users through publicUser() on the way out. */
@@ -157,12 +158,32 @@ function applyUpdate(user, body, { users = [], now = new Date() } = {}) {
   return user;
 }
 
-/** Set a new password. Signing everyone out is the caller's job (see auth.js). */
+/** Set a new password, and sign out the sessions that were opened with the old
+    one — this volunteer's only, not the club's (see sessionValid). The caller
+    issues a fresh cookie for whoever is doing the typing so they stay in. */
 function setPassword(user, value, { now = new Date() } = {}) {
   user.passwordHash = auth.hashPassword(password(value, { username: user.username }));
   user.mustChangePassword = false;
+  user.tokensValidFrom = now.toISOString();
   user.updatedAt = now.toISOString();
   return user;
+}
+
+/** Does a session this account opened at `issuedAt` (ms, from the cookie) still
+    count? No once the password has been changed or reset since, so a cookie
+    signed in with the old password stops working — the club-wide signing secret
+    cannot tell one volunteer's cookie from another's, this can. Suspended and
+    deleted accounts are turned away here too, on their very next request. */
+function sessionValid(user, issuedAt) {
+  if (!user || user.active === false) return false;
+  // No stamp: nothing has signed this account out, so any live cookie is good.
+  const validFrom = Date.parse(user.tokensValidFrom || '');
+  if (!Number.isFinite(validFrom)) return true;
+  const opened = Number(issuedAt);
+  if (!Number.isFinite(opened)) return false;
+  // `>=`, so the cookie issued in the same millisecond as the change — the one
+  // belonging to the person making it — is kept.
+  return opened >= validFrom;
 }
 
 /** True when this password signs this user in. Inactive accounts never match. */
@@ -235,6 +256,7 @@ module.exports = {
   createUser,
   applyUpdate,
   setPassword,
+  sessionValid,
   verifyUserPassword,
   assertRemovable,
   recordLogin,

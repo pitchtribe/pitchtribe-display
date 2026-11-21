@@ -80,6 +80,8 @@
     refresh: 'M20 12a8 8 0 1 1-2.3-5.6 M20 4v5h-5',
     external: 'M14 4h6v6 M20 4l-9 9 M18 14v6H4V6h6',
     sponsor: 'M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 15.8l-4.9 2.4.9-5.5-4-3.9 5.5-.8z',
+    people: 'M9 4.5a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7 M2.5 20v-1c0-2.5 2.9-4 6.5-4s6.5 1.5 6.5 4v1 M16.5 4.9a3.5 3.5 0 0 1 0 6.2 M18 15.3c2.1.6 3.5 1.9 3.5 3.7v1',
+    key: 'M15 3a6 6 0 1 0-4.2 10.3L4 20v1h3v-2h2v-2h1.8A6 6 0 0 0 15 3z M16.5 7.5h.01',
   };
   function icon(name) {
     const NS = 'http://www.w3.org/2000/svg';
@@ -341,6 +343,7 @@
     ['playlists', 'Playlists', 'playlist'],
     ['screens', 'Screens', 'screen'],
     ['wifi', 'Wi-Fi', 'wifi'],
+    ['people', 'People', 'people'],
     ['settings', 'Settings', 'settings'],
   ];
 
@@ -839,7 +842,7 @@
       f.leagues = { get value() { return [...chosen]; } };
       f.show = h('select', {}, [['all', 'Live, results and fixtures'], ['live', 'Live matches only'], ['results', 'Latest results'], ['fixtures', 'Upcoming fixtures']]
         .map(([v, l]) => h('option', { value: v, selected: (c.show || 'all') === v }, l)));
-      f.limit = h('input', { type: 'number', min: 1, max: 30, value: c.limit || 10 });
+      f.limit = h('input', { type: 'number', min: 1, max: 100, value: c.limit || 10 });
       body.append(h('label', { class: 'field' }, 'Heading on screen', f.title));
       body.append(available.length
         ? h('div', { class: 'field' }, 'Competitions',
@@ -851,7 +854,7 @@
             h('span', { class: 'hint' }, 'None selected = all the leagues switched on in Settings.'))
         : h('p', { class: 'help' }, 'Sports feeds are switched off. ', h('a', { href: '#/settings', onclick: () => m.close() }, 'Choose leagues in Settings'), ' — this slide fills in once they are on.'));
       body.append(h('div', { class: 'row-2' }, h('label', { class: 'field' }, 'Show', f.show), h('label', { class: 'field' }, 'At most (matches)', f.limit)));
-      body.append(h('p', { class: 'small muted' }, 'Scores update on screen by themselves: every minute during live matches, every 10 minutes otherwise.'));
+      body.append(h('p', { class: 'small muted' }, 'More matches than fit on screen scroll past by themselves, and the slide stays up long enough to show them all. Scores update on screen by themselves too: every minute during live matches, every 10 minutes otherwise.'));
     }
     if (type === 'league') {
       // Full-Time has no public feed, so the club brings its own code snippets
@@ -2473,6 +2476,280 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     return form;
   }
 
+  /* ================================================================= people
+     The club's dashboard logins, one record per volunteer, instead of everyone
+     sharing a single password. Every rule lives on the server
+     (lib/user-model.js) and its refusals are already written for a club
+     volunteer, so this page puts them on screen as they arrive rather than
+     inventing its own wording.
+
+     Two things it has to get right. A generated starter password exists only in
+     the response that created it — the server keeps a hash and nothing else —
+     so if this page does not show it there and then, nobody can ever recover
+     it. And the controls that would lock the person clicking out of this very
+     page are greyed out here as well as refused by the server, because finding
+     out by being locked out is too late to be told. */
+  let people = null; // GET /api/users
+  let peopleError = null; // why the list could not be read
+  let peopleLoading = false;
+
+  const ROLE_LABEL = { owner: 'Owner', editor: 'Editor', viewer: 'Viewer' };
+  const ROLE_BLURB = {
+    owner: 'Runs the club’s screens: content, settings, and who can sign in.',
+    editor: 'Puts things on the screens. Cannot change settings or this page.',
+    viewer: 'Can look at the dashboard and change nothing.',
+  };
+
+  const personName = (u) => u.name || u.username;
+  /* Who the dashboard is signed in as. Null while the club still shares one
+     password, which is nobody in particular and may do everything. */
+  const isSelf = (u) => Boolean(people && people.me && people.me.id === u.id);
+
+  async function loadPeople() {
+    if (peopleLoading) return;
+    peopleLoading = true;
+    try {
+      people = await api('GET', '/users');
+      peopleError = null;
+    } catch (err) {
+      people = null;
+      peopleError = err.message;
+    }
+    peopleLoading = false;
+    if (currentView === 'people') render();
+  }
+
+  function viewPeople() {
+    const head = h('div', { class: 'page-head' },
+      h('div', {},
+        h('h1', {}, 'People'),
+        h('p', {}, 'Who can sign in to this dashboard. Give each volunteer their own login and one who moves on can be removed without the rest of the club learning a new password.')),
+      people && h('div', { class: 'actions' },
+        h('button', { class: 'btn', type: 'button', onclick: loadPeople }, icon('refresh'), 'Refresh'),
+        h('button', { class: 'btn primary', type: 'button', onclick: () => editPerson({}) }, icon('plus'), 'Add person')));
+
+    if (!people) {
+      if (!peopleError) {
+        loadPeople();
+        return shell('people', head, h('div', { class: 'card empty' }, 'Loading…'));
+      }
+      // The server says which "no" this is — not an owner, or simply offline —
+      // and says it better than a guess from the status code would.
+      return shell('people', head, h('div', { class: 'card empty' },
+        h('h2', {}, 'Can’t show the people list'),
+        h('p', {}, peopleError),
+        h('div', { class: 'actions', style: 'justify-content:center;margin-top:14px' },
+          h('button', { class: 'btn', type: 'button', onclick: () => { peopleError = null; render(); loadPeople(); } }, icon('refresh'), 'Try again'))));
+    }
+
+    const rows = people.users.map((u) => {
+      const self = isSelf(u);
+      const status = !u.active
+        ? h('span', { class: 'badge expired' }, 'Suspended')
+        : u.mustChangePassword
+          ? h('span', { class: 'badge off-hours' }, 'New password due')
+          : h('span', { class: 'badge live' }, 'Active');
+      return h('tr', { class: u.active ? null : 'suspended' },
+        h('td', {}, h('div', { class: 'people-who' },
+          h('div', { class: 'people-name' }, h('strong', {}, personName(u)), self && h('span', { class: 'badge' }, 'You')),
+          h('span', { class: 'people-sub' }, u.username, u.email ? ` · ${u.email}` : ''))),
+        h('td', {}, h('span', { class: `badge role-${u.role}` }, ROLE_LABEL[u.role] || u.role)),
+        h('td', {}, status),
+        h('td', { class: 'people-when' }, u.lastLoginAt ? ago(Date.parse(u.lastLoginAt)) : 'never signed in'),
+        h('td', {}, h('div', { class: 'actions' },
+          h('button', { class: 'btn sm', type: 'button', onclick: () => editPerson(u) }, 'Edit'),
+          h('button', { class: 'btn sm', type: 'button', title: `Give ${personName(u)} a new password`, onclick: () => resetPersonPassword(u) }, icon('key'), 'Password'),
+          h('button', {
+            class: 'btn sm danger icon', type: 'button', disabled: self,
+            'aria-label': `Remove ${personName(u)}`,
+            title: self ? 'You cannot remove your own account' : `Remove ${personName(u)}`,
+            onclick: () => removePerson(u),
+          }, icon('trash')))));
+    });
+
+    const roles = h('details', { class: 'help' },
+      h('summary', {}, 'What the roles can do'),
+      h('dl', { class: 'kv', style: 'margin-top:10px' },
+        (people.roles || []).map((r) => [h('dt', {}, ROLE_LABEL[r] || r), h('dd', { class: 'wrap' }, ROLE_BLURB[r] || '')])),
+      h('p', { class: 'small', style: 'margin-top:10px' }, 'There is always at least one owner: PitchTribe will not let the last one be removed, suspended or demoted.'));
+
+    const list = people.users.length
+      ? h('div', { class: 'card panel-box stack', style: 'gap:14px' },
+        h('table', { class: 'people' },
+          h('thead', {}, h('tr', {},
+            h('th', {}, 'Person'),
+            h('th', {}, 'Role'),
+            h('th', {}, 'Status'),
+            h('th', {}, 'Last signed in'),
+            h('th', {}, h('span', { class: 'sr-only' }, 'Actions')))),
+          h('tbody', {}, rows)),
+        roles)
+      : h('div', { class: 'card empty' },
+        h('h2', {}, 'Nobody has their own login yet'),
+        h('p', {}, 'Everyone who looks after the screens shares the one dashboard password. Add a person to give them a login of their own.'),
+        h('div', { class: 'actions', style: 'justify-content:center;margin-top:14px' },
+          h('button', { class: 'btn primary', type: 'button', onclick: () => editPerson({}) }, icon('plus'), 'Add the first person')));
+
+    return shell('people', head, h('div', { class: 'stack', style: 'max-width:820px' }, list));
+  }
+
+  /** Add somebody, or change the details of somebody already on the list. */
+  function editPerson(user) {
+    const isNew = !user.id;
+    const self = !isNew && isSelf(user);
+    const err = h('p', { class: 'error-text', role: 'alert' });
+
+    const username = h('input', {
+      type: 'text', value: user.username || '', maxlength: 32, minlength: 3, required: true,
+      autocomplete: 'off', autocapitalize: 'none', spellcheck: false,
+      pattern: '[a-z0-9][a-z0-9._-]{2,31}', placeholder: 'e.g. jane.doe',
+    });
+    const name = h('input', { type: 'text', value: user.name || '', maxlength: 80, placeholder: 'e.g. Jane Doe' });
+    const email = h('input', { type: 'email', value: user.email || '', maxlength: 200, autocomplete: 'off', placeholder: 'e.g. jane@riversidefc.example' });
+    const role = h('select', { disabled: self }, (people.roles || []).map((r) =>
+      h('option', { value: r, selected: (user.role || 'editor') === r }, ROLE_LABEL[r] || r)));
+    const active = h('input', { type: 'checkbox', checked: user.active !== false, disabled: self });
+    const password = isNew
+      ? h('input', { type: 'password', autocomplete: 'new-password', minlength: 8, maxlength: 200, placeholder: 'Leave blank to make one up' })
+      : null;
+
+    const roleHint = h('span', { class: 'hint' });
+    const syncRoleHint = () => {
+      roleHint.textContent = self
+        ? 'You cannot change your own role — ask another owner to do it.'
+        : ROLE_BLURB[role.value] || '';
+    };
+    role.addEventListener('change', syncRoleHint);
+    syncRoleHint();
+
+    const body = h('form', { class: 'form-grid', onsubmit: (e) => { e.preventDefault(); save(); } },
+      h('div', { class: 'row-2' },
+        h('label', { class: 'field' }, 'Username', username,
+          h('span', { class: 'hint' }, 'What they type to sign in: small letters, numbers, dots, dashes and underscores.')),
+        h('label', { class: 'field' }, 'Full name', name,
+          h('span', { class: 'hint' }, 'Shown on this page. Optional.'))),
+      h('label', { class: 'field' }, 'Email', email,
+        h('span', { class: 'hint' }, 'Optional, and only used to tell one volunteer from another.')),
+      h('label', { class: 'field' }, 'Role', role, roleHint),
+      h('div', { class: 'field' }, 'Account',
+        h('label', { class: 'switch' }, active, 'Can sign in'),
+        h('span', { class: 'hint' }, self
+          ? 'You cannot switch off your own account.'
+          : 'Switch this off to keep the record but stop them signing in — they lose the dashboard on their next click.')),
+      password && h('label', { class: 'field' }, 'Starter password', password,
+        h('span', { class: 'hint' }, 'At least 8 characters. Leave it blank and PitchTribe makes one up for you to read out once, and asks them to choose their own the first time they sign in.')),
+      err);
+
+    const submit = h('button', { class: 'btn primary', type: 'button', onclick: () => body.requestSubmit() }, isNew ? 'Add person' : 'Save');
+    const m = modal({
+      title: isNew ? 'Add a person' : `Edit ${personName(user)}`,
+      body,
+      footer: (close) => [h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'), submit],
+    });
+    setTimeout(() => username.focus(), 30);
+
+    async function save() {
+      const payload = {
+        username: username.value.trim().toLowerCase(),
+        name: name.value.trim(),
+        email: email.value.trim(),
+        role: role.value,
+        active: active.checked,
+      };
+      if (password && password.value) payload.password = password.value;
+      /* The server refuses both of these for your own account. Sending them
+         unchanged would turn "I fixed my email address" into a refusal. */
+      if (self) { delete payload.role; delete payload.active; }
+      submit.disabled = true;
+      try {
+        const res = isNew
+          ? await api('POST', '/users', payload)
+          : await api('PATCH', `/users/${encodeURIComponent(user.id)}`, payload);
+        m.close();
+        await loadPeople();
+        if (res.temporaryPassword) showStarterPassword(res.user, res.temporaryPassword);
+        else toast(isNew ? `${personName(res.user)} can now sign in` : 'Saved');
+      } catch (e) {
+        err.textContent = e.message;
+        submit.disabled = false;
+      }
+    }
+  }
+
+  /* A made-up password is in this one response and nowhere else: the server
+     stored a hash of it and threw the rest away. Dismiss this without writing
+     it down and the only way back is another reset — so say so, and make it
+     big enough to read out across a clubhouse. */
+  function showStarterPassword(user, secret) {
+    modal({
+      title: 'Read this password out now',
+      body: h('div', { class: 'stack', style: 'gap:12px' },
+        h('p', { class: 'small' }, h('strong', {}, personName(user)), ' signs in with the username ', h('code', {}, user.username), ' and this password:'),
+        h('div', { class: 'recovery-code' }, secret),
+        h('p', { class: 'small muted' }, 'This is the only time it is shown — PitchTribe keeps no copy of it. They are asked to choose their own password the first time they sign in. If this one gets lost before then, use ', h('strong', {}, 'Password'), ' on the people list to make another.')),
+      footer: (close) => [
+        h('button', { class: 'btn', type: 'button', onclick: () => navigator.clipboard?.writeText(secret).then(() => toast('Copied'), () => toast('Copy failed — read it off the screen instead', 'error')) }, icon('copy'), 'Copy'),
+        h('button', { class: 'btn primary', type: 'button', onclick: close }, 'Done'),
+      ],
+    });
+  }
+
+  /** Give somebody a new password — the owner's own password first. */
+  function resetPersonPassword(user) {
+    const err = h('p', { class: 'error-text', role: 'alert' });
+    const next = h('input', { type: 'password', autocomplete: 'new-password', minlength: 8, maxlength: 200, placeholder: 'Leave blank to make one up' });
+    const current = h('input', { type: 'password', autocomplete: 'current-password', required: true });
+
+    const body = h('form', { class: 'form-grid', onsubmit: (e) => { e.preventDefault(); go(); } },
+      h('p', { class: 'small' }, 'A new password for ', h('strong', {}, personName(user)), ' (', h('code', {}, user.username), ').'),
+      h('label', { class: 'field' }, 'New password', next,
+        h('span', { class: 'hint' }, 'At least 8 characters. Leave it blank and PitchTribe makes one up for you to read out once, and asks them to choose their own next time they sign in. One they typed themselves here is theirs to keep.')),
+      h('label', { class: 'field' }, 'Your own dashboard password', current,
+        h('span', { class: 'hint' }, 'Confirms it is you doing this, and not somebody who found the dashboard left open.')),
+      err);
+
+    const submit = h('button', { class: 'btn primary', type: 'button', onclick: () => body.requestSubmit() }, 'Set password');
+    const m = modal({
+      title: 'New password',
+      body,
+      footer: (close) => [h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'), submit],
+    });
+    setTimeout(() => next.focus(), 30);
+
+    async function go() {
+      submit.disabled = true;
+      try {
+        const res = await api('POST', `/users/${encodeURIComponent(user.id)}/password-reset`, {
+          currentPassword: current.value,
+          ...(next.value ? { password: next.value } : {}),
+        });
+        m.close();
+        await loadPeople();
+        if (res.temporaryPassword) showStarterPassword(res.user, res.temporaryPassword);
+        else toast(`${personName(res.user)} has a new password`);
+      } catch (e) {
+        err.textContent = e.message;
+        current.value = '';
+        submit.disabled = false;
+      }
+    }
+  }
+
+  async function removePerson(user) {
+    const who = personName(user);
+    const ok = await confirmDialog('Remove this person?',
+      `${who} will not be able to sign in to the dashboard again. Nothing on the screens changes.`,
+      { confirmLabel: 'Remove' });
+    if (!ok) return;
+    try {
+      await api('DELETE', `/users/${encodeURIComponent(user.id)}`);
+      toast(`${who} removed`);
+      await loadPeople();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
   // ================================================================ router
   function parseRoute() {
     const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
@@ -2485,12 +2762,14 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     currentView = r.view;
     if (r.view !== 'playlists' || !r.id) draft = null;
     if (r.view !== 'wifi') portal = null; // fresh stats each visit
+    if (r.view !== 'people') { people = null; peopleError = null; } // ditto: who signed in when
     let nodes;
     if (r.view === 'playlists' && r.id) nodes = viewPlaylist(r.id);
     else if (r.view === 'playlists') nodes = viewPlaylists();
     else if (r.view === 'screens') nodes = viewScreens();
     else if (r.view === 'settings') nodes = viewSettings();
     else if (r.view === 'wifi') nodes = viewWifi();
+    else if (r.view === 'people') nodes = viewPeople();
     else nodes = viewContent();
     const y = window.scrollY;
     appEl.replaceChildren(...nodes);

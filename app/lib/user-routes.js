@@ -13,13 +13,13 @@
    lib/app.js). What is checked here is the narrower question of whether this
    particular volunteer may manage the people list.
 
-   Sessions: a signed-in person's cookie is a stateless HMAC over a single
-   club-wide secret, so there is as yet no way to sign out one volunteer
-   without signing out the whole club. That matters for suspending an account
-   and for resetting somebody's password, and it is the sign-in flow's job to
-   fix: until sessions carry who they belong to, nothing here rotates the
-   secret, because a password reset for one volunteer must not log the club's
-   screens-night team out mid-match. */
+   Sessions: a signed-in volunteer's cookie names them and carries the moment it
+   was issued (lib/auth.js). Suspending an account or resetting its password
+   therefore takes effect on that person's very next request and on nobody
+   else's — um.setPassword stamps the account, and lib/app.js turns away cookies
+   older than the stamp. Nothing here rotates the club-wide signing secret,
+   because one volunteer's reset must not log the screens-night team out
+   mid-match. */
 const crypto = require('node:crypto');
 
 const auth = require('./auth');
@@ -44,17 +44,16 @@ function mountUserRoutes({ api, store, limiter, adminHash, currentUser = () => n
     }
   };
 
-  /* Who is making this request: the signed-in volunteer, or null while the club
-     still signs in with the one shared dashboard password. */
+  /* Who is making this request: the signed-in volunteer, or null when the
+     session was opened with the club's one shared dashboard password. */
   const actor = (req) => currentUser(req) || null;
 
   /** Guard for every route here: may this person manage who can sign in? */
   function requirePeopleAdmin(req) {
     const me = actor(req);
-    /* Nobody in particular is signed in, which today means the shared dashboard
+    /* Nobody in particular is signed in, so this is the shared dashboard
        password — already checked by requireAuth, and it grants everything there
-       is to grant. Once sessions name a user this branch stops being taken, and
-       the club's own account is an owner, so the answer does not change. */
+       is to grant. A club that signs in by name never takes this branch. */
     if (!me) return null;
     if (!um.can(me, 'users')) throw new v.HttpError(403, 'Only an owner can manage who can sign in');
     return me;
