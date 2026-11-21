@@ -121,6 +121,17 @@ html, body {
   min-height: 0;
   overflow: hidden;
 }
+/* A panel whose content is taller than the screen on purpose: player.js walks
+   the track down through this box, and adds `scrolling` once it knows there is
+   further to go than one screen. The bottom fade says "more below" instead of
+   leaving a row looking sliced off; the track's matching bottom padding is what
+   is under the fade at the end of the run, so the last row lands in the clear. */
+.fit.scroller .scroll-track { will-change: transform; }
+.fit.scrolling {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5em), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5em), transparent);
+}
+.fit.scrolling .scroll-track { padding-bottom: 2.5em; }
 
 /* Notice */
 .notice { justify-content: center; }
