@@ -72,6 +72,7 @@ class Store extends EventEmitter {
     settings.sports = { ...base.settings.sports, ...(data.settings && data.settings.sports) };
     settings.widgets = { ...base.settings.widgets, ...(data.settings && data.settings.widgets) };
     const out = { ...base, ...data, settings };
+    out.schemaVersion = SCHEMA_VERSION;
     // Collections are arrays whatever the file on disk says. An older database
     // has no users key at all, and a hand-edited or half-restored one can hold
     // null — both would otherwise crash the first lookup that iterates them.
