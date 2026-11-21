@@ -13,6 +13,9 @@ const { DEFAULT_PORTAL, renderSplash, themeCss } = require('./portal-page');
 const { readPortalFiles, writePortalSettings, portalFile } = require('./portal');
 const { mountBackupRoutes } = require('./backup-routes');
 const { mountRemoteAccessRoutes } = require('./remote-access-routes');
+const { mountUserRoutes } = require('./user-routes');
+const um = require('./user-model');
+const setup = require('./setup');
 const { osUpdateView } = require('./os-update');
 const { createHealth } = require('./health');
 const { Feeds, LEAGUE_KEY_RE, SHOW_OPTIONS } = require('./feeds');
@@ -37,8 +40,8 @@ const MEDIA_TYPES = {
   'video/quicktime': ['video', '.mov'],
 };
 
-const ASSET_TYPES = ['image', 'video', 'url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget'];
-const TEXT_TYPES = ['url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget'];
+const ASSET_TYPES = ['image', 'video', 'url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget', 'sponsor'];
+const TEXT_TYPES = ['url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget', 'sponsor'];
 const WIDGET_KINDS = ['clock', 'worldclock', 'weather', 'joke', 'phrase', 'trivia', 'quiz', 'history', 'emoji', 'geoquiz', 'country', 'spotball',
   'transport', 'bankholiday', 'floods', 'carbon', 'quakes', 'currency', 'potd', 'births', 'sky', 'headlines', 'events'];
 const CURRENCIES = ['AUD', 'BGN', 'BRL', 'CAD', 'CHF', 'CNY', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD', 'HUF', 'IDR', 'ILS', 'INR', 'ISK', 'JPY', 'KRW', 'MXN', 'MYR', 'NOK', 'NZD', 'PHP', 'PLN', 'RON', 'SEK', 'SGD', 'THB', 'TRY', 'USD', 'ZAR'];
@@ -47,7 +50,7 @@ const WIDGET_DURATION = { clock: 15, worldclock: 15, weather: 15, joke: 14, phra
   transport: 20, bankholiday: 12, floods: 12, carbon: 14, quakes: 14, currency: 12, potd: 15, births: 15, sky: 12, headlines: 18, events: 18 };
 const DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const GRID = { cols: 10, rows: 8 };
-const DEFAULT_DURATION = { image: 10, video: 0, url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, league: 25, widget: 15 };
+const DEFAULT_DURATION = { image: 10, video: 0, url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, league: 25, widget: 15, sponsor: 20 };
 const NOTICE_STYLES = ['default', 'accent', 'amber', 'alert', 'light'];
 const ROTATIONS = [0, 90, 180, 270];
 const MAX_SCREENS = 200;
@@ -212,10 +215,32 @@ function createApp(opts = {}) {
     }
   };
 
-  function isAuthed(req) {
+  /* Who the session cookie says is asking, or null when nobody is signed in.
+     A session either names a volunteer on the people list or is the one the
+     club's shared password issues, which is nobody in particular. A named
+     session is good only while that account is still there, still switched on,
+     and has not been signed out since the cookie was issued, so suspending
+     somebody or resetting their password takes their dashboard away on their
+     very next request (um.sessionValid). */
+  function session(req) {
     const token = auth.parseCookies(req.headers.cookie)[auth.COOKIE];
-    return Boolean(data().settings.adminHash) && auth.verifyToken(token, data().settings.sessionSecret);
+    const claim = auth.readToken(token, data().settings.sessionSecret);
+    if (!claim) return null;
+    if (claim.userId) {
+      const user = um.findById(data().users, claim.userId);
+      return user && um.sessionValid(user, claim.issuedAt) ? { user } : null;
+    }
+    // Only while the club still has a shared password to have known.
+    return data().settings.adminHash ? { user: null } : null;
   }
+
+  const isAuthed = (req) => session(req) !== null;
+
+  /** The signed-in volunteer, or null for a shared-password session. */
+  const sessionUser = (req) => {
+    const s = session(req);
+    return s ? s.user : null;
+  };
 
   /** Dashboard API guard. Mutations also need a custom header, which a
       cross-site form or <img> can't send (CSRF defence alongside SameSite). */
@@ -328,7 +353,31 @@ function createApp(opts = {}) {
         title: v.str(c.title, { max: 200, field: 'Title' }),
         leagues: [...new Set(leagues)].slice(0, 30),
         show: v.oneOf(c.show, SHOW_OPTIONS, 'all'),
-        limit: v.int(c.limit, { min: 1, max: 30, fallback: 10 }),
+        // Room for a full weekend across several leagues: the slide scrolls what
+        // it cannot fit, so the cap is about the size of the feed, not the screen.
+        limit: v.int(c.limit, { min: 1, max: 100, fallback: 10 }),
+      };
+    }
+    if (type === 'sponsor') {
+      const SPONSOR_TIERS = ['gold', 'silver', 'bronze', 'partner'];
+      const raw = Array.isArray(c.sponsors) ? c.sponsors.slice(0, 50) : [];
+      a.content = {
+        title: v.str(c.title, { max: 200, field: 'Title' }),
+        layout: v.oneOf(c.layout, ['grid', 'row'], 'grid'),
+        sponsors: raw
+          .map((s) => {
+            const logoAssetId = s?.logoAssetId || null;
+            const logoAsset = logoAssetId ? data().assets.find((x) => x.id === logoAssetId && x.type === 'image') : null;
+            const logoUrl = !logoAsset && typeof s?.logoUrl === 'string' ? s.logoUrl.trim().slice(0, 2048) : '';
+            return {
+              name: v.str(s?.name, { max: 100, field: 'Sponsor name' }),
+              tagline: v.str(s?.tagline, { max: 200, field: 'Tagline' }),
+              tier: v.oneOf(s?.tier, SPONSOR_TIERS, null) || '',
+              ...(logoAsset ? { logoAssetId: logoAsset.id } : {}),
+              ...(logoUrl ? { logoUrl } : {}),
+            };
+          })
+          .filter((s) => s.name),
       };
     }
     return a;
@@ -530,16 +579,30 @@ function createApp(opts = {}) {
   }
 
   function resolveContent(content, assets) {
-    if (!content || content.mode !== 'bar') return content;
-    return {
-      ...content,
-      drinks: (content.drinks || []).map((d) => {
-        if (!d.logoAssetId) return d;
-        const a = assets.get(d.logoAssetId);
-        const src = a ? mediaUrl(a) : undefined;
-        return src ? { ...d, logoSrc: src } : d;
-      }),
-    };
+    if (!content) return content;
+    if (content.mode === 'bar') {
+      return {
+        ...content,
+        drinks: (content.drinks || []).map((d) => {
+          if (!d.logoAssetId) return d;
+          const a = assets.get(d.logoAssetId);
+          const src = a ? mediaUrl(a) : undefined;
+          return src ? { ...d, logoSrc: src } : d;
+        }),
+      };
+    }
+    if (Array.isArray(content.sponsors)) {
+      return {
+        ...content,
+        sponsors: content.sponsors.map((s) => {
+          if (!s.logoAssetId) return s;
+          const a = assets.get(s.logoAssetId);
+          const src = a ? mediaUrl(a) : undefined;
+          return src ? { ...s, logoSrc: src } : s;
+        }),
+      };
+    }
+    return content;
   }
 
   function buildManifest(playlist, screen) {
@@ -658,11 +721,17 @@ function createApp(opts = {}) {
 
   // ---------- Auth ----------
   app.get('/api/auth/status', (req, res) => {
-    const setupRequired = !data().settings.adminHash;
+    const state = setup.setupState(data());
+    const setupRequired = state.setupRequired;
     res.set('Cache-Control', 'no-store').json({
       setupRequired,
       authenticated: isAuthed(req),
       clubName: data().settings.clubName,
+      // Whether the sign-in box should ask for a username as well as a password,
+      // and whether this club still has its shared password to move off (see
+      // lib/setup.js).
+      stage: state.stage,
+      migrationRequired: state.migrationRequired,
       // A freshly flashed card: offer to restore a backup instead of starting again.
       ...(setupRequired ? { restore: backups.setupInfo() } : {}),
     });
@@ -671,7 +740,10 @@ function createApp(opts = {}) {
   app.post(
     '/api/auth/setup',
     route((req, res) => {
-      if (data().settings.adminHash) throw new v.HttpError(409, 'Already set up');
+      /* Not simply "is there a password": a club that has moved onto its own
+         logins and retired the shared one has no adminHash either, and running
+         the wizard again would hand the card to whoever opened the page. */
+      if (!setup.setupRequired(data())) throw new v.HttpError(409, 'Already set up');
       const clubName = v.str(req.body.clubName, { max: 80, required: true, field: 'Club name' });
       const password = String(req.body.password || '');
       if (password.length < 8) throw v.bad('Password must be at least 8 characters');
@@ -713,21 +785,66 @@ function createApp(opts = {}) {
     })
   );
 
+  /* Sign in, by name for a club that has a people list and with the one
+     password everyone shared for a club that has not grown one yet. Both end in
+     a cookie; only a named sign-in's cookie says whose it is, and only it can be
+     signed out on its own (see session() above). */
   app.post(
     '/api/auth/login',
     route((req, res) => {
       if (limiter.blocked(req.ip)) throw new v.HttpError(429, 'Too many attempts — wait 15 minutes and try again');
-      if (!auth.verifyPassword(req.body.password, data().settings.adminHash)) {
+      const password = String(req.body.password || '');
+      const username = req.body.username === undefined ? '' : um.normalizeUsername(req.body.username);
+
+      /* Asked for by name: that account or nothing. Letting a wrong username
+         through on the club's shared password would make every volunteer's
+         sign-in box a way in as somebody else. */
+      const user = username ? um.findByUsername(data().users, username) : null;
+      if (username && !user) auth.burnPasswordTime(password);
+      const ok = username
+        ? um.verifyUserPassword(user, password)
+        : Boolean(data().settings.adminHash) && auth.verifyPassword(password, data().settings.adminHash);
+
+      if (!ok) {
         limiter.fail(req.ip);
-        throw new v.HttpError(401, 'Wrong password');
+        /* A username nobody has, a suspended account and a wrong password all
+           get the same answer: which of the three it was is not something to
+           tell a stranger on the clubhouse wifi. */
+        throw new v.HttpError(401, username ? 'Wrong username or password' : 'Wrong password');
       }
       limiter.reset(req.ip);
-      res.set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret), req)).json({ ok: true });
+
+      if (!user) {
+        return res.set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret), req)).json({ ok: true });
+      }
+      // "Last seen" on the people list, and the only thing signing in writes.
+      store.touch((d) => {
+        um.recordLogin(um.findById(d.users, user.id));
+      });
+      const token = auth.issueToken(data().settings.sessionSecret, user.id);
+      // The dashboard needs mustChangePassword to know to ask for a new one
+      // before letting this volunteer get on with anything else.
+      res.set('Set-Cookie', auth.sessionCookie(token, req)).json({ ok: true, user: um.publicUser(user) });
     })
   );
 
   app.post('/api/auth/logout', (req, res) => {
     res.set('Set-Cookie', auth.clearCookie()).json({ ok: true });
+  });
+
+  /* Who the dashboard is signed in as. It asks on load to put a name in the
+     corner, to decide whether to insist on a new password first, and to grey
+     out the controls this person cannot use — `can` is that list, whichever
+     kind of session this is. */
+  app.get('/api/auth/me', requireAuth, (req, res) => {
+    const user = sessionUser(req);
+    res.set('Cache-Control', 'no-store').json({
+      user: um.publicUser(user),
+      /* A shared-password session names nobody, and is the club itself, so it
+         gets an owner's rights — the same answer lib/user-routes.js gives it. */
+      shared: !user,
+      can: user ? um.CAPABILITIES[user.role] || [] : um.CAPABILITIES.owner,
+    });
   });
 
   // ---------- Dashboard API ----------
@@ -738,12 +855,35 @@ function createApp(opts = {}) {
   const backups = mountBackupRoutes({
     app, api, dataDir, mediaDir, store, version: pkg.version, maxUploadBytes,
     maxRestoreBytes: opts.maxRestoreBytes,
-    setupRequired: () => !data().settings.adminHash,
+    setupRequired: () => setup.setupRequired(data()),
     onRestored: () => { configureFeeds(); publishPortalSettings(); },
   });
 
   // Remote access: switch SSH on or off (via the root helper).
   mountRemoteAccessRoutes({ api, dataDir, limiter, adminHash: () => data().settings.adminHash, hashPassword: opts.hashSshPassword });
+
+  /* Settings → People: the club's dashboard logins. `currentUser` is how those
+     routes find out whose rights to apply — the volunteer the session names, or
+     null for a session opened with the club's shared password, which
+     lib/user-routes.js treats as the owner it is. Tests override it to sign in
+     as somebody without going through the sign-in page. */
+  mountUserRoutes({
+    api,
+    store,
+    limiter,
+    adminHash: () => data().settings.adminHash,
+    currentUser: opts.currentUser || sessionUser,
+  });
+
+  /* Settings → People, first time through: turn the club's shared password into
+     the first owner's own login, and later switch the shared password off. */
+  setup.mountSetupRoutes({
+    api,
+    store,
+    limiter,
+    adminHash: () => data().settings.adminHash,
+    currentUser: opts.currentUser || sessionUser,
+  });
 
   // Secure connection (Settings → Secure connection).
   api.get('/tls', (req, res) => res.set('Cache-Control', 'no-store').json(tlsView()));
@@ -803,8 +943,30 @@ function createApp(opts = {}) {
   api.post(
     '/settings/password',
     route((req, res) => {
-      if (!auth.verifyPassword(req.body.current, data().settings.adminHash)) throw v.bad('Current password is wrong');
+      const me = sessionUser(req);
       const next = String(req.body.next || '');
+
+      /* A volunteer signed in as themselves changes their own password here —
+         the club's shared one is not theirs to change. Their other cookies stop
+         working (um.setPassword stamps the account) and this one is replaced, so
+         nobody else is signed out and the screens carry on. */
+      if (me) {
+        if (!um.verifyUserPassword(me, req.body.current)) throw v.bad('Current password is wrong');
+        um.password(next, { username: me.username }); // throws before anything is written
+        store.touch(
+          (d) => {
+            um.setPassword(um.findById(d.users, me.id), next);
+          },
+          { immediate: true }
+        );
+        return res
+          .set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret, me.id), req))
+          .json({ ok: true });
+      }
+
+      // The club's shared password. Rotating the secret with it signs every
+      // shared session out, which is the point: they were all the same login.
+      if (!auth.verifyPassword(req.body.current, data().settings.adminHash)) throw v.bad('Current password is wrong');
       if (next.length < 8) throw v.bad('New password must be at least 8 characters');
       store.touch(
         (d) => {
