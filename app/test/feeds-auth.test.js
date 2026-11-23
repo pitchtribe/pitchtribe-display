@@ -50,7 +50,7 @@ async function start(t) {
   const setup = await fetch(`${base}/api/auth/setup`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-pitchtribe': '1' },
-    body: JSON.stringify({ clubName: 'Riverside FC', password: 'correct horse' }),
+    body: JSON.stringify({ clubName: 'Riverside FC', password: 'correct horseA1!' }),
   });
   const cookie = (setup.headers.get('set-cookie') || '').split(';')[0];
   return { base, cookie };
