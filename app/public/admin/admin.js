@@ -7,6 +7,44 @@
   let state = null; // GET /api/state
   let dirty = false; // unsaved playlist edits
   let currentView = null;
+  const dashboardLanguages = window.PTI18n.LANGUAGES;
+  const dashboardLocaleKey = 'pitchtribe.dashboard.language';
+  const dashboardLabels = {
+    fr: ['Contenu', 'Listes de lecture', 'Écrans', 'Wi-Fi', 'Personnes', 'Paramètres', 'Déconnexion', 'Connexion', 'Mot de passe'],
+    es: ['Contenido', 'Listas de reproducción', 'Pantallas', 'Wi-Fi', 'Personas', 'Ajustes', 'Cerrar sesión', 'Iniciar sesión', 'Contraseña'],
+    de: ['Inhalte', 'Wiedergabelisten', 'Bildschirme', 'WLAN', 'Personen', 'Einstellungen', 'Abmelden', 'Anmelden', 'Passwort'],
+    it: ['Contenuti', 'Playlist', 'Schermi', 'Wi-Fi', 'Persone', 'Impostazioni', 'Esci', 'Accedi', 'Password'],
+    pt: ['Conteúdo', 'Listas de reprodução', 'Ecrãs', 'Wi-Fi', 'Pessoas', 'Definições', 'Terminar sessão', 'Iniciar sessão', 'Palavra-passe'],
+    pl: ['Treści', 'Listy odtwarzania', 'Ekrany', 'Wi-Fi', 'Osoby', 'Ustawienia', 'Wyloguj się', 'Zaloguj się', 'Hasło'],
+    ru: ['Контент', 'Плейлисты', 'Экраны', 'Wi-Fi', 'Люди', 'Настройки', 'Выйти', 'Войти', 'Пароль'],
+    zh: ['内容', '播放列表', '屏幕', 'Wi-Fi', '人员', '设置', '退出登录', '登录', '密码'],
+    ja: ['コンテンツ', 'プレイリスト', '画面', 'Wi-Fi', 'ユーザー', '設定', 'ログアウト', 'ログイン', 'パスワード'],
+  };
+  const dashboardKeys = ['Content', 'Playlists', 'Screens', 'Wi-Fi', 'People', 'Settings', 'Sign out', 'Sign in', 'Password'];
+  const dashboardMaps = Object.fromEntries(Object.entries(dashboardLabels).map(([code, labels]) =>
+    [code, Object.fromEntries(dashboardKeys.map((key, i) => [key, labels[i]]))]));
+  const screenStrings = Object.fromEntries(Object.entries(window.PTI18n.STRINGS.en).map(([key, english]) => [english, key]));
+  let dashboardLanguage = (() => {
+    const saved = localStorage.getItem(dashboardLocaleKey);
+    const browser = navigator.language.slice(0, 2).toLowerCase();
+    return dashboardLanguages.some((lang) => lang.code === saved) ? saved
+      : dashboardLanguages.some((lang) => lang.code === browser) ? browser : 'en';
+  })();
+  function translate(value) {
+    if (dashboardLanguage === 'en' || typeof value !== 'string') return value;
+    return dashboardMaps[dashboardLanguage]?.[value]
+      || window.PTI18n.STRINGS[dashboardLanguage]?.[screenStrings[value]] || value;
+  }
+  function languagePicker() {
+    return h('select', { class: 'dashboard-language', 'aria-label': 'Dashboard language',
+      onchange: (event) => {
+        dashboardLanguage = event.target.value;
+        localStorage.setItem(dashboardLocaleKey, dashboardLanguage);
+        document.documentElement.lang = window.PTI18n.LANGUAGES.find((lang) => lang.code === dashboardLanguage).locale;
+        if (state) render(); else boot();
+      } }, dashboardLanguages.map((lang) => h('option', { value: lang.code, selected: lang.code === dashboardLanguage }, lang.name)));
+  }
+  document.documentElement.lang = dashboardLanguages.find((lang) => lang.code === dashboardLanguage).locale;
 
   // ================================================================ helpers
   const PROPS = new Set(['value', 'checked', 'selected', 'disabled', 'hidden', 'multiple', 'draggable', 'indeterminate']);
@@ -362,8 +400,9 @@
       h('header', { class: 'topbar' },
         h('a', { class: 'brand', href: '#/content' }, logo(), h('span', {}, 'PITCHTRIBE', h('small', {}, state.settings.clubName))),
         h('nav', { class: 'nav', 'aria-label': 'Main' },
-          NAV.map(([key, label, ic]) => h('a', { href: `#/${key}`, 'aria-current': active === key ? 'page' : null }, icon(ic), label))),
-        h('button', { class: 'btn ghost icon', type: 'button', title: 'Sign out', 'aria-label': 'Sign out', onclick: logout }, icon('logout'))),
+          NAV.map(([key, label, ic]) => h('a', { href: `#/${key}`, 'aria-current': active === key ? 'page' : null }, icon(ic), translate(label)))),
+        languagePicker(),
+        h('button', { class: 'btn ghost icon', type: 'button', title: translate('Sign out'), 'aria-label': translate('Sign out'), onclick: logout }, icon('logout'))),
       h('main', { class: 'page' }, content),
     ];
   }
@@ -382,10 +421,10 @@
     const club = h('input', { type: 'text', name: 'club', autocomplete: 'organization', maxlength: 80, required: true, placeholder: 'e.g. Riverside FC' });
     const pw = h('input', { type: 'password', name: 'password', autocomplete: setup ? 'new-password' : 'current-password', required: true, minlength: setup ? 8 : null });
     const pw2 = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 8 });
-    const btn = h('button', { class: 'btn primary', type: 'submit' }, setup ? 'Create dashboard' : 'Sign in');
+    const btn = h('button', { class: 'btn primary', type: 'submit' }, setup ? 'Create dashboard' : translate('Sign in'));
     const form = h('form', { class: 'form-grid', onsubmit: submit },
       setup && h('label', { class: 'field' }, 'Club name', club),
-      h('label', { class: 'field' }, setup ? 'Choose an admin password' : 'Password', pw, setup && h('span', { class: 'hint' }, 'At least 8 characters. Share it with the volunteers who manage the screens.')),
+      h('label', { class: 'field' }, setup ? 'Choose an admin password' : translate('Password'), pw, setup && h('span', { class: 'hint' }, 'At least 8 characters. Share it with the volunteers who manage the screens.')),
       setup && h('label', { class: 'field' }, 'Confirm password', pw2),
       err,
       btn);
@@ -415,7 +454,7 @@
           h('div', {},
             h('h1', {}, setup ? 'Set up PitchTribe' : `Sign in${status.clubName ? ` to ${status.clubName}` : ''}`),
             h('p', { class: 'muted', style: 'margin-top:6px' }, setup ? 'Create the dashboard for your club’s screens.' : 'Manage what’s on your club’s screens.')),
-          form,
+          languagePicker(), form,
           setup ? restoreOnSetup(status) : null)));
   }
 
