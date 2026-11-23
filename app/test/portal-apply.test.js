@@ -144,3 +144,35 @@ test('apply: a missing USB adapter is reported, not fatal', () => {
   assert.match(r.err, /no radio or access-point port/);
   assert.deepEqual(r.status.problems.length, 1);
 });
+
+test('apply: setup window refuses to start the open guest AP', () => {
+  const state = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-state-'));
+  const etc = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-etc-'));
+  const active = path.join(state, 'active');
+  fs.writeFileSync(active, '');
+  fs.writeFileSync(path.join(state, 'portal-network.json'), JSON.stringify({ enabled: true }));
+  const r = spawnSync('bash', [SCRIPT], { encoding: 'utf8', env: {
+    ...process.env, PORTAL_DRY_RUN: '1', PORTAL_ETC: etc, PORTAL_STATE_DIR: state,
+    PORTAL_HW: HW, SYS_ROOT: fakeSys(), PITCHTRIBE_SETUP_ACTIVE: active,
+  } });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /refusing guest Wi-Fi activation/);
+  assert.doesNotMatch(r.stdout, /restart hostapd/);
+  assert.match(r.stdout, /stop pitchtribe-portal\.service hostapd\.service dnsmasq\.service/);
+});
+
+test('apply: disabling guest Wi-Fi releases NetworkManager radio ownership', () => {
+  const state = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-state-'));
+  const etc = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-etc-'));
+  const nmDir = path.join(etc, 'NetworkManager', 'conf.d');
+  fs.mkdirSync(nmDir, { recursive: true });
+  fs.writeFileSync(path.join(nmDir, '99-pitchtribe-portal.conf'), '[keyfile]\nunmanaged-devices=interface-name:wlan0\n');
+  fs.writeFileSync(path.join(state, 'portal-network.json'), JSON.stringify({ enabled: false }));
+  const r = spawnSync('bash', [SCRIPT], { encoding: 'utf8', env: {
+    ...process.env, PORTAL_DRY_RUN: '1', PORTAL_ETC: etc, PORTAL_STATE_DIR: state,
+    PORTAL_HW: HW, SYS_ROOT: fakeSys(),
+  } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /rm -f .*99-pitchtribe-portal\.conf/);
+  assert.match(r.stdout, /reload NetworkManager/);
+});

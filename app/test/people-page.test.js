@@ -27,6 +27,7 @@ const ADMIN_JS = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin', '
 const offline = async () => ({ ok: false, status: 503, json: async () => ({}), text: async () => '' });
 const CLUB_PASSWORD = 'correct horse batteryA1!';
 
+
 /** A dashboard signed in the way a club's is today: the one shared password. */
 async function startServer(t) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-people-page-'));
@@ -104,6 +105,7 @@ test('adding somebody hands back the one copy of a generated password', async (t
 
   // A password typed into the form is sent as `password`, and is theirs to keep.
   const typed = await s.call('POST', '/api/users', { username: 'sam', name: 'Sam', email: '', role: 'editor', active: true, password: 'a-good-long-passwordA1!' });
+
   assert.equal(typed.status, 201);
   assert.ok(!('temporaryPassword' in typed.body), 'nothing was generated, so there is nothing to show once');
   assert.equal(typed.body.user.mustChangePassword, false);
@@ -147,6 +149,7 @@ test('a password reset needs the owner’s own password', async (t) => {
   assert.equal(generated.body.user.mustChangePassword, true);
 
   const chosen = await s.call('POST', `/api/users/${user.id}/password-reset`, { currentPassword: CLUB_PASSWORD, password: 'another-good-passwordA1!' });
+
   assert.equal(chosen.status, 200);
   assert.ok(!('temporaryPassword' in chosen.body), 'a password typed in the dialog is not shown back');
   assert.equal(chosen.body.user.mustChangePassword, false, 'one they chose themselves is theirs to keep');

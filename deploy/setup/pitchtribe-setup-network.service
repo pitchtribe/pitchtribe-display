@@ -1,0 +1,22 @@
+[Unit]
+Description=Physical-button offline Wi-Fi setup
+Requires=NetworkManager.service pitchtribe-setup-identity.service
+After=NetworkManager.service pitchtribe-setup-identity.service
+ConditionPathExists=/proc/device-tree/model
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/lib/pitchtribe/setup-network.py cleanup
+ExecStart=/usr/local/lib/pitchtribe/setup-network.py
+ExecStopPost=/usr/local/lib/pitchtribe/setup-network.py cleanup
+Restart=always
+RestartSec=3
+# Stop cleanup may wait for an in-flight radio transaction to release its lock.
+TimeoutStopSec=90
+UMask=0077
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

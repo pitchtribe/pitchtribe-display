@@ -22,6 +22,7 @@
    mid-match. */
 const { generateSecurePassword } = require('./password-policy');
 
+
 const auth = require('./auth');
 const v = require('./validate');
 const um = require('./user-model');
@@ -33,6 +34,7 @@ const um = require('./user-model');
 const newTemporaryPassword = generateSecurePassword;
 
 function mountUserRoutes({ api, store, limiter, adminHash, currentUser = () => null, audit }) {
+
   const data = () => store.data;
 
   const route = (fn) => (req, res, next) => {
@@ -102,6 +104,7 @@ function mountUserRoutes({ api, store, limiter, adminHash, currentUser = () => n
         d.users.push(user);
       });
       audit?.logAdminAction(req.ip, 'user_created', { userId: user.id });
+
       res.status(201).json({ user: um.publicUser(user), ...(temporary ? { temporaryPassword: password } : {}) });
     })
   );
@@ -136,6 +139,7 @@ function mountUserRoutes({ api, store, limiter, adminHash, currentUser = () => n
         um.applyUpdate(um.findById(d.users, user.id), body, { users: d.users });
       });
       audit?.logAdminAction(req.ip, 'user_updated', { userId: user.id });
+
       res.json({ user: um.publicUser(um.findById(data().users, req.params.id)) });
     })
   );
@@ -151,6 +155,7 @@ function mountUserRoutes({ api, store, limiter, adminHash, currentUser = () => n
         d.users = d.users.filter((u) => u.id !== user.id);
       });
       audit?.logAdminAction(req.ip, 'user_removed', { userId: user.id });
+
       res.json({ ok: true, removed: user.id });
     })
   );
@@ -187,6 +192,7 @@ function mountUserRoutes({ api, store, limiter, adminHash, currentUser = () => n
         target.mustChangePassword = temporary;
       });
       audit?.logPasswordReset(req.ip, { userId: user.id });
+
       res.json({
         user: um.publicUser(um.findById(data().users, req.params.id)),
         ...(temporary ? { temporaryPassword: password } : {}),

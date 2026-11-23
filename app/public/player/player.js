@@ -186,7 +186,14 @@
     }, 900);
     current = { item, sig, el: slide.el };
     tickLive();
-    if (slide.onShow) slide.onShow(Math.max(item.duration || 10, 1) * 1000);
+    let dwell = Math.max(item.duration || 10, 1) * 1000;
+    if (slide.onShow) slide.onShow(dwell);
+    // A slide that scrolls itself can only ask for more time once it is laid out
+    // and knows how far it has to travel. It never gets less than its own slot.
+    if (slide.hold) {
+      const wanted = slide.hold(dwell);
+      if (Number.isFinite(wanted) && wanted > dwell) dwell = Math.min(wanted, PTScroll.MAX_MS);
+    }
 
     if (item.type === 'video') {
       const video = slide.el.querySelector('video');
@@ -198,7 +205,7 @@
         return;
       }
     }
-    advanceTimer = setTimeout(next, Math.max(item.duration || 10, 1) * 1000);
+    advanceTimer = setTimeout(next, dwell);
   }
 
   function clearStage() {
@@ -221,13 +228,27 @@
     const slide = el('div', 'slide');
     let ready = Promise.resolve();
     let onShow = null;
+    // Set by a slide that needs longer than its slot to show everything it holds;
+    // called once the slide is laid out, and answers with the milliseconds it wants.
+    let hold = null;
     const c = item.content || {};
     const club = manifest.clubName;
 
     switch (item.type) {
       case 'image': {
         slide.classList.add('media');
-        const img = el('img', `fit-${item.fit || 'contain'}`);
+        const fit = ['contain', 'cover', 'blur', 'color'].includes(item.fit) ? item.fit : 'contain';
+        if (fit === 'blur') {
+          const background = el('img', 'media-background');
+          background.alt = '';
+          background.setAttribute('aria-hidden', 'true');
+          background.src = item.src;
+          slide.append(background);
+        }
+        if (fit === 'color' && /^#[0-9a-fA-F]{6}$/.test(item.backgroundColor || '')) {
+          slide.style.backgroundColor = item.backgroundColor;
+        }
+        const img = el('img', `fit-${fit}`);
         img.alt = '';
         img.src = item.src;
         ready = withTimeout(img.decode(), 8000);
@@ -324,6 +345,43 @@
         slide.append(panel);
         break;
       }
+      case 'sponsor': {
+        const panel = el('section', `panel sponsor layout-${c.layout || 'grid'}`);
+        const fit = el('div', 'fit');
+        fit.append(el('div', 'kicker', club));
+        if (c.title) fit.append(el('h1', '', c.title));
+        const grid = el('div', 'sponsor-grid');
+        const TIER_COLORS = { gold: '#c9a000', silver: '#909090', bronze: '#a0522d', partner: '#2a6a9a' };
+        for (const s of (c.sponsors || [])) {
+          const card = el('div', 'sponsor-card');
+          let badge;
+          if (s.logoSrc || s.logoUrl) {
+            badge = document.createElement('img');
+            badge.className = 'sponsor-logo';
+            badge.src = s.logoSrc || s.logoUrl;
+            badge.alt = s.name;
+            badge.loading = 'eager';
+          } else {
+            badge = el('span', 'brand-badge');
+            badge.style.background = TIER_COLORS[s.tier] || '#5a5a5a';
+            badge.textContent = s.name.slice(0, 2).toUpperCase();
+          }
+          card.append(badge);
+          const info = el('div', 'sponsor-info');
+          info.append(el('span', 'sponsor-name', s.name));
+          if (s.tagline) info.append(el('span', 'sponsor-tagline', s.tagline));
+          if (s.tier) {
+            const tierBadge = el('span', `tier-badge tier-${s.tier}`, s.tier.charAt(0).toUpperCase() + s.tier.slice(1));
+            info.append(tierBadge);
+          }
+          card.append(info);
+          grid.append(card);
+        }
+        fit.append(grid);
+        panel.append(fit);
+        slide.append(panel);
+        break;
+      }
       case 'fixtures': {
         const panel = el('section', 'panel fixtures');
         panel.append(el('div', 'kicker', club), el('h1', '', c.title || item.name));
@@ -358,17 +416,24 @@
         } else if (!item.data.length) {
           fit.append(el('p', 'empty-note', c.show === 'live' ? t('noLiveMatches') : t('noMatches')));
         } else {
+          // Every match the feed gave us goes in, however many that is: a round
+          // of fixtures across a few leagues is taller than any TV, so the list
+          // lives on a track that scrolls itself rather than being shrunk to fit.
+          const track = el('div', 'scroll-track');
           let league = null;
           let list = null;
           for (const e of item.data) {
             if (e.leagueName !== league) {
               league = e.leagueName;
-              fit.append(el('h2', 'league', league));
+              track.append(el('h2', 'league', league));
               list = el('ul', 'score-list');
-              fit.append(list);
+              track.append(list);
             }
             list.append(scoreRow(e));
           }
+          fit.classList.add('scroller');
+          fit.append(track);
+          hold = (ms) => autoScroll(fit, track, ms);
         }
         panel.append(fit);
         slide.append(panel);
@@ -423,7 +488,7 @@
       default:
         throw new Error(`Unknown type ${item.type}`);
     }
-    return { el: slide, ready, onShow };
+    return { el: slide, ready, onShow, hold };
   }
 
   function teamCell(team, side) {
@@ -1008,16 +1073,71 @@
     const panel = slide.querySelector('.panel');
     if (!panel) return;
     const fit = panel.querySelector('.fit');
+    // A scrolling panel keeps its readable size. Being taller than the screen is
+    // the point of it, and shrinking it towards the floor first would just make
+    // the whole list small *and* still too long to fit.
+    const scrolls = Boolean(fit && fit.classList.contains('scroller'));
     panel.style.fontSize = '';
     let size = parseFloat(getComputedStyle(panel).fontSize);
     const min = size * 0.4;
+    const tooTall = () => !scrolls && panel.scrollHeight > panel.clientHeight + 1;
     const overflows = () =>
-      panel.scrollHeight > panel.clientHeight + 1 ||
-      (fit && (fit.scrollHeight > fit.clientHeight + 1 || fit.scrollWidth > fit.clientWidth + 1));
+      tooTall() ||
+      (fit && ((!scrolls && fit.scrollHeight > fit.clientHeight + 1) || fit.scrollWidth > fit.clientWidth + 1));
     while (overflows() && size > min) {
       size *= 0.93;
       panel.style.fontSize = `${size}px`;
     }
+  }
+
+  // The pacing lives in /shared/scroll.js, where it can be checked without a
+  // browser; what is left here is the measuring and the moving.
+  const reducedMotion = () => Boolean(window.matchMedia) && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /**
+   * Scroll `track` through the clipped box `fit` and report how many milliseconds
+   * the slide should stay up; 0 when everything already fits and nothing moved.
+   * Call it after layout, or the heights it measures are not the final ones.
+   */
+  function autoScroll(fit, track, dwellMs) {
+    if (!(track.scrollHeight - fit.clientHeight > 1)) return 0;
+    // Turns on the bottom fade and the run-off padding under it, which is itself
+    // part of the distance, so the height to travel is read back afterwards.
+    fit.classList.add('scrolling');
+    const em = parseFloat(getComputedStyle(fit).fontSize);
+    const plan = PTScroll.plan({ distance: track.scrollHeight - fit.clientHeight, em, dwellMs });
+    if (!plan.scrolls) {
+      fit.classList.remove('scrolling');
+      return 0;
+    }
+    const to = (y) => { track.style.transform = `translateY(${-y.toFixed(1)}px)`; };
+
+    if (reducedMotion()) {
+      // No crawl for anyone who asked not to have one: turn the pages instead.
+      const page = Math.max(fit.clientHeight, 1);
+      const pages = Math.ceil(plan.distance / page) + 1;
+      let shown = 1;
+      const flip = () => {
+        if (!track.isConnected || shown >= pages) return;
+        to(Math.min(plan.distance, shown * page));
+        shown += 1;
+        setTimeout(flip, plan.totalMs / pages);
+      };
+      setTimeout(flip, plan.totalMs / pages);
+      return plan.totalMs;
+    }
+
+    const started = performance.now();
+    const step = (now) => {
+      // The slide is pulled from the stage when the next one takes over, which is
+      // what stops this loop; there is no separate cancel to keep in step with it.
+      if (!track.isConnected) return;
+      const elapsed = now - started;
+      to(PTScroll.offsetAt(plan, elapsed));
+      if (elapsed < plan.pauseMs + plan.travelMs) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+    return plan.totalMs;
   }
 
   // ---------------------------------------------------------------- chrome

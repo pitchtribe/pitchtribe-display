@@ -72,6 +72,7 @@ PORTAL_USER=pitchtribe-portal
 # group with anything a guest on an untrusted network can reach.
 MIRROR_GROUP=pitchtribe-dashboard
 KIOSK_USER=pitchtribe-kiosk
+WIFI_SETUP=0
 PORT="${PITCHTRIBE_PORT:-80}"
 HTTPS_PORT="${PITCHTRIBE_HTTPS_PORT:-443}"
 SERVER="${PITCHTRIBE_SERVER:-}"
@@ -337,6 +338,34 @@ if [[ "${PITCHTRIBE_PORTAL:-0}" == 1 ]]; then
   log "Guest Wi-Fi installed — switch it on and design the sign-in page under Guest Wi-Fi in the dashboard"
 fi
 
+# The physical setup button and per-card identity are installed on Pi images
+# and on Pi 4/5 installs. Provisioning runs on the device, never in the chroot.
+if [[ "$IMAGE_BUILD" == 1 || -f /proc/device-tree/model ]]; then
+  log "Installing physical-button offline Wi-Fi setup"
+  WIFI_SETUP=1
+  getent group pitchtribe-wifi >/dev/null || groupadd --system pitchtribe-wifi
+  apt-get install -y -q python3-gpiozero python3-lgpio nftables
+  install -d -o root -g root -m 0755 /usr/local/lib/pitchtribe
+  install -m 0755 "$SRC_DIR/deploy/setup/setup-identity.py" /usr/local/lib/pitchtribe/
+  install -m 0755 "$SRC_DIR/deploy/setup/setup-serial.py" /usr/local/lib/pitchtribe/
+  install -m 0755 "$SRC_DIR/deploy/setup/setup-network.py" /usr/local/lib/pitchtribe/
+  install -m 0755 "$SRC_DIR/deploy/setup/wifi-startup.py" /usr/local/lib/pitchtribe/
+  install -m 0755 "$SRC_DIR/deploy/setup/wifi-privileged.py" /usr/local/lib/pitchtribe/
+  install -m 0755 "$SRC_DIR/deploy/setup/wifi-http-firewall.sh" /usr/local/lib/pitchtribe/
+  install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-setup-identity.service" /etc/systemd/system/
+  install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-setup-network.service" /etc/systemd/system/
+  install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-wifi-privileged.service" /etc/systemd/system/
+  install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-wifi-startup.service" /etc/systemd/system/
+  install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-wifi-http-firewall.service" /etc/systemd/system/
+  systemctl disable --now pitchtribe-setup-serial.service 2>/dev/null || true
+  rm -f /etc/systemd/system/pitchtribe-setup-serial.service
+  systemctl disable serial-getty@ttyAMA0.service serial-getty@serial0.service 2>/dev/null || true
+  systemctl mask serial-getty@ttyAMA0.service serial-getty@serial0.service 2>/dev/null || true
+  start_now daemon-reload
+  systemctl enable pitchtribe-setup-identity.service pitchtribe-setup-network.service pitchtribe-wifi-privileged.service pitchtribe-wifi-http-firewall.service pitchtribe-wifi-startup.service
+  start_now start pitchtribe-setup-identity.service pitchtribe-setup-network.service pitchtribe-wifi-privileged.service
+fi
+
 if [[ "${PITCHTRIBE_NO_KIOSK:-0}" != 1 ]]; then
   # ----------------------------------------------------------------- kiosk
   log "Installing the kiosk display (cage + Chromium)"
@@ -347,7 +376,7 @@ if [[ "${PITCHTRIBE_NO_KIOSK:-0}" != 1 ]]; then
   CHROMIUM="$(command -v chromium || command -v chromium-browser)"
 
   id -u "$KIOSK_USER" >/dev/null 2>&1 || useradd --create-home --shell /usr/sbin/nologin "$KIOSK_USER"
-  usermod -a -G video,render,input,audio "$KIOSK_USER"
+  usermod -a -G video,render,input,audio,pitchtribe-wifi "$KIOSK_USER"
 
   install -m 0755 "$SRC_DIR/deploy/kiosk.sh" /usr/local/bin/pitchtribe-kiosk
   cat >/etc/default/pitchtribe-kiosk <<EOF
@@ -361,6 +390,7 @@ if [[ "${PITCHTRIBE_NO_KIOSK:-0}" != 1 ]]; then
 # Without that file the page answers, but with our name on it and no football — so the
 # file comes first.
 PITCHTRIBE_URL=${SERVER%/}/player/?screen=@HOSTNAME@
+PITCHTRIBE_WIFI_SETUP=${WIFI_SETUP}
 CHROMIUM=${CHROMIUM}
 EOF
   install -m 0644 "$SRC_DIR/deploy/pitchtribe-kiosk.service" /etc/systemd/system/pitchtribe-kiosk.service
@@ -369,6 +399,9 @@ EOF
   systemctl set-default multi-user.target
   systemctl disable getty@tty1.service 2>/dev/null || true
   systemctl enable pitchtribe-kiosk.service
+  if [[ "$WIFI_SETUP" == 1 ]]; then
+    start_now start pitchtribe-wifi-startup.service || true
+  fi
   start_now restart pitchtribe-kiosk.service || true
   KIOSK_ENV_FILE=/etc/default/pitchtribe-kiosk
 fi

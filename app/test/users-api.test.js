@@ -14,6 +14,7 @@ const offline = async () => ({ ok: false, status: 503, json: async () => ({}), t
 
 const CLUB_PASSWORD = 'correct horse batteryA1!';
 
+
 /** A dashboard signed in with the club's shared password, as it is today. */
 async function startServer(t, extra = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-users-api-'));
@@ -59,6 +60,7 @@ test('users API: add, list, edit and remove the club’s logins', async (t) => {
   assert.equal(r.headers.get('cache-control'), 'no-store');
 
   r = await s.call('POST', '/api/users', { username: 'Jane', name: 'Jane Doe', email: 'Jane@Riverside.example', role: 'owner', password: 'a-good-long-passwordA1!' });
+
   assert.equal(r.status, 201);
   const jane = r.body.user;
   assert.equal(jane.username, 'jane', 'usernames are stored lower-case');
@@ -85,6 +87,7 @@ test('users API: add, list, edit and remove the club’s logins', async (t) => {
   assert.equal((await s.call('POST', '/api/users', { username: 'JANE', password: 'a-good-long-passwordA1!' })).status, 400);
   assert.equal((await s.call('POST', '/api/users', { username: 'jane2', email: 'JANE@riverside.example', password: 'a-good-long-passwordA1!' })).status, 400);
   assert.equal((await s.call('POST', '/api/users', { username: 'no', password: 'a-good-long-passwordA1!' })).status, 400);
+
   assert.equal((await s.call('POST', '/api/users', { username: 'kit', password: 'short' })).status, 400);
 
   // An edit touches only the fields it names.
@@ -102,6 +105,7 @@ test('users API: add, list, edit and remove the club’s logins', async (t) => {
   const stored = JSON.parse(fs.readFileSync(s.dbFile, 'utf8')).users.find((u) => u.id === sam.id);
   assert.ok(auth.verifyPassword(starter, stored.passwordHash), 'the starter password still works');
   assert.ok(!auth.verifyPassword('sneaked-in-passwordA1!', stored.passwordHash));
+
   assert.equal(stored.mustChangePassword, true, 'an edit does not clear the must-change flag either');
 
   r = await s.call('DELETE', `/api/users/${sam.id}`);
@@ -118,6 +122,7 @@ test('users API: add, list, edit and remove the club’s logins', async (t) => {
 test('users API: the people list is behind the dashboard login and its CSRF header', async (t) => {
   const s = await startServer(t);
   const created = await s.call('POST', '/api/users', { username: 'jane', role: 'owner', password: 'a-good-long-passwordA1!' });
+
   assert.equal(created.status, 201);
 
   /* Signed in, but the request did not come from the dashboard: a cross-site
@@ -125,6 +130,7 @@ test('users API: the people list is behind the dashboard login and its CSRF head
      through (SameSite=Strict covers them); anything that writes is not. */
   assert.equal((await s.callWithoutCsrfHeader('GET', '/api/users')).status, 200);
   for (const [method, body] of [['POST', { username: 'intruder', password: 'a-good-long-passwordA1!' }], ['PATCH', { role: 'owner' }], ['DELETE', undefined]]) {
+
     const url = method === 'POST' ? '/api/users' : `/api/users/${created.body.user.id}`;
     assert.equal((await s.callWithoutCsrfHeader(method, url, body)).status, 403, `${method} ${url}`);
   }
@@ -133,6 +139,7 @@ test('users API: the people list is behind the dashboard login and its CSRF head
   s.clearCookie();
   assert.equal((await s.call('GET', '/api/users')).status, 401);
   assert.equal((await s.call('POST', '/api/users', { username: 'intruder', password: 'a-good-long-passwordA1!' })).status, 401);
+
   assert.equal((await s.call('DELETE', `/api/users/${created.body.user.id}`)).status, 401);
   assert.equal((await s.call('POST', `/api/users/${created.body.user.id}/password-reset`, { currentPassword: CLUB_PASSWORD })).status, 401);
 });
@@ -151,12 +158,14 @@ test('users API: a password reset asks for your own password first, and hands th
 
   // A password the owner types in is the volunteer's to keep.
   r = await s.call('POST', url, { currentPassword: CLUB_PASSWORD, password: 'brand-new-passwordA1!' });
+
   assert.equal(r.status, 200);
   assert.ok(!('temporaryPassword' in r.body));
   assert.equal(r.body.user.mustChangePassword, false);
   let stored = JSON.parse(fs.readFileSync(s.dbFile, 'utf8')).users[0];
   assert.ok(auth.verifyPassword('brand-new-passwordA1!', stored.passwordHash));
   assert.ok(!auth.verifyPassword('a-good-long-passwordA1!', stored.passwordHash));
+
 
   // No password means "give me one to read out", and then they must change it.
   r = await s.call('POST', url, { currentPassword: CLUB_PASSWORD });
@@ -179,6 +188,7 @@ test('users API: once sessions name a volunteer, only an owner may manage people
 
   const owner = (await s.call('POST', '/api/users', { username: 'jane', role: 'owner', password: 'a-good-long-passwordA1!' })).body.user;
   const editor = (await s.call('POST', '/api/users', { username: 'sam', role: 'editor', password: 'a-good-long-passwordA1!' })).body.user;
+
   const db = () => JSON.parse(fs.readFileSync(s.dbFile, 'utf8')).users;
 
   signedInAs = db().find((u) => u.id === editor.id);
@@ -186,6 +196,7 @@ test('users API: once sessions name a volunteer, only an owner may manage people
   assert.equal(r.status, 403);
   assert.match(r.body.error, /Only an owner/);
   assert.equal((await s.call('POST', '/api/users', { username: 'kit', password: 'a-good-long-passwordA1!' })).status, 403);
+
   assert.equal((await s.call('PATCH', `/api/users/${editor.id}`, { role: 'owner' })).status, 403, 'an editor cannot promote themselves');
   assert.equal((await s.call('DELETE', `/api/users/${owner.id}`)).status, 403);
 
@@ -204,6 +215,7 @@ test('users API: once sessions name a volunteer, only an owner may manage people
   const url = `/api/users/${editor.id}/password-reset`;
   assert.equal((await s.call('POST', url, { currentPassword: CLUB_PASSWORD })).status, 403);
   r = await s.call('POST', url, { currentPassword: 'a-good-long-passwordA1!' });
+
   assert.equal(r.status, 200);
   assert.ok(auth.verifyPassword(r.body.temporaryPassword, db().find((u) => u.id === editor.id).passwordHash));
 });
@@ -211,6 +223,7 @@ test('users API: once sessions name a volunteer, only an owner may manage people
 test('users API: repeated wrong answers to the reset prompt are rate limited', async (t) => {
   const s = await startServer(t);
   const jane = (await s.call('POST', '/api/users', { username: 'jane', role: 'owner', password: 'a-good-long-passwordA1!' })).body.user;
+
   const url = `/api/users/${jane.id}/password-reset`;
 
   for (let i = 0; i < 10; i += 1) {

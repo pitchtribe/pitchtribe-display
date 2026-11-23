@@ -17,6 +17,7 @@ const { mountUserRoutes } = require('./user-routes');
 const um = require('./user-model');
 const setup = require('./setup');
 const { AuditLogger } = require('./audit-log');
+
 const { osUpdateView } = require('./os-update');
 const { createHealth } = require('./health');
 const { Feeds, LEAGUE_KEY_RE, SHOW_OPTIONS } = require('./feeds');
@@ -39,11 +40,10 @@ const MEDIA_TYPES = {
   'video/mp4': ['video', '.mp4'],
   'video/webm': ['video', '.webm'],
   'video/quicktime': ['video', '.mov'],
-  'audio/mpeg': ['audio', '.mp3'],
 };
 
-const ASSET_TYPES = ['image', 'video', 'url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget'];
-const TEXT_TYPES = ['url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget'];
+const ASSET_TYPES = ['image', 'video', 'url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget', 'sponsor'];
+const TEXT_TYPES = ['url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget', 'sponsor'];
 const WIDGET_KINDS = ['clock', 'worldclock', 'weather', 'joke', 'phrase', 'trivia', 'quiz', 'history', 'emoji', 'geoquiz', 'country', 'spotball',
   'transport', 'bankholiday', 'floods', 'carbon', 'quakes', 'currency', 'potd', 'births', 'sky', 'headlines', 'events'];
 const CURRENCIES = ['AUD', 'BGN', 'BRL', 'CAD', 'CHF', 'CNY', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD', 'HUF', 'IDR', 'ILS', 'INR', 'ISK', 'JPY', 'KRW', 'MXN', 'MYR', 'NOK', 'NZD', 'PHP', 'PLN', 'RON', 'SEK', 'SGD', 'THB', 'TRY', 'USD', 'ZAR'];
@@ -52,7 +52,7 @@ const WIDGET_DURATION = { clock: 15, worldclock: 15, weather: 15, joke: 14, phra
   transport: 20, bankholiday: 12, floods: 12, carbon: 14, quakes: 14, currency: 12, potd: 15, births: 15, sky: 12, headlines: 18, events: 18 };
 const DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const GRID = { cols: 10, rows: 8 };
-const DEFAULT_DURATION = { image: 10, video: 0, url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, league: 25, widget: 15 };
+const DEFAULT_DURATION = { image: 10, video: 0, url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, league: 25, widget: 15, sponsor: 20 };
 const NOTICE_STYLES = ['default', 'accent', 'amber', 'alert', 'light'];
 const ROTATIONS = [0, 90, 180, 270];
 const MAX_SCREENS = 200;
@@ -316,7 +316,12 @@ function createApp(opts = {}) {
       }),
     };
     if (type === 'image' || type === 'video') {
-      a.fit = v.oneOf(body.fit ?? existing.fit, ['contain', 'cover'], 'contain');
+      a.fit = v.oneOf(body.fit ?? existing.fit, type === 'image' ? ['contain', 'cover', 'blur', 'color'] : ['contain', 'cover'], 'contain');
+      if (type === 'image') {
+        const color = body.backgroundColor ?? existing.backgroundColor ?? '#162943';
+        if (!/^#[0-9a-fA-F]{6}$/.test(color)) throw v.bad('Background colour must be a six-digit hex colour');
+        a.backgroundColor = color;
+      }
     }
     if (type === 'video') a.muted = v.bool(body.muted, existing.muted ?? true);
     if (type === 'url') a.url = v.httpUrl(body.url ?? existing.url);
@@ -377,7 +382,30 @@ function createApp(opts = {}) {
         show: v.oneOf(c.show, SHOW_OPTIONS, 'all'),
         // Room for a full weekend across several leagues: the slide scrolls what
         // it cannot fit, so the cap is about the size of the feed, not the screen.
-        limit: v.int(c.limit, { min: 1, max: 30, fallback: 10 }),
+        limit: v.int(c.limit, { min: 1, max: 100, fallback: 10 }),
+      };
+    }
+    if (type === 'sponsor') {
+      const SPONSOR_TIERS = ['gold', 'silver', 'bronze', 'partner'];
+      const raw = Array.isArray(c.sponsors) ? c.sponsors.slice(0, 50) : [];
+      a.content = {
+        title: v.str(c.title, { max: 200, field: 'Title' }),
+        layout: v.oneOf(c.layout, ['grid', 'row'], 'grid'),
+        sponsors: raw
+          .map((s) => {
+            const logoAssetId = s?.logoAssetId || null;
+            const logoAsset = logoAssetId ? data().assets.find((x) => x.id === logoAssetId && x.type === 'image') : null;
+            const logoUrl = !logoAsset && typeof s?.logoUrl === 'string' ? s.logoUrl.trim().slice(0, 2048) : '';
+            return {
+              name: v.str(s?.name, { max: 100, field: 'Sponsor name' }),
+              tagline: v.str(s?.tagline, { max: 200, field: 'Tagline' }),
+              tier: v.oneOf(s?.tier, SPONSOR_TIERS, null) || '',
+              ...(logoAsset ? { logoAssetId: logoAsset.id } : {}),
+              ...(logoUrl ? { logoUrl } : {}),
+            };
+          })
+          .filter((s) => s.name),
+
       };
     }
     return a;
@@ -579,16 +607,30 @@ function createApp(opts = {}) {
   }
 
   function resolveContent(content, assets) {
-    if (!content || content.mode !== 'bar') return content;
-    return {
-      ...content,
-      drinks: (content.drinks || []).map((d) => {
-        if (!d.logoAssetId) return d;
-        const a = assets.get(d.logoAssetId);
-        const src = a ? mediaUrl(a) : undefined;
-        return src ? { ...d, logoSrc: src } : d;
-      }),
-    };
+    if (!content) return content;
+    if (content.mode === 'bar') {
+      return {
+        ...content,
+        drinks: (content.drinks || []).map((d) => {
+          if (!d.logoAssetId) return d;
+          const a = assets.get(d.logoAssetId);
+          const src = a ? mediaUrl(a) : undefined;
+          return src ? { ...d, logoSrc: src } : d;
+        }),
+      };
+    }
+    if (Array.isArray(content.sponsors)) {
+      return {
+        ...content,
+        sponsors: content.sponsors.map((s) => {
+          if (!s.logoAssetId) return s;
+          const a = assets.get(s.logoAssetId);
+          const src = a ? mediaUrl(a) : undefined;
+          return src ? { ...s, logoSrc: src } : s;
+        }),
+      };
+    }
+    return content;
   }
 
   function buildManifest(playlist, screen) {
@@ -608,6 +650,7 @@ function createApp(opts = {}) {
         src: mediaUrl(a),
         url: a.url,
         fit: a.fit,
+        backgroundColor: a.backgroundColor,
         muted: a.muted,
         content: resolveContent(a.content, assets),
         data: slideData(a, assets),
@@ -719,6 +762,7 @@ function createApp(opts = {}) {
       stage: state.stage,
       migrationRequired: state.migrationRequired,
       sharedPassword: state.sharedPassword,
+
       // A freshly flashed card: offer to restore a backup instead of starting again.
       ...(setupRequired ? { restore: backups.setupInfo() } : {}),
     });
@@ -780,6 +824,7 @@ function createApp(opts = {}) {
     '/api/auth/login',
     route((req, res) => {
       if (limiter.blocked(req.ip)) { audit.logLoginLocked(req.ip); throw new v.HttpError(429, 'Too many attempts — wait 15 minutes and try again'); }
+
       const password = String(req.body.password || '');
       const username = req.body.username === undefined ? '' : um.normalizeUsername(req.body.username);
 
@@ -795,6 +840,7 @@ function createApp(opts = {}) {
       if (!ok) {
         limiter.fail(req.ip);
         audit.logLoginFailure(req.ip, 'Invalid credentials');
+
         /* A username nobody has, a suspended account and a wrong password all
            get the same answer: which of the three it was is not something to
            tell a stranger on the clubhouse wifi. */
@@ -802,6 +848,7 @@ function createApp(opts = {}) {
       }
       limiter.reset(req.ip);
       audit.logLoginSuccess(req.ip, { userId: user?.id || null });
+
 
       if (!user) {
         return res.set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret), req)).json({ ok: true });
@@ -940,12 +987,14 @@ function createApp(opts = {}) {
       if (limiter.blocked(req.ip)) throw new v.HttpError(429, 'Too many attempts');
       if (next === req.body.current) throw v.bad('Choose a different password');
 
+
       /* A volunteer signed in as themselves changes their own password here —
          the club's shared one is not theirs to change. Their other cookies stop
          working (um.setPassword stamps the account) and this one is replaced, so
          nobody else is signed out and the screens carry on. */
       if (me) {
         if (!um.verifyUserPassword(me, req.body.current)) { limiter.fail(req.ip); audit.logPasswordChange(req.ip, false); throw v.bad('Current password is wrong'); }
+
         um.password(next, { username: me.username }); // throws before anything is written
         store.touch(
           (d) => {
@@ -955,6 +1004,7 @@ function createApp(opts = {}) {
         );
         limiter.reset(req.ip);
         audit.logPasswordChange(req.ip, true, { userId: me.id });
+
         return res
           .set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret, me.id), req))
           .json({ ok: true });
@@ -964,6 +1014,7 @@ function createApp(opts = {}) {
       // shared session out, which is the point: they were all the same login.
       if (!auth.verifyPassword(req.body.current, data().settings.adminHash)) { limiter.fail(req.ip); audit.logPasswordChange(req.ip, false); throw v.bad('Current password is wrong'); }
       um.password(next);
+
       store.touch(
         (d) => {
           d.settings.adminHash = auth.hashPassword(next);
@@ -1200,7 +1251,7 @@ function createApp(opts = {}) {
     route(async (req, res) => {
       const mime = String(req.get('content-type') || '').split(';')[0].trim().toLowerCase();
       const kind = MEDIA_TYPES[mime];
-      if (!kind) throw new v.HttpError(415, 'Unsupported file type. Use JPG, PNG, GIF, WebP, SVG, MP4, WebM, MOV or MP3.');
+      if (!kind) throw new v.HttpError(415, 'Unsupported file type. Use JPG, PNG, GIF, WebP, SVG, MP4, WebM or MOV.');
       const declared = Number(req.get('content-length') || 0);
       if (declared > maxUploadBytes) throw new v.HttpError(413, 'File is too large');
       let originalName = 'Upload';
@@ -1231,16 +1282,6 @@ function createApp(opts = {}) {
       if (size === 0) {
         fs.rmSync(tmp, { force: true });
         throw v.bad('The file is empty');
-      }
-      if (type === 'audio') {
-        const head = Buffer.alloc(3);
-        const fd = fs.openSync(tmp, 'r');
-        try { fs.readSync(fd, head, 0, head.length, 0); } finally { fs.closeSync(fd); }
-        // MP3 commonly begins with an ID3 tag; tagless files begin with an MPEG frame sync.
-        if (!(head.toString('ascii') === 'ID3' || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0))) {
-          fs.rmSync(tmp, { force: true });
-          throw v.bad('This file does not appear to be an MP3 audio file');
-        }
       }
       fs.renameSync(tmp, final);
       const now = new Date().toISOString();

@@ -17,6 +17,7 @@ const rejects = (fn, re) => assert.throws(fn, (err) => err.status === 400 && re.
 test('a new record carries everything the dashboard needs, and the password only as a hash', () => {
   const user = um.createUser({ username: 'Jane.Smith', name: 'Jane Smith', email: 'Jane@Club.Example', password: 'correct horseA1!' });
 
+
   assert.equal(user.username, 'jane.smith', 'stored lower-case');
   assert.equal(user.email, 'jane@club.example');
   assert.equal(user.role, 'editor', 'the safe default: content, not settings or people');
@@ -73,6 +74,7 @@ test('an unknown role is not a way to grant one', () => {
 test('what each role may do', () => {
   const by = (role) => um.createUser({ username: 'someone', role, password: 'a good passwordA1!' });
 
+
   for (const capability of ['view', 'content', 'settings', 'users']) assert.ok(um.can(by('owner'), capability), `owner: ${capability}`);
   assert.ok(um.can(by('editor'), 'content'), 'an editor puts things on the screens');
   assert.ok(!um.can(by('editor'), 'settings'));
@@ -97,6 +99,7 @@ test('a suspended account cannot sign in, and neither can a record with no hash'
 test('an edit keeps the fields the form left out', () => {
   const user = um.createUser({ username: 'jane', name: 'Jane Smith', email: 'jane@club.example', role: 'owner', password: 'a good passwordA1!' });
   const users = [user, um.createUser({ username: 'jim', role: 'owner', password: 'a good passwordA1!' })];
+
   const hash = user.passwordHash;
 
   um.applyUpdate(user, { name: 'Jane S' }, { users });
@@ -112,6 +115,7 @@ test('an edit keeps the fields the form left out', () => {
 
 test('an edit cannot take a username another volunteer already has', () => {
   const users = [um.createUser({ username: 'jane', password: 'a good passwordA1!' }), um.createUser({ username: 'jim', password: 'a good passwordA1!' })];
+
   rejects(() => um.applyUpdate(users[1], { username: 'Jane' }, { users }), /already taken/);
   assert.ok(um.applyUpdate(users[1], { username: 'jim', name: 'Jim' }, { users }), 'keeping your own username is not a clash');
 });
@@ -120,12 +124,14 @@ test('the last owner cannot be demoted, suspended or removed', () => {
   const chair = owner();
   const users = [chair, um.createUser({ username: 'helper', password: 'a good passwordA1!' })];
 
+
   rejects(() => um.applyUpdate(chair, { role: 'editor' }, { users }), /at least one owner/);
   rejects(() => um.applyUpdate(chair, { active: false }, { users }), /at least one owner/);
   rejects(() => um.assertRemovable(chair, users), /at least one owner/);
 
   // With a second owner in place, the first may stand down.
   const treasurer = um.createUser({ username: 'treasurer', role: 'owner', password: 'a good passwordA1!' }, { users });
+
   users.push(treasurer);
   assert.ok(um.assertRemovable(chair, users));
   um.applyUpdate(chair, { role: 'editor' }, { users });
@@ -138,6 +144,7 @@ test('the last owner cannot be demoted, suspended or removed', () => {
 test('a suspended owner does not count as the owner who has to stay', () => {
   const chair = owner({ username: 'chair' });
   const retired = um.createUser({ username: 'retired', role: 'owner', password: 'a good passwordA1!' });
+
   retired.active = false;
   const users = [chair, retired];
   rejects(() => um.applyUpdate(chair, { role: 'editor' }, { users }), /at least one owner/);
@@ -162,6 +169,7 @@ test('setting a new password clears the starter-password flag', () => {
 
 test('lookups find people by id, username and email, whatever the case', () => {
   const jane = um.createUser({ username: 'jane', email: 'jane@club.example', password: 'a good passwordA1!' });
+
   const users = [jane];
 
   assert.equal(um.findById(users, jane.id), jane);
@@ -175,6 +183,7 @@ test('lookups find people by id, username and email, whatever the case', () => {
 
 test('a user never reaches the browser with its password hash', () => {
   const user = um.createUser({ username: 'jane', password: 'a good passwordA1!', role: 'owner' });
+
   user.lastLoginAt = '2026-11-20T10:00:00.000Z';
 
   const view = um.publicUser(user);
@@ -192,6 +201,7 @@ test('the people list reads owners first, then alphabetically', () => {
     um.createUser({ username: 'adam', role: 'viewer', password: 'a good passwordA1!' }),
     um.createUser({ username: 'chair', role: 'owner', password: 'a good passwordA1!' }),
     um.createUser({ username: 'amy', password: 'a good passwordA1!' }),
+
   ];
   assert.deepEqual(um.usersView(users).map((u) => u.username), ['chair', 'amy', 'zoe', 'adam']);
   assert.deepEqual(um.usersView([]), []);
@@ -207,11 +217,13 @@ test('the store starts with an empty people list and keeps it across a save', ()
     assert.equal(store.data.schemaVersion, 2);
 
     const jane = um.createUser({ username: 'jane', password: 'a good passwordA1!', role: 'owner' });
+
     store.mutate((d) => d.users.push(jane));
 
     const reopened = new Store(file);
     assert.equal(reopened.data.users.length, 1);
     assert.ok(um.verifyUserPassword(reopened.data.users[0], 'a good passwordA1!'), 'the hash survives the round trip');
+
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -235,6 +247,7 @@ test('a database written before user logins still opens', () => {
     assert.ok(um.needsUserMigration(store.data), 'and the club is told it has an owner account to create');
 
     store.mutate((d) => d.users.push(um.createUser({ username: 'chair', password: 'a good passwordA1!', role: 'owner' })));
+
     assert.ok(!um.needsUserMigration(store.data), 'once somebody is on the list, there is nothing to migrate');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
