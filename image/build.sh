@@ -199,8 +199,8 @@ if [[ -f "$CONFIG_TXT" ]] && ! grep -q '^# PitchTribe hardening' "$CONFIG_TXT"; 
 # PitchTribe hardening
 # No rainbow splash before the kiosk takes the screen.
 disable_splash=1
-# No serial console: on a Pi the UART pins are a root shell for anyone who can
-# reach the board, and nothing in PitchTribe uses them.
+# No serial console. Owner key retrieval loads a runtime UART overlay only
+# after the GPIO17 hold and removes it after the bounded local window.
 enable_uart=0
 # Nothing here speaks Bluetooth, so switch the radio off rather than leave it
 # listening. Wi-Fi stays on — the guest portal and club network need it.

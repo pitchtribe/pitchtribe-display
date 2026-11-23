@@ -34,6 +34,7 @@ ADDR=10.42.0.1
 PREFIX=22
 PORTAL_PORT=8082
 DRY="${PORTAL_DRY_RUN:-}"
+SETUP_ACTIVE="${PITCHTRIBE_SETUP_ACTIVE:-/run/pitchtribe-setup/active}"
 
 run() { if [[ -n "$DRY" ]]; then echo "+ $*"; else "$@"; fi; }
 
@@ -77,7 +78,22 @@ if [[ "$ENABLED" != 1 ]]; then
   run nft delete table inet pitchtribe_portal 2>/dev/null || true
   release_ports
   run ip link delete "$BRIDGE" 2>/dev/null || true
+  # A previous guest session may have marked wlan0 unmanaged. Hand it back to
+  # NetworkManager so station mode (including offline onboarding) can work.
+  nm_conf="$ETC/NetworkManager/conf.d/99-pitchtribe-portal.conf"
+  if [[ -f "$nm_conf" ]]; then
+    run rm -f "$nm_conf"
+    run systemctl reload NetworkManager 2>/dev/null || true
+  fi
   exit 0
+fi
+
+# Setup owns the radio for its bounded physical-button window. A dashboard
+# write or udev re-apply must never start the open guest AP during that window.
+if [[ -e "$SETUP_ACTIVE" ]]; then
+  echo "setup Wi-Fi owns the radio; refusing guest Wi-Fi activation" >&2
+  run systemctl stop pitchtribe-portal.service hostapd.service dnsmasq.service || true
+  exit 1
 fi
 
 if [[ -z "$WIFI_IF" && -z "$WIRED_IF" ]]; then

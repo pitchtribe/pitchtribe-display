@@ -1,0 +1,17 @@
+[Unit]
+Description=Physical-button-gated owner setup credential retrieval
+Requires=pitchtribe-setup-identity.service
+After=pitchtribe-setup-identity.service
+ConditionPathExists=/proc/device-tree/model
+
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/pitchtribe/setup-serial.py
+ExecStopPost=-/usr/bin/dtoverlay -r uart0
+Restart=always
+RestartSec=3
+TimeoutStopSec=5
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
