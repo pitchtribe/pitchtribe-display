@@ -9,9 +9,11 @@ builds it locally and requires internet access to download Node and npm packages
 ## Install
 
 1. Extract `pitchtribe-home-assistant.tar.gz`. Copy the entire `pitchtribe` folder
-   into the Home Assistant `/addons` directory, for example using the Samba app's
-   addons share. The result must include `/addons/pitchtribe/config.json`,
-   `/addons/pitchtribe/Dockerfile` and `/addons/pitchtribe/source/`.
+   into Home Assistant's `local_apps` share (or `/local_apps` through Terminal & SSH).
+   Older installations expose this as the `addons` share or `/addons`; use the
+   local-app folder provided by your installation. Inside it, the result must
+   include `pitchtribe/config.json`, `pitchtribe/Dockerfile` and
+   `pitchtribe/source/`. The Samba share app provides network access to this folder.
 2. In **Settings → Apps → Install app**, use the menu to check for updates/reload.
    Older Home Assistant versions call this **Add-ons → Add-on store**.
 3. Under **Local apps**, open **PitchTribe**, install it and start it. Enable
@@ -54,4 +56,6 @@ The health suite passed one check and failed eight because this development
 host reports low available memory (extra `memory-low` warnings). Docker image builds and a real Supervisor install
 must still be verified on a Home Assistant OS host before production use.
 
-Reference: https://developers.home-assistant.io/docs/apps/configuration
+References:
+- https://contributors.home-assistant.io/apps/first-app/
+- https://developers.home-assistant.io/docs/apps/configuration

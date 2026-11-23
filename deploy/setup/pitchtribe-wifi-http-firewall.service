@@ -1,0 +1,12 @@
+[Unit]
+Description=Restrict startup Wi-Fi HTTP access to the kiosk identity
+Before=pitchtribe-wifi-startup.service
+ConditionPathExists=/proc/device-tree/model
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/pitchtribe/wifi-http-firewall.sh
+
+[Install]
+WantedBy=multi-user.target

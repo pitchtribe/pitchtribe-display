@@ -279,12 +279,17 @@ def main():
 
 def cleanup_stale():
     # systemd invokes this on restart and stop, including after a forced kill.
-    for args in (('nmcli', 'connection', 'down', 'id', 'PitchTribe Temporary Setup'),
-                 ('nmcli', 'connection', 'delete', 'id', 'PitchTribe Temporary Setup'),
-                 ('dtoverlay', '-r', 'uart0')):
-        subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    (RUNTIME / 'setup.nmconnection').unlink(missing_ok=True)
-    ACTIVE.unlink(missing_ok=True)
+    # Cleanup changes the same wlan0/NetworkManager state as the setup window
+    # and guest portal. Serialize every caller, including systemd's pre/post
+    # hooks, with the shared radio lock.
+    with LOCK.open('a+') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        for args in (('nmcli', 'connection', 'down', 'id', 'PitchTribe Temporary Setup'),
+                     ('nmcli', 'connection', 'delete', 'id', 'PitchTribe Temporary Setup'),
+                     ('dtoverlay', '-r', 'uart0')):
+            subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        (RUNTIME / 'setup.nmconnection').unlink(missing_ok=True)
+        ACTIVE.unlink(missing_ok=True)
 
 
 if __name__ == '__main__':

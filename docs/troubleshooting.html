@@ -47,7 +47,10 @@
 
 <h3 id="no-wifi">The Pi doesn’t join the Wi-Fi</h3>
 <ul>
-  <li>The Wi-Fi name and password must be exactly right — they’re case-sensitive. The only way to change them is to write the card again with the correct details in Imager.</li>
+  <li>Check the Wi-Fi name and password are exactly right — they’re case-sensitive. If you can rewrite the card, enter them in Raspberry Pi Imager’s Wi-Fi customisation before writing it.</li>
+  <li>On a current PitchTribe image, the TV shows a Wi-Fi selection screen when the Pi has no Wi-Fi connection. Choose the venue’s network and enter its password. This works without an Ethernet cable, keyboard or setup button. If you have an older image, update PitchTribe first, or use the physical-button setup below.</li>
+  <li>On older images, with Guest Wi-Fi switched off, hold the setup button on the Pi for three seconds. From a nearby phone or laptop, join the temporary <code>PitchTribe-Setup-…</code> network and open <code>http://10.77.0.1:8088/</code>. Its password is available only through the owner setup UART; ask your installer if you do not have that connection.</li>
+  <li>The setup button opens the Wi-Fi setup window for five minutes. If it expires or the connection fails, hold the button for three seconds to try again. This setup is unavailable while Guest Wi-Fi is running.</li>
   <li>Networks with a sign-in page (like many guest networks) won’t work. Use the club’s main network.</li>
   <li>If the router is far away or behind thick walls, use a network cable instead.</li>
 </ul>

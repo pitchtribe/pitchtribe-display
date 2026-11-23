@@ -11,7 +11,8 @@ ExecStart=/usr/local/lib/pitchtribe/setup-network.py
 ExecStopPost=/usr/local/lib/pitchtribe/setup-network.py cleanup
 Restart=always
 RestartSec=3
-TimeoutStopSec=5
+# Stop cleanup may wait for an in-flight radio transaction to release its lock.
+TimeoutStopSec=90
 UMask=0077
 NoNewPrivileges=yes
 ProtectHome=yes
