@@ -57,8 +57,8 @@ jobs:
           missing=0
           # Translated pages: every language present, and every string translated.
           for l in fr es de it pt pl ru zh ja; do test -s dist/$l/index.html && test -s dist/$l/buy.html; done
-          npm run i18n:check -- --min-coverage=65 | tee /tmp/i18n.txt
-          if grep -q "missing:" /tmp/i18n.txt; then echo "::warning::Some website strings are not translated yet (they show in English)"; fi
+          npm run i18n:check -- --min-coverage=100 | tee /tmp/i18n.txt
+          if grep -q "missing:" /tmp/i18n.txt; then echo "::error::Website locale coverage is below 100%"; exit 1; fi
           for ref in $(grep -ohE '/assets/[A-Za-z0-9._-]+' dist/*.html dist/*/*.html | sort -u); do
             if [ ! -s "dist$ref" ]; then
               echo "::error::HTML references $ref but dist$ref is missing or empty"
