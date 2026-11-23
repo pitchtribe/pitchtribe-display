@@ -1,7 +1,9 @@
-# Pi 4/5 setup hardware and bench record
+# Pi 4 setup hardware and bench record
 
 This is an operator procedure. The phone-facing setup flow needs QA review and
 physical commissioning before release.
+Pi 4 commissioning is required for the release gate. Pi 5 commissioning is an
+optional compatibility check and is not a mandatory runbook requirement.
 
 ## Wiring and owner retrieval
 
@@ -20,13 +22,15 @@ physical commissioning before release.
   upgrade preserves it. After a deliberate local rotation, retrieve the new
   label and key over UART; rotation is rejected during an active setup window.
 
-## Pi 4 and Pi 5 commissioning checklist
+## Required Pi 4 commissioning checklist
 
-Perform each row on **both** models with a newly flashed image and a wired
-button. Record UTC time, model, image hash, and pass/fail in a private bench
-record. Never paste the UART contents or AP key into the record.
+Perform each row on a Pi 4 with a newly flashed image and a wired button.
+Record UTC time, model, image hash, and pass/fail in a private bench record.
+Never paste the UART contents or AP key into the record. The same checklist may
+be run on a Pi 5 as an optional compatibility check; Pi 5 results are not
+required to satisfy this runbook.
 
-### Startup screen acceptance (also required on both models)
+### Startup screen acceptance (required on Pi 4; optional on Pi 5)
 
 ### Local authorization checks (run on a development host or Pi)
 
@@ -61,7 +65,7 @@ real credentials:
    the nftables output rule and broker socket ownership enforce the boundary.
 
 These checks cover local process authorization only. They are not evidence of
-Pi 4/Pi 5 hardware commissioning; complete the model-specific checklist below.
+Pi 4 hardware commissioning; complete the required checklist below.
 
 With Guest Wi-Fi disabled and no saved station profile, boot with HDMI attached
 and no Ethernet. Confirm the on-screen picker appears, nearby networks scan,
@@ -102,12 +106,13 @@ still works. Check the kiosk starts if the local helper restarts during boot.
    `wlan0`; then repeat setup. Check that the setup address never serves the
    guest portal or dashboard.
 
-For each row on **both** Pi 4 and Pi 5, capture UTC timestamp, model, image
-SHA256, `systemctl status pitchtribe-setup-network.service`, `nmcli device
-status`, `ip -4 address show wlan0`, and the relevant redacted journal lines.
-Keep owner UART output and credentials out of shared logs. Confirm no station
-password appears in `journalctl`, browser history, app JSON, or world-readable
-files. Record the exact pass/fail and any NetworkManager error code privately.
+For each required Pi 4 row, capture UTC timestamp, model, image SHA256,
+`systemctl status pitchtribe-setup-network.service`, `nmcli device status`,
+`ip -4 address show wlan0`, and the relevant redacted journal lines. If running
+the optional Pi 5 check, capture the same evidence separately. Keep owner UART
+output and credentials out of shared logs. Confirm no station password appears
+in `journalctl`, browser history, app JSON, or world-readable files. Record the
+exact pass/fail and any NetworkManager error code privately.
 
 Current state: the identity, serial gate, AP controller, form, and station
 transition are installed in source. This checklist is a verification recipe,
