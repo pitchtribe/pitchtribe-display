@@ -584,7 +584,7 @@ function createApp(opts = {}) {
   }
 
   function sanitizePlaylist(body, existing) {
-    const assets = new Set(data().assets.map((a) => a.id));
+    const assets = new Map(data().assets.map((a) => [a.id, a]));
     const items = Array.isArray(body.items) ? body.items : existing.items;
     if (items.length > 500) throw v.bad('Too many items in one playlist');
     return {
@@ -592,7 +592,7 @@ function createApp(opts = {}) {
       showClock: v.bool(body.showClock, existing.showClock ?? true),
       ticker: v.str(body.ticker ?? existing.ticker, { max: 2000, field: 'Ticker' }),
       items: items
-        .filter((it) => it && assets.has(it.assetId))
+        .filter((it) => it && assets.has(it.assetId) && assets.get(it.assetId).type !== 'audio')
         .map((it) => ({
           id: typeof it.id === 'string' && /^[\w-]{1,32}$/.test(it.id) ? it.id : newId(),
           assetId: it.assetId,
@@ -1321,7 +1321,7 @@ function createApp(opts = {}) {
       const playlist = playlistId ? findOr404(data().playlists, playlistId, 'Playlist') : null;
       store.mutate((d) => {
         d.assets.push(asset);
-        if (playlist) playlist.items.push({ id: newId(), assetId: asset.id, enabled: true, duration: null, schedule: v.schedule({}) });
+        if (playlist && asset.type !== 'audio') playlist.items.push({ id: newId(), assetId: asset.id, enabled: true, duration: null, schedule: v.schedule({}) });
       });
       res.status(201).json(asset);
     })

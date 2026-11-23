@@ -130,6 +130,15 @@ test('content, playlists, timings and the screen manifest', async (t) => {
   assert.equal(r.body.type, 'audio');
   assert.equal(r.body.name, 'Matchday');
   assert.equal((await s.call('GET', r.body.src)).status, 200);
+  const audio = r.body;
+  r = await s.call('GET', '/api/state');
+  r = await s.call('PUT', `/api/playlists/${playlistId}`, {
+    items: [...r.body.playlists[0].items, { assetId: audio.id, enabled: true }],
+  });
+  assert.equal(r.status, 200);
+  assert.ok(r.body.items.every((item) => item.assetId !== audio.id), 'audio assets are excluded from saved signage playlists');
+  r = await s.call('GET', '/api/state');
+  assert.ok(r.body.playlists[0].items.every((item) => item.assetId !== audio.id), 'the persisted playlist remains free of audio assets');
   r = await s.call('POST', '/api/assets/upload', Buffer.from('not an mp3'), { raw: true, headers: { 'content-type': 'audio/mpeg' } });
   assert.equal(r.status, 400);
 

@@ -703,15 +703,17 @@
   // =============================================================== jukebox
   let jukeboxQueue = (() => { try { return JSON.parse(localStorage.getItem('pt_jukebox_queue') || '[]'); } catch { return []; } })();
   let jukeboxCurrent = null;
+  let jukeboxQueueIndex = -1;
   function viewJukebox() {
     const tracks = state.assets.filter((a) => a.type === 'audio' && a.src);
     const audio = h('audio', { controls: true, preload: 'metadata', class: 'jukebox-audio' });
     const now = h('strong', {}, jukeboxCurrent ? tracks.find((a) => a.id === jukeboxCurrent)?.name || 'Track unavailable' : 'Choose a track');
     const queue = h('div', { class: 'grid' });
     const persist = () => { try { localStorage.setItem('pt_jukebox_queue', JSON.stringify(jukeboxQueue)); } catch { /* private browsing */ } };
-    function play(track) {
+    function play(track, queueIndex = jukeboxQueue.indexOf(track?.id)) {
       if (!track) return;
       jukeboxCurrent = track.id;
+      jukeboxQueueIndex = queueIndex;
       now.textContent = track.name;
       audio.src = track.src;
       audio.play().catch(() => toast('Press play to start audio', 'error'));
@@ -721,14 +723,14 @@
         const track = tracks.find((a) => a.id === id);
         if (!track) return null;
         return h('div', { class: 'card', style: 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px' },
-          h('button', { class: 'btn ghost', type: 'button', onclick: () => play(track) }, `${index + 1}. ${track.name}`),
+          h('button', { class: 'btn ghost', type: 'button', onclick: () => play(track, index) }, `${index + 1}. ${track.name}`),
           h('button', { class: 'btn ghost', type: 'button', 'aria-label': `Remove ${track.name}`, onclick: () => { jukeboxQueue.splice(index, 1); persist(); drawQueue(); } }, 'Remove'));
       }));
     }
     audio.addEventListener('ended', () => {
-      const at = jukeboxQueue.indexOf(jukeboxCurrent);
-      const next = tracks.find((a) => a.id === jukeboxQueue[at + 1]);
-      if (next) play(next);
+      const nextIndex = window.PTJukeboxQueue.nextIndex(jukeboxQueueIndex, jukeboxQueue.length);
+      const next = tracks.find((a) => a.id === jukeboxQueue[nextIndex]);
+      if (next) play(next, nextIndex);
     });
     drawQueue();
     return shell('jukebox',
