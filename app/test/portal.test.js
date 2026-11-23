@@ -138,7 +138,7 @@ test('dashboard: portal settings, network file for the root helper, guest export
     const type = res.headers.get('content-type') || '';
     return { status: res.status, headers: res.headers, body: type.includes('json') ? await res.json() : await res.text() };
   };
-  await call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
 
   let r = await call('GET', '/api/portal');
   assert.equal(r.body.settings.enabled, false);
@@ -212,7 +212,7 @@ test('portal and dashboard meet only through DATA_DIR/portal, on a fresh card an
   const setup = await fetch(`${base}/api/auth/setup`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-pitchtribe': '1' },
-    body: JSON.stringify({ clubName: 'Riverside FC', password: 'correct horse' }),
+    body: JSON.stringify({ clubName: 'Riverside FC', password: 'correct horseA1!' }),
   });
   const cookie = (setup.headers.get('set-cookie') || '').split(';')[0];
   const get = (url) => fetch(base + url, { headers: { cookie, 'x-pitchtribe': '1' } });

@@ -20,7 +20,8 @@
 
    Nothing here reads or writes the database: callers pass in the data object
    from the store and persist the result (store.touch / Store.writeNow). */
-const crypto = require('node:crypto');
+const { generateSecurePassword } = require('./password-policy');
+
 
 const auth = require('./auth');
 const v = require('./validate');
@@ -70,7 +71,8 @@ function setupState(data) {
 /* A password nobody will ever type: the record is built through the model so
    every rule about it stays in one place, and the hash is then replaced with
    the club's existing one. */
-const placeholderPassword = () => crypto.randomBytes(18).toString('base64url');
+const placeholderPassword = generateSecurePassword;
+
 
 /** Build the club's first login, an owner by definition — somebody has to be
     able to add everyone else. Returns the record for the caller to persist.
@@ -130,7 +132,8 @@ function retireSharedPassword(data) {
    in — only somebody who knew the club's password, which grants everything
    there is to grant — so claiming the first owner asks no further question
    about who it is. Once there are logins, both routes here are spent. */
-function mountSetupRoutes({ api, store, limiter, adminHash = () => '', currentUser = () => null }) {
+function mountSetupRoutes({ api, store, limiter, adminHash = () => '', currentUser = () => null, audit }) {
+
   const data = () => store.data;
 
   const route = (fn) => (req, res, next) => {
@@ -157,6 +160,8 @@ function mountSetupRoutes({ api, store, limiter, adminHash = () => '', currentUs
       save((d) => {
         d.users.push(user);
       });
+      audit?.logAdminAction(req.ip, 'owner_migrated', { userId: user.id });
+
       res.status(201).json({
         user: um.publicUser(user),
         // Nothing to read out: this account signs in with the password the club
@@ -193,6 +198,8 @@ function mountSetupRoutes({ api, store, limiter, adminHash = () => '', currentUs
       save((d) => {
         retired = retireSharedPassword(d);
       });
+      audit?.logAdminAction(req.ip, 'shared_password_retired');
+
       res.json({
         retired,
         ...setupState(data()),

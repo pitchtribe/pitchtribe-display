@@ -1,10 +1,12 @@
 # Startup Wi-Fi HTTP authorization check
 
 This checklist verifies the local OS boundary for the startup Wi-Fi screen on
-both Raspberry Pi 4 and Raspberry Pi 5. It uses no Wi-Fi credentials. Run it
-on an installed image that includes the startup Wi-Fi service.
+an installed Raspberry Pi image that includes the startup Wi-Fi service. The
+reviewer-approved validation gate for this change accepts the completed Pi 4
+results; Pi 5 validation is waived because no Pi 5 is available. This checklist
+uses no Wi-Fi credentials.
 
-## On each Pi
+## On the target Pi
 
 1. Check the required services and identities:
 
@@ -53,11 +55,17 @@ on an installed image that includes the startup Wi-Fi service.
 
 ## Record and report
 
-Run all checks on both Pi models. Record model, image SHA-256, UTC time, and
-pass/fail for service state, firewall rule, kiosk request, non-kiosk denial,
-and portal coexistence (where applicable). Return only those sanitized
-results. Do not include credentials, UART output, or full environment files.
+Record the model, image SHA-256, UTC time, and pass/fail for service state,
+firewall rule, kiosk request, non-kiosk denial, and portal coexistence (where
+applicable). Return only those sanitized results. Do not include credentials,
+UART output, or full environment files.
 
 These checks verify the installed-image behavior; source syntax checks alone
-do not prove Pi 4/Pi 5 firewall behavior. Keep the startup credential flow
-gated until the hardware results are reviewed by Security.
+do not prove firewall behavior on other hardware. For this change, Security
+reviewed the supplied Pi 4 results (2026-11-23T20:04:10Z; image SHA-256
+`72d1d7b8a36c632d07da3c010907fafd64136e1a11e269da3046800c8bce142e`):
+services active, kiosk UID 1001 received HTTP 303, non-kiosk access was rejected before HTTP, the UID-specific output
+reject rule was present, the startup and Guest Wi-Fi nftables tables coexisted,
+and reboot persistence was reported passed. Security found no remaining Pi 4
+authorization issue. Pi 5 validation is waived for this review by the owning
+reviewer; this waiver does not claim Pi 5 behavior was tested.

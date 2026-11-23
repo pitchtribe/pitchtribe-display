@@ -20,19 +20,21 @@
    older than the stamp. Nothing here rotates the club-wide signing secret,
    because one volunteer's reset must not log the screens-night team out
    mid-match. */
-const crypto = require('node:crypto');
+const { generateSecurePassword } = require('./password-policy');
+
 
 const auth = require('./auth');
 const v = require('./validate');
 const um = require('./user-model');
 
 /* A starter password, for when an owner adds somebody and would rather not
-   invent one. 12 random bytes — the volunteer is told it once, on screen, and
+   invent one. A policy-compliant random password — the volunteer is told it once, on screen, and
    has to replace it at first sign-in, so it is readable-ish rather than
    memorable. */
-const newTemporaryPassword = () => crypto.randomBytes(12).toString('base64url');
+const newTemporaryPassword = generateSecurePassword;
 
-function mountUserRoutes({ api, store, limiter, adminHash, currentUser = () => null }) {
+function mountUserRoutes({ api, store, limiter, adminHash, currentUser = () => null, audit }) {
+
   const data = () => store.data;
 
   const route = (fn) => (req, res, next) => {
@@ -101,6 +103,8 @@ function mountUserRoutes({ api, store, limiter, adminHash, currentUser = () => n
       save((d) => {
         d.users.push(user);
       });
+      audit?.logAdminAction(req.ip, 'user_created', { userId: user.id });
+
       res.status(201).json({ user: um.publicUser(user), ...(temporary ? { temporaryPassword: password } : {}) });
     })
   );
@@ -134,6 +138,8 @@ function mountUserRoutes({ api, store, limiter, adminHash, currentUser = () => n
       save((d) => {
         um.applyUpdate(um.findById(d.users, user.id), body, { users: d.users });
       });
+      audit?.logAdminAction(req.ip, 'user_updated', { userId: user.id });
+
       res.json({ user: um.publicUser(um.findById(data().users, req.params.id)) });
     })
   );
@@ -148,6 +154,8 @@ function mountUserRoutes({ api, store, limiter, adminHash, currentUser = () => n
       save((d) => {
         d.users = d.users.filter((u) => u.id !== user.id);
       });
+      audit?.logAdminAction(req.ip, 'user_removed', { userId: user.id });
+
       res.json({ ok: true, removed: user.id });
     })
   );
@@ -183,6 +191,8 @@ function mountUserRoutes({ api, store, limiter, adminHash, currentUser = () => n
         // volunteer chose and typed themselves is theirs to keep.
         target.mustChangePassword = temporary;
       });
+      audit?.logPasswordReset(req.ip, { userId: user.id });
+
       res.json({
         user: um.publicUser(um.findById(data().users, req.params.id)),
         ...(temporary ? { temporaryPassword: password } : {}),

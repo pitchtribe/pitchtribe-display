@@ -39,7 +39,8 @@ const USERNAME_MIN = 3;
 // phone keyboard and read it off a note pinned in the clubhouse, so no spaces,
 // no capitals to get wrong, and no leading punctuation.
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,31}$/;
-const PASSWORD_MIN = 8;
+const { validatePassword, MIN_LENGTH: PASSWORD_MIN } = require('./password-policy');
+
 const PASSWORD_MAX = 200;
 
 /** Usernames are compared and stored lower-case: 'Jane' and 'jane' are one person. */
@@ -101,6 +102,9 @@ function password(value, { username: name = '' } = {}) {
   if (s.length < PASSWORD_MIN) throw v.bad(`Password must be at least ${PASSWORD_MIN} characters`);
   if (s.length > PASSWORD_MAX) throw v.bad(`Password is too long (max ${PASSWORD_MAX} characters)`);
   if (name && s.toLowerCase() === normalizeUsername(name)) throw v.bad('Password cannot be the same as the username');
+  const result = validatePassword(s);
+  if (!result.valid) throw v.bad(result.errors.join('; '));
+
   return s;
 }
 

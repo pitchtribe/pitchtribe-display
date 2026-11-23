@@ -16,6 +16,8 @@ const { mountRemoteAccessRoutes } = require('./remote-access-routes');
 const { mountUserRoutes } = require('./user-routes');
 const um = require('./user-model');
 const setup = require('./setup');
+const { AuditLogger } = require('./audit-log');
+
 const { osUpdateView } = require('./os-update');
 const { createHealth } = require('./health');
 const { Feeds, LEAGUE_KEY_RE, SHOW_OPTIONS } = require('./feeds');
@@ -77,6 +79,8 @@ function createApp(opts = {}) {
   const store = new Store(path.join(dataDir, 'db.json'));
   const hub = new Hub();
   const limiter = new auth.LoginLimiter();
+  const audit = new AuditLogger({ logDir: path.join(dataDir, 'audit') });
+  audit.init();
   store.on('change', (revision) => hub.broadcast('changed', { revision }));
 
   // signage-server engine (sports + widgets), configured from dashboard settings.
@@ -188,7 +192,11 @@ function createApp(opts = {}) {
       const given = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '');
       const tokenOk =
         token && given.length === token.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(token));
-      const sessionOk = isAuthed(req) && req.get('x-pitchtribe') === '1';
+      const signed = session(req);
+      if (signed?.user && (signed.user.mustChangePassword || !um.can(signed.user, 'settings'))) {
+        return res.status(403).json({ error: 'Feed administration requires an owner with a completed password change' });
+      }
+      const sessionOk = signed && req.get('x-pitchtribe') === '1';
       if (!tokenOk && !sessionOk) {
         res.set('WWW-Authenticate', 'Bearer').status(401).json({ error: 'Unauthorized' });
         return;
@@ -249,6 +257,20 @@ function createApp(opts = {}) {
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.get('x-pitchtribe') !== '1') {
       return res.status(403).json({ error: 'Missing request header' });
     }
+    const user = sessionUser(req);
+    const pathname = req.path.replace(/\/$/, '').toLowerCase();
+    const selfPassword = pathname === '/settings/password' && req.method === 'POST';
+    const identity = pathname === '/api/auth/me' && ['GET', 'HEAD'].includes(req.method);
+    if (user?.mustChangePassword && !selfPassword && !identity) {
+      return res.status(403).json({ error: 'Change your password before continuing', code: 'PASSWORD_CHANGE_REQUIRED' });
+    }
+    if (user && !identity && !selfPassword) {
+      const sensitive = /^\/(settings|tls|backup|remote-access|portal|setup)(\/|$)/.test(pathname);
+      const mutation = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+      const content = /^\/(assets|playlists|screens)(\/|$)/.test(pathname);
+      const capability = sensitive ? 'settings' : mutation ? (content ? 'content' : 'settings') : 'view';
+      if (!um.can(user, capability)) return res.status(403).json({ error: 'Your role cannot perform this operation' });
+    }
     next();
   }
 
@@ -257,13 +279,13 @@ function createApp(opts = {}) {
     return { clubName: s.clubName, defaultPlaylistId: s.defaultPlaylistId, language: s.language || 'en' };
   };
 
-  function sportsView() {
+  function sportsView(includeSecrets = true) {
     const s = data().settings.sports;
     return {
       enabled: s.enabled,
       leagues: s.leagues,
       timezone: s.timezone,
-      apiToken: s.apiToken,
+      apiToken: includeSecrets ? s.apiToken : undefined,
       running: feeds.sportsOn,
       catalog: feeds.catalog.map(({ key, name }) => ({ key, name })),
       status: feeds.status(),
@@ -383,6 +405,7 @@ function createApp(opts = {}) {
             };
           })
           .filter((s) => s.name),
+
       };
     }
     return a;
@@ -738,6 +761,8 @@ function createApp(opts = {}) {
       // lib/setup.js).
       stage: state.stage,
       migrationRequired: state.migrationRequired,
+      sharedPassword: state.sharedPassword,
+
       // A freshly flashed card: offer to restore a backup instead of starting again.
       ...(setupRequired ? { restore: backups.setupInfo() } : {}),
     });
@@ -752,7 +777,7 @@ function createApp(opts = {}) {
       if (!setup.setupRequired(data())) throw new v.HttpError(409, 'Already set up');
       const clubName = v.str(req.body.clubName, { max: 80, required: true, field: 'Club name' });
       const password = String(req.body.password || '');
-      if (password.length < 8) throw v.bad('Password must be at least 8 characters');
+      um.password(password);
       store.mutate((d) => {
         d.settings.clubName = clubName;
         d.settings.adminHash = auth.hashPassword(password);
@@ -798,7 +823,8 @@ function createApp(opts = {}) {
   app.post(
     '/api/auth/login',
     route((req, res) => {
-      if (limiter.blocked(req.ip)) throw new v.HttpError(429, 'Too many attempts — wait 15 minutes and try again');
+      if (limiter.blocked(req.ip)) { audit.logLoginLocked(req.ip); throw new v.HttpError(429, 'Too many attempts — wait 15 minutes and try again'); }
+
       const password = String(req.body.password || '');
       const username = req.body.username === undefined ? '' : um.normalizeUsername(req.body.username);
 
@@ -813,12 +839,16 @@ function createApp(opts = {}) {
 
       if (!ok) {
         limiter.fail(req.ip);
+        audit.logLoginFailure(req.ip, 'Invalid credentials');
+
         /* A username nobody has, a suspended account and a wrong password all
            get the same answer: which of the three it was is not something to
            tell a stranger on the clubhouse wifi. */
         throw new v.HttpError(401, username ? 'Wrong username or password' : 'Wrong password');
       }
       limiter.reset(req.ip);
+      audit.logLoginSuccess(req.ip, { userId: user?.id || null });
+
 
       if (!user) {
         return res.set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret), req)).json({ ok: true });
@@ -835,6 +865,7 @@ function createApp(opts = {}) {
   );
 
   app.post('/api/auth/logout', (req, res) => {
+    audit.logLogout(req.ip);
     res.set('Set-Cookie', auth.clearCookie()).json({ ok: true });
   });
 
@@ -866,7 +897,7 @@ function createApp(opts = {}) {
   });
 
   // Remote access: switch SSH on or off (via the root helper).
-  mountRemoteAccessRoutes({ api, dataDir, limiter, adminHash: () => data().settings.adminHash, hashPassword: opts.hashSshPassword });
+  mountRemoteAccessRoutes({ api, dataDir, limiter, adminHash: (req) => sessionUser(req)?.passwordHash || data().settings.adminHash, hashPassword: opts.hashSshPassword });
 
   /* Settings → People: the club's dashboard logins. `currentUser` is how those
      routes find out whose rights to apply — the volunteer the session names, or
@@ -879,6 +910,7 @@ function createApp(opts = {}) {
     limiter,
     adminHash: () => data().settings.adminHash,
     currentUser: opts.currentUser || sessionUser,
+    audit,
   });
 
   /* Settings → People, first time through: turn the club's shared password into
@@ -889,6 +921,7 @@ function createApp(opts = {}) {
     limiter,
     adminHash: () => data().settings.adminHash,
     currentUser: opts.currentUser || sessionUser,
+    audit,
   });
 
   // Secure connection (Settings → Secure connection).
@@ -917,8 +950,8 @@ function createApp(opts = {}) {
       dashboardUrls: lanUrls(port),
       maxUploadMb: Math.round(maxUploadBytes / 1024 / 1024),
       languages: i18n.LANGUAGES.map(({ code, name }) => ({ code, name })),
-      sports: sportsView(),
-      widgets: widgetsView(),
+      sports: { ...sportsView(false), ...(um.can(sessionUser(req), 'settings') || !sessionUser(req) ? { apiToken: data().settings.sports.apiToken } : {}) },
+      widgets: um.can(sessionUser(req), 'settings') || !sessionUser(req) ? widgetsView() : { weather: data().settings.widgets.weather, kinds: feeds.widgetKinds },
       tls: tlsView(),
       // Settings → About. A few hundred bytes the root helper left behind last
       // night, read per request so a restart that became due at 03:30 is on the
@@ -951,13 +984,17 @@ function createApp(opts = {}) {
     route((req, res) => {
       const me = sessionUser(req);
       const next = String(req.body.next || '');
+      if (limiter.blocked(req.ip)) throw new v.HttpError(429, 'Too many attempts');
+      if (next === req.body.current) throw v.bad('Choose a different password');
+
 
       /* A volunteer signed in as themselves changes their own password here —
          the club's shared one is not theirs to change. Their other cookies stop
          working (um.setPassword stamps the account) and this one is replaced, so
          nobody else is signed out and the screens carry on. */
       if (me) {
-        if (!um.verifyUserPassword(me, req.body.current)) throw v.bad('Current password is wrong');
+        if (!um.verifyUserPassword(me, req.body.current)) { limiter.fail(req.ip); audit.logPasswordChange(req.ip, false); throw v.bad('Current password is wrong'); }
+
         um.password(next, { username: me.username }); // throws before anything is written
         store.touch(
           (d) => {
@@ -965,6 +1002,9 @@ function createApp(opts = {}) {
           },
           { immediate: true }
         );
+        limiter.reset(req.ip);
+        audit.logPasswordChange(req.ip, true, { userId: me.id });
+
         return res
           .set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret, me.id), req))
           .json({ ok: true });
@@ -972,8 +1012,9 @@ function createApp(opts = {}) {
 
       // The club's shared password. Rotating the secret with it signs every
       // shared session out, which is the point: they were all the same login.
-      if (!auth.verifyPassword(req.body.current, data().settings.adminHash)) throw v.bad('Current password is wrong');
-      if (next.length < 8) throw v.bad('New password must be at least 8 characters');
+      if (!auth.verifyPassword(req.body.current, data().settings.adminHash)) { limiter.fail(req.ip); audit.logPasswordChange(req.ip, false); throw v.bad('Current password is wrong'); }
+      um.password(next);
+
       store.touch(
         (d) => {
           d.settings.adminHash = auth.hashPassword(next);
@@ -981,6 +1022,8 @@ function createApp(opts = {}) {
         },
         { immediate: true }
       );
+      limiter.reset(req.ip);
+      audit.logPasswordChange(req.ip, true);
       res.set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret), req)).json({ ok: true });
     })
   );
@@ -1494,6 +1537,7 @@ function createApp(opts = {}) {
     feeds.close();
     hub.close();
     store.flush();
+    return audit.close();
   };
 
   // On every start, not only when the settings are saved: the portal cannot

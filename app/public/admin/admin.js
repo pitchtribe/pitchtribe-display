@@ -128,6 +128,7 @@
     refresh: 'M20 12a8 8 0 1 1-2.3-5.6 M20 4v5h-5',
     external: 'M14 4h6v6 M20 4l-9 9 M18 14v6H4V6h6',
     sponsor: 'M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 15.8l-4.9 2.4.9-5.5-4-3.9 5.5-.8z',
+
     people: 'M9 4.5a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7 M2.5 20v-1c0-2.5 2.9-4 6.5-4s6.5 1.5 6.5 4v1 M16.5 4.9a3.5 3.5 0 0 1 0 6.2 M18 15.3c2.1.6 3.5 1.9 3.5 3.7v1',
     key: 'M15 3a6 6 0 1 0-4.2 10.3L4 20v1h3v-2h2v-2h1.8A6 6 0 0 0 15 3z M16.5 7.5h.01',
   };
@@ -248,7 +249,9 @@
       boot();
       throw new Error(translate('Please sign in again'));
     }
+    if (data.code === 'PASSWORD_CHANGE_REQUIRED') { state = null; boot(); }
     if (!res.ok) throw new Error(translate(data.error) || localize`Request failed (${res.status})`);
+
     return data;
   }
 
@@ -266,7 +269,9 @@
       body: file,
     });
     const data = await res.json().catch(() => ({}));
+    if (data.code === 'PASSWORD_CHANGE_REQUIRED') { state = null; boot(); }
     if (!res.ok) throw new Error(translate(data.error) || localize`Restore failed (${res.status})`);
+
     return data;
   }
 
@@ -406,6 +411,11 @@
     ['settings', 'Settings', 'settings'],
   ];
 
+  let identity = null;
+  let setupInfo = null;
+  const can = (capability) => Boolean(identity?.can?.includes(capability));
+  const viewAllowed = (view) => view === 'people' ? can('users') : ['settings', 'wifi'].includes(view) ? can('settings') : true;
+
   function shell(active, ...content) {
     return [
       h('header', { class: 'topbar' },
@@ -414,6 +424,7 @@
           NAV.map(([key, label, ic]) => h('a', { href: `#/${key}`, 'aria-current': active === key ? 'page' : null }, icon(ic), translate(label)))),
         languagePicker(),
         h('button', { class: 'btn ghost icon', type: 'button', title: translate('Sign out'), 'aria-label': translate('Sign out'), onclick: logout }, icon('logout'))),
+
       h('main', { class: 'page' }, content),
     ];
   }
@@ -433,13 +444,14 @@
     const club = h('input', { type: 'text', name: 'club', autocomplete: 'organization', maxlength: 80, required: true, placeholder: translate('e.g. Riverside FC') });
     const username = h('input', { type: 'text', name: 'username', autocomplete: 'username', autocapitalize: 'none', spellcheck: false, required: true });
     const pw = h('input', { type: 'password', name: 'password', autocomplete: setup ? 'new-password' : 'current-password', required: true, minlength: setup ? 8 : null });
-    const pw2 = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 8 });
+    const pw2 = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 12 });
     const btn = h('button', { class: 'btn primary', type: 'submit' }, setup ? translate('Create dashboard') : translate('Sign in'));
     const form = h('form', { class: 'form-grid', onsubmit: submit },
       setup && h('label', { class: 'field' }, translate('Club name'), club),
       namedLogin && h('label', { class: 'field' }, translate('Username'), username),
-      h('label', { class: 'field' }, setup ? translate('Choose an admin password') : translate('Password'), pw, setup && h('span', { class: 'hint' }, translate('At least 8 characters. Share it with the volunteers who manage the screens.'))),
+      h('label', { class: 'field' }, setup ? translate('Choose an admin password') : translate('Password'), pw, setup && h('span', { class: 'hint' }, translate('At least 12 characters, including uppercase, lowercase, a number and a symbol. Share it with the volunteers who manage the screens.'))),
       setup && h('label', { class: 'field' }, translate('Confirm password'), pw2),
+
       err,
       btn);
 
@@ -454,6 +466,7 @@
       try {
         if (setup) await api('POST', '/auth/setup', { clubName: club.value, password: pw.value });
         else await api('POST', '/auth/login', { ...(namedLogin ? { username: username.value.trim() } : {}), password: pw.value });
+
         boot();
       } catch (ex) {
         err.textContent = ex.message;
@@ -470,6 +483,52 @@
             h('p', { class: 'muted', style: 'margin-top:6px' }, setup ? translate('Create the dashboard for your club’s screens.') : translate('Manage what’s on your club’s screens.'))),
           languagePicker(), form,
           setup ? restoreOnSetup(status) : null)));
+  }
+
+  function renderPasswordChange(required = true) {
+    state = null;
+    const current = h('input', { type: 'password', autocomplete: 'current-password', required: true });
+    const next = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 12 });
+    const repeat = h('input', { type: 'password', autocomplete: 'new-password', required: true });
+    const error = h('p', { role: 'alert' });
+    const form = h('form', { class: 'form-grid', onsubmit: async (e) => {
+      e.preventDefault();
+      if (next.value !== repeat.value) { error.textContent = 'The passwords don’t match'; return; }
+      try { await api('POST', '/settings/password', { current: current.value, next: next.value }); await boot(); }
+      catch (err) { error.textContent = err.message; }
+    } },
+    h('label', { class: 'field' }, 'Current password', current),
+    h('label', { class: 'field' }, 'New password', next),
+    h('p', {}, 'Use at least 12 characters, including uppercase, lowercase, a number and a symbol.'),
+    h('label', { class: 'field' }, 'Confirm new password', repeat), error,
+    h('button', { type: 'submit', class: 'btn primary' }, 'Replace password'),
+    !required && h('button', { type: 'button', onclick: boot }, 'Cancel'),
+    h('button', { type: 'button', onclick: logout }, 'Sign out'));
+    appEl.replaceChildren(h('div', { class: 'auth' }, h('div', { class: 'card' },
+      h('h1', {}, required ? 'Change your password to continue' : 'Change your password'), form)));
+  }
+
+  function migrationControls() {
+    if (!setupInfo?.sharedPassword) return null;
+    const error = h('p', { role: 'alert' });
+    const username = h('input', { name: 'ownerUsername', autocomplete: 'username', required: true, minlength: 3 });
+    const password = h('input', { type: 'password', autocomplete: 'current-password', required: true });
+    const migrating = setupInfo.migrationRequired;
+    const form = h('form', { class: 'card form-grid', onsubmit: async (e) => {
+      e.preventDefault();
+      try {
+        if (migrating) {
+          await api('POST', '/setup/owner', { username: username.value });
+          await api('POST', '/auth/logout', {});
+        } else await api('POST', '/setup/retire-shared-password', { currentPassword: password.value });
+        await boot();
+      } catch (err) { error.textContent = err.message; }
+    } }, h('h2', {}, migrating ? 'Create the first owner login' : 'Retire the shared password'),
+    h('p', {}, migrating ? 'Choose your username. Your existing club password will stay the same. Sign in by name afterwards.' : 'First confirm that an owner can sign in by name. Retiring the shared password signs out all shared sessions.'),
+    migrating ? h('label', { class: 'field' }, 'Owner username', username) : h('label', { class: 'field' }, 'Your current password', password),
+    error, h('button', { type: 'submit', class: 'btn primary', disabled: !migrating && identity?.shared }, migrating ? 'Create owner login' : 'Retire shared password'),
+    !migrating && identity?.shared && h('p', {}, 'Sign out and sign in with your owner username before retiring the shared password.'));
+    return form;
   }
 
   /** First-run screen: bring a club back from a USB stick or a backup file instead of starting again. */
@@ -702,6 +761,7 @@
 
   // ---------------------------------------------------------- asset editor
   function editAsset(asset) {
+    if (!can('content')) return;
     const isNew = !asset.id;
     const type = asset.type;
     const c = asset.content || {};
@@ -940,6 +1000,7 @@
         .map(([v, l]) => h('option', { value: v, selected: (c.show || 'all') === v }, translate(l))));
       f.limit = h('input', { type: 'number', min: 1, max: 100, value: c.limit || 10 });
       body.append(h('label', { class: 'field' }, translate('Heading on screen'), f.title));
+
       body.append(available.length
         ? h('div', { class: 'field' }, translate('Competitions'),
             h('div', { class: 'chips' }, available.map((l) => {
@@ -951,6 +1012,7 @@
         : h('p', { class: 'help' }, translate('Sports feeds are switched off. '), h('a', { href: '#/settings', onclick: () => m.close() }, translate('Choose leagues in Settings')), translate(' — this slide fills in once they are on.')));
       body.append(h('div', { class: 'row-2' }, h('label', { class: 'field' }, translate('Show'), f.show), h('label', { class: 'field' }, translate('At most (matches)'), f.limit)));
       body.append(h('p', { class: 'small muted' }, translate('More matches than fit on screen scroll past by themselves, and the slide stays up long enough to show them all. Scores update on screen by themselves too: every minute during live matches, every 10 minutes otherwise.')));
+
     }
     if (type === 'league') {
       // Full-Time has no public feed, so the club brings its own code snippets
@@ -2002,7 +2064,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       h('div', {}, h('button', { class: 'btn primary', type: 'submit' }, translate('Save'))));
 
     const cur = h('input', { type: 'password', autocomplete: 'current-password', required: true });
-    const next = h('input', { type: 'password', autocomplete: 'new-password', minlength: 8, required: true });
+    const next = h('input', { type: 'password', autocomplete: 'new-password', minlength: 12, required: true });
     const pw = h('form', {
       class: 'card panel-box form-grid',
       onsubmit: async (e) => {
@@ -2014,10 +2076,11 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         } catch (err) { toast(err.message, 'error'); }
       },
     },
-      h('h2', {}, translate('Admin password')),
-      h('label', { class: 'field' }, translate('Current password'), cur),
-      h('label', { class: 'field' }, translate('New password'), next, h('span', { class: 'hint' }, translate('At least 8 characters.'))),
-      h('div', {}, h('button', { class: 'btn', type: 'submit' }, translate('Change password'))));
+      h('h2', {}, 'Admin password'),
+      h('label', { class: 'field' }, 'Current password', cur),
+      h('label', { class: 'field' }, 'New password', next, h('span', { class: 'hint' }, 'At least 12 characters, with uppercase, lowercase, a number and a symbol.')),
+      h('div', {}, h('button', { class: 'btn', type: 'submit' }, 'Change password')));
+
 
     const sports = sportsCard();
     const widgetSettings = widgetsCard();
@@ -2629,18 +2692,20 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
   }
 
   function viewPeople() {
-    const head = h('div', { class: 'page-head' },
+    const head = h('div', {}, migrationControls(), h('div', { class: 'page-head' },
       h('div', {},
         h('h1', {}, translate('People')),
         h('p', {}, translate('Who can sign in to this dashboard. Give each volunteer their own login and one who moves on can be removed without the rest of the club learning a new password.'))),
       people && h('div', { class: 'actions' },
         h('button', { class: 'btn', type: 'button', onclick: loadPeople }, icon('refresh'), translate('Refresh')),
-        h('button', { class: 'btn primary', type: 'button', onclick: () => editPerson({}) }, icon('plus'), translate('Add person'))));
+        h('button', { class: 'btn primary', type: 'button', onclick: () => editPerson({}) }, icon('plus'), translate('Add person')))));
+
 
     if (!people) {
       if (!peopleError) {
         loadPeople();
         return shell('people', head, h('div', { class: 'card empty' }, translate('Loading…')));
+
       }
       // The server says which "no" this is — not an owner, or simply offline —
       // and says it better than a guess from the status code would.
@@ -2649,6 +2714,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         h('p', {}, peopleError),
         h('div', { class: 'actions', style: 'justify-content:center;margin-top:14px' },
           h('button', { class: 'btn', type: 'button', onclick: () => { peopleError = null; render(); loadPeople(); } }, icon('refresh'), translate('Try again')))));
+
     }
 
     const rows = people.users.map((u) => {
@@ -2672,6 +2738,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
             class: 'btn sm danger icon', type: 'button', disabled: self,
             'aria-label': localize`Remove ${personName(u)}`,
             title: self ? translate('You cannot remove your own account') : localize`Remove ${personName(u)}`,
+
             onclick: () => removePerson(u),
           }, icon('trash')))));
     });
@@ -2681,6 +2748,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       h('dl', { class: 'kv', style: 'margin-top:10px' },
         (people.roles || []).map((r) => [h('dt', {}, translate(ROLE_LABEL[r] || r)), h('dd', { class: 'wrap' }, translate(ROLE_BLURB[r] || ''))])),
       h('p', { class: 'small', style: 'margin-top:10px' }, translate('There is always at least one owner: PitchTribe will not let the last one be removed, suspended or demoted.')));
+
 
     const list = people.users.length
       ? h('div', { class: 'card panel-box stack', style: 'gap:14px' },
@@ -2698,6 +2766,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         h('p', {}, translate('Everyone who looks after the screens shares the one dashboard password. Add a person to give them a login of their own.')),
         h('div', { class: 'actions', style: 'justify-content:center;margin-top:14px' },
           h('button', { class: 'btn primary', type: 'button', onclick: () => editPerson({}) }, icon('plus'), translate('Add the first person'))));
+
 
     return shell('people', head, h('div', { class: 'stack', style: 'max-width:820px' }, list));
   }
@@ -2719,7 +2788,8 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       h('option', { value: r, selected: (user.role || 'editor') === r }, translate(ROLE_LABEL[r] || r))));
     const active = h('input', { type: 'checkbox', checked: user.active !== false, disabled: self });
     const password = isNew
-      ? h('input', { type: 'password', autocomplete: 'new-password', minlength: 8, maxlength: 200, placeholder: translate('Leave blank to make one up') })
+      ? h('input', { type: 'password', autocomplete: 'new-password', minlength: 12, maxlength: 200, placeholder: translate('Leave blank to make one up') })
+
       : null;
 
     const roleHint = h('span', { class: 'hint' });
@@ -2727,6 +2797,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       roleHint.textContent = self
         ? translate('You cannot change your own role — ask another owner to do it.')
         : translate(ROLE_BLURB[role.value] || '');
+
     };
     role.addEventListener('change', syncRoleHint);
     syncRoleHint();
@@ -2754,6 +2825,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       title: isNew ? 'Add a person' : localize`Edit ${personName(user)}`,
       body,
       footer: (close) => [h('button', { class: 'btn', type: 'button', onclick: close }, translate('Cancel')), submit],
+
     });
     setTimeout(() => username.focus(), 30);
 
@@ -2778,6 +2850,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         await loadPeople();
         if (res.temporaryPassword) showStarterPassword(res.user, res.temporaryPassword);
         else toast(isNew ? localize`${personName(res.user)} can now sign in` : 'Saved');
+
       } catch (e) {
         err.textContent = e.message;
         submit.disabled = false;
@@ -2799,6 +2872,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       footer: (close) => [
         h('button', { class: 'btn', type: 'button', onclick: () => navigator.clipboard?.writeText(secret).then(() => toast('Copied'), () => toast('Copy failed — read it off the screen instead', 'error')) }, icon('copy'), translate('Copy')),
         h('button', { class: 'btn primary', type: 'button', onclick: close }, translate('Done')),
+
       ],
     });
   }
@@ -2806,7 +2880,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
   /** Give somebody a new password — the owner's own password first. */
   function resetPersonPassword(user) {
     const err = h('p', { class: 'error-text', role: 'alert' });
-    const next = h('input', { type: 'password', autocomplete: 'new-password', minlength: 8, maxlength: 200, placeholder: translate('Leave blank to make one up') });
+    const next = h('input', { type: 'password', autocomplete: 'new-password', minlength: 12, maxlength: 200, placeholder: translate('Leave blank to make one up') });
     const current = h('input', { type: 'password', autocomplete: 'current-password', required: true });
 
     const body = h('form', { class: 'form-grid', onsubmit: (e) => { e.preventDefault(); go(); } },
@@ -2822,6 +2896,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       title: 'New password',
       body,
       footer: (close) => [h('button', { class: 'btn', type: 'button', onclick: close }, translate('Cancel')), submit],
+
     });
     setTimeout(() => next.focus(), 30);
 
@@ -2836,6 +2911,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         await loadPeople();
         if (res.temporaryPassword) showStarterPassword(res.user, res.temporaryPassword);
         else toast(localize`${personName(res.user)} has a new password`);
+
       } catch (e) {
         err.textContent = e.message;
         current.value = '';
@@ -2853,6 +2929,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     try {
       await api('DELETE', `/users/${encodeURIComponent(user.id)}`);
       toast(localize`${who} removed`);
+
       await loadPeople();
     } catch (err) {
       toast(err.message, 'error');
@@ -2869,6 +2946,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     if (!state) return;
     const focusedInApp = appEl.contains(document.activeElement);
     const r = parseRoute();
+    if (!viewAllowed(r.view)) r.view = 'content';
     currentView = r.view;
     if (r.view !== 'playlists' || !r.id) draft = null;
     if (r.view !== 'wifi') portal = null; // fresh stats each visit
@@ -2883,6 +2961,10 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     else nodes = viewContent();
     const y = window.scrollY;
     appEl.replaceChildren(...nodes);
+    if (!can('content')) {
+      appEl.querySelectorAll('main button, main input, main select, main textarea').forEach((el) => { el.disabled = true; });
+      appEl.querySelectorAll('main [draggable]').forEach((el) => { el.draggable = false; });
+    }
     window.scrollTo(0, y);
     // Replacing a view removes its focused control. Give keyboard users a
     // predictable landing place after an action that rebuilds the page.
@@ -2946,6 +3028,9 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     try {
       const status = await fetch('/api/auth/status', { credentials: 'same-origin' }).then((r) => r.json());
       if (!status.authenticated) return renderAuth(status);
+      identity = await api('GET', '/auth/me');
+      if (identity.user?.mustChangePassword) return renderPasswordChange();
+      setupInfo = can('users') ? await api('GET', '/setup/state') : null;
       await refresh();
       if (!location.hash) history.replaceState(null, '', '#/content');
       lastHash = location.hash;

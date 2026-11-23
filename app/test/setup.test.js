@@ -66,7 +66,8 @@ test('setup: the three stages a card can be at', () => {
     owners: 0,
   });
 
-  const withUsers = { settings: {}, users: [um.createUser({ username: 'jane', password: 'a good password', role: 'owner' })] };
+  const withUsers = { settings: {}, users: [um.createUser({ username: 'jane', password: 'a good passwordA1!', role: 'owner' })] };
+
   assert.equal(setup.stage(withUsers), 'users');
   assert.equal(setup.setupRequired(withUsers), false);
   assert.equal(setup.setupState(withUsers).migrationRequired, false, 'nothing left to migrate');
@@ -98,8 +99,9 @@ test('setup: the first owner adopts the club’s shared password', () => {
 
 test('setup: the first owner can choose their own password instead', () => {
   const data = sharedOnly();
-  const user = setup.firstOwner(data, { username: 'chair', password: 'a good long password' });
-  assert.ok(um.verifyUserPassword(user, 'a good long password'));
+  const user = setup.firstOwner(data, { username: 'chair', password: 'a good long passwordA1!' });
+  assert.ok(um.verifyUserPassword(user, 'a good long passwordA1!'));
+
   assert.ok(!um.verifyUserPassword(user, SHARED), 'and the shared one is not theirs');
   assert.notEqual(user.passwordHash, data.settings.adminHash);
 });
@@ -108,8 +110,9 @@ test('setup: the first owner is refused when there is nothing to adopt and nothi
   const fresh = { settings: {}, users: [] };
   assert.throws(() => setup.firstOwner(fresh), { status: 400, message: /Choose a password/ });
   // A fresh card is the setup wizard's job, which does set a password.
-  const user = setup.firstOwner(fresh, { username: 'chair', password: 'a good long password' });
-  assert.ok(um.verifyUserPassword(user, 'a good long password'));
+  const user = setup.firstOwner(fresh, { username: 'chair', password: 'a good long passwordA1!' });
+  assert.ok(um.verifyUserPassword(user, 'a good long passwordA1!'));
+
 });
 
 test('setup: there is only ever a first owner once, and the model’s rules still apply', () => {
@@ -140,11 +143,12 @@ test('setup: the shared password is only retired once somebody can sign in witho
   assert.equal(data.settings.adminHash, before, 'and the club is not locked out');
 
   // An editor is not a way back into the people list either.
-  data.users.push(um.createUser({ username: 'sam', password: 'a good password', role: 'editor' }, { users: data.users }));
+  data.users.push(um.createUser({ username: 'sam', password: 'a good passwordA1!', role: 'editor' }, { users: data.users }));
   assert.throws(() => setup.retireSharedPassword(data), { status: 400 });
 
   // Nor is an owner who has been switched off.
-  const chair = um.createUser({ username: 'chair', password: 'a good password', role: 'owner' }, { users: data.users });
+  const chair = um.createUser({ username: 'chair', password: 'a good passwordA1!', role: 'owner' }, { users: data.users });
+
   chair.active = false;
   data.users.push(chair);
   assert.throws(() => setup.retireSharedPassword(data), { status: 400 });
@@ -265,7 +269,8 @@ test('setup API: retiring the shared password asks for it first, then ends its s
   // …nor is the password itself, and nor is a second run of the setup wizard.
   s.clearCookie();
   assert.equal((await s.call('POST', '/api/auth/login', { password: SHARED })).status, 401);
-  assert.equal((await s.call('POST', '/api/auth/setup', { clubName: 'Hijack FC', password: 'a good long password' })).status, 409);
+  assert.equal((await s.call('POST', '/api/auth/setup', { clubName: 'Hijack FC', password: 'a good long passwordA1!' })).status, 409);
+
   assert.equal((await s.call('GET', '/api/auth/status')).body.setupRequired, false);
 
   // The owner signs in by name, with the password the club always used.
@@ -302,18 +307,20 @@ test('setup API: only an owner may change how the club signs in', async (t) => {
 
   await call('POST', '/api/auth/login', { password: SHARED });
   await call('POST', '/api/setup/owner', { username: 'chair' });
-  await call('POST', '/api/users', { username: 'sam', role: 'editor', password: 'a good long password' });
+  await call('POST', '/api/users', { username: 'sam', role: 'editor', password: 'a good long passwordA1!' });
   const users = () => JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8')).users;
 
   signedInAs = users().find((u) => u.username === 'sam');
-  let r = await call('POST', '/api/setup/retire-shared-password', { currentPassword: 'a good long password' });
+  let r = await call('POST', '/api/setup/retire-shared-password', { currentPassword: 'a good long passwordA1!' });
+
   assert.equal(r.status, 403);
   assert.match(r.body.error, /Only an owner/);
 
   signedInAs = users().find((u) => u.username === 'chair');
   // An owner is asked for their own password, which here is the one adopted
   // from the club's shared password.
-  assert.equal((await call('POST', '/api/setup/retire-shared-password', { currentPassword: 'a good long password' })).status, 403);
+  assert.equal((await call('POST', '/api/setup/retire-shared-password', { currentPassword: 'a good long passwordA1!' })).status, 403);
+
   r = await call('POST', '/api/setup/retire-shared-password', { currentPassword: SHARED });
   assert.equal(r.status, 200);
   assert.equal(r.body.retired, true);
@@ -368,9 +375,10 @@ test('create-admin: a later login gets a generated password, printed once', (t) 
   assert.equal(sam.mustChangePassword, true, 'a password this tool invented has to be replaced');
 
   // A password of the operator's choosing, from the environment.
-  assert.equal(runCli(['--username', 'kit', file], { env: { PT_PASSWORD: 'a good long password' } }).code, 0);
+  assert.equal(runCli(['--username', 'kit', file], { env: { PT_PASSWORD: 'a good long passwordA1!' } }).code, 0);
   const kit = new Store(file).data.users.find((u) => u.username === 'kit');
-  assert.ok(um.verifyUserPassword(kit, 'a good long password'));
+  assert.ok(um.verifyUserPassword(kit, 'a good long passwordA1!'));
+
   assert.equal(kit.mustChangePassword, false);
 });
 
@@ -379,12 +387,14 @@ test('create-admin: --retire-shared finishes the move in one go', (t) => {
   const file = path.join(dir, 'db.json');
   v1Database(file);
 
-  const r = runCli(['--username', 'chair', '--password', 'a good long password', '--retire-shared', file]);
+  const r = runCli(['--username', 'chair', '--password', 'a good long passwordA1!', '--retire-shared', file]);
+
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /shared dashboard password is off/);
   const data = new Store(file).data;
   assert.equal(data.settings.adminHash, '');
-  assert.ok(um.verifyUserPassword(data.users[0], 'a good long password'));
+  assert.ok(um.verifyUserPassword(data.users[0], 'a good long passwordA1!'));
+
 });
 
 test('create-admin: --list shows where the club has got to', (t) => {
@@ -424,14 +434,15 @@ test('create-admin: says what it cannot do instead of writing something wrong', 
 
   const short = runCli(['--username', 'chair', '--password', 'short', file]);
   assert.equal(short.code, 1);
-  assert.match(short.out, /at least 8 characters/);
+  assert.match(short.out, /at least 12 characters/);
 
   assert.equal(runCli(['--username', 'chair', file]).code, 0);
-  const clash = runCli(['--username', 'CHAIR', '--password', 'a good long password', file]);
+  const clash = runCli(['--username', 'CHAIR', '--password', 'a good long passwordA1!', file]);
   assert.equal(clash.code, 1);
   assert.match(clash.out, /already taken/);
 
-  const nameless = runCli(['--password', 'a good long password', file]);
+  const nameless = runCli(['--password', 'a good long passwordA1!', file]);
+
   assert.equal(nameless.code, 2);
   assert.match(nameless.out, /--username is needed/);
 

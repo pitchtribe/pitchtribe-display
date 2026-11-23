@@ -14,7 +14,8 @@ const um = require('../lib/user-model');
 
 const offline = async () => ({ ok: false, status: 503, json: async () => ({}), text: async () => '' });
 
-const CLUB_PASSWORD = 'correct horse battery';
+const CLUB_PASSWORD = 'correct horse batteryA1!';
+
 const OWNER = ['view', 'content', 'settings', 'users'];
 
 async function startServer(t) {
@@ -80,9 +81,10 @@ test('a shared-password session is nobody in particular, with an owner’s right
 
 test('a volunteer signs in by name and the session says who they are', async (t) => {
   const s = await startServer(t);
-  await s.addUser({ username: 'jane', name: 'Jane Doe', role: 'owner', password: 'a-good-long-password' });
+  await s.addUser({ username: 'jane', name: 'Jane Doe', role: 'owner', password: 'a-good-long-passwordA1!' });
 
-  const jane = await s.signIn('Jane', 'a-good-long-password');
+  const jane = await s.signIn('Jane', 'a-good-long-passwordA1!');
+
   assert.equal(jane.login.status, 200, 'the username is not case-sensitive');
   assert.equal(jane.login.body.user.username, 'jane');
   assert.equal(jane.login.body.user.mustChangePassword, false);
@@ -109,10 +111,11 @@ test('a starter password gets the volunteer in and asks for a new one', async (t
 
 test('sign-in does not say which volunteers exist', async (t) => {
   const s = await startServer(t);
-  await s.addUser({ username: 'jane', role: 'editor', password: 'a-good-long-password' });
+  await s.addUser({ username: 'jane', role: 'editor', password: 'a-good-long-passwordA1!' });
   const b = s.browser();
 
-  const nobody = await b.call('POST', '/api/auth/login', { username: 'ghost', password: 'a-good-long-password' });
+  const nobody = await b.call('POST', '/api/auth/login', { username: 'ghost', password: 'a-good-long-passwordA1!' });
+
   const wrong = await b.call('POST', '/api/auth/login', { username: 'jane', password: 'not-the-password' });
   assert.equal(nobody.status, 401);
   assert.equal(wrong.status, 401);
@@ -125,17 +128,19 @@ test('sign-in does not say which volunteers exist', async (t) => {
 
 test('roles apply to the session, not only to a test’s injected user', async (t) => {
   const s = await startServer(t);
-  await s.addUser({ username: 'jane', role: 'owner', password: 'a-good-long-password' });
-  await s.addUser({ username: 'sam', role: 'editor', password: 'a-good-long-password' });
+  await s.addUser({ username: 'jane', role: 'owner', password: 'a-good-long-passwordA1!' });
+  await s.addUser({ username: 'sam', role: 'editor', password: 'a-good-long-passwordA1!' });
 
-  const sam = await s.signIn('sam', 'a-good-long-password');
+  const sam = await s.signIn('sam', 'a-good-long-passwordA1!');
+
   const denied = await sam.call('GET', '/api/users');
   assert.equal(denied.status, 403, 'an editor cannot see the club’s logins');
   assert.match(denied.body.error, /Only an owner/);
   assert.deepEqual((await sam.call('GET', '/api/auth/me')).body.can, ['view', 'content']);
   assert.equal((await sam.call('GET', '/api/state')).status, 200, 'but the dashboard is still theirs to use');
 
-  const jane = await s.signIn('jane', 'a-good-long-password');
+  const jane = await s.signIn('jane', 'a-good-long-passwordA1!');
+
   const allowed = await jane.call('GET', '/api/users');
   assert.equal(allowed.status, 200);
   assert.equal(allowed.body.me.username, 'jane', 'and the page knows whose controls to grey out');
@@ -143,15 +148,17 @@ test('roles apply to the session, not only to a test’s injected user', async (
 
 test('suspending a volunteer takes their dashboard away on the next request', async (t) => {
   const s = await startServer(t);
-  const sam = await s.addUser({ username: 'sam', role: 'editor', password: 'a-good-long-password' });
+  const sam = await s.addUser({ username: 'sam', role: 'editor', password: 'a-good-long-passwordA1!' });
 
-  const b = await s.signIn('sam', 'a-good-long-password');
+  const b = await s.signIn('sam', 'a-good-long-passwordA1!');
+
   assert.equal((await b.call('GET', '/api/state')).status, 200);
 
   await s.club.call('PATCH', `/api/users/${sam.id}`, { active: false });
   assert.equal((await b.call('GET', '/api/state')).status, 401, 'the cookie still verifies; the account is off');
   assert.equal(
-    (await b.call('POST', '/api/auth/login', { username: 'sam', password: 'a-good-long-password' })).status,
+    (await b.call('POST', '/api/auth/login', { username: 'sam', password: 'a-good-long-passwordA1!' })).status,
+
     401,
     'and there is no signing back in'
   );
@@ -159,14 +166,15 @@ test('suspending a volunteer takes their dashboard away on the next request', as
 
 test('resetting a password signs that volunteer out, and nobody else', async (t) => {
   const s = await startServer(t);
-  await s.addUser({ username: 'jane', role: 'owner', password: 'jane-good-password' });
-  const sam = await s.addUser({ username: 'sam', role: 'editor', password: 'sam-good-password' });
+  await s.addUser({ username: 'jane', role: 'owner', password: 'jane-good-passwordA1!' });
+  const sam = await s.addUser({ username: 'sam', role: 'editor', password: 'sam-good-passwordA1!' });
 
-  const jane = await s.signIn('jane', 'jane-good-password');
-  const samLaptop = await s.signIn('sam', 'sam-good-password');
-  const samPhone = await s.signIn('sam', 'sam-good-password');
+  const jane = await s.signIn('jane', 'jane-good-passwordA1!');
+  const samLaptop = await s.signIn('sam', 'sam-good-passwordA1!');
+  const samPhone = await s.signIn('sam', 'sam-good-passwordA1!');
 
-  const reset = await jane.call('POST', `/api/users/${sam.id}/password-reset`, { currentPassword: 'jane-good-password' });
+  const reset = await jane.call('POST', `/api/users/${sam.id}/password-reset`, { currentPassword: 'jane-good-passwordA1!' });
+
   assert.equal(reset.status, 200, 'an owner is asked for their own password, not the club’s');
   const starter = reset.body.temporaryPassword;
   assert.ok(starter);
@@ -183,24 +191,26 @@ test('resetting a password signs that volunteer out, and nobody else', async (t)
 
 test('a volunteer changes their own password and stays signed in', async (t) => {
   const s = await startServer(t);
-  await s.addUser({ username: 'jane', role: 'owner', password: 'jane-good-password' });
+  await s.addUser({ username: 'jane', role: 'owner', password: 'jane-good-passwordA1!' });
 
-  const laptop = await s.signIn('jane', 'jane-good-password');
-  const phone = await s.signIn('jane', 'jane-good-password');
+  const laptop = await s.signIn('jane', 'jane-good-passwordA1!');
+  const phone = await s.signIn('jane', 'jane-good-passwordA1!');
 
-  let r = await laptop.call('POST', '/api/settings/password', { current: 'not-it', next: 'a-new-good-password' });
+  let r = await laptop.call('POST', '/api/settings/password', { current: 'not-it', next: 'a-new-good-passwordA1!' });
   assert.equal(r.status, 400, 'their own password is what is asked for');
-  r = await laptop.call('POST', '/api/settings/password', { current: 'jane-good-password', next: 'short' });
+  r = await laptop.call('POST', '/api/settings/password', { current: 'jane-good-passwordA1!', next: 'short' });
   assert.equal(r.status, 400);
-  assert.match(r.body.error, /at least 8 characters/);
+  assert.match(r.body.error, /at least 12 characters/);
 
-  r = await laptop.call('POST', '/api/settings/password', { current: 'jane-good-password', next: 'a-new-good-password' });
+  r = await laptop.call('POST', '/api/settings/password', { current: 'jane-good-passwordA1!', next: 'a-new-good-passwordA1!' });
+
   assert.equal(r.status, 200);
   assert.equal((await laptop.call('GET', '/api/state')).status, 200, 'the browser that did it got a fresh cookie');
   assert.equal((await phone.call('GET', '/api/state')).status, 401, 'the device they left signed in is out');
 
   const b = s.browser();
-  assert.equal((await b.call('POST', '/api/auth/login', { username: 'jane', password: 'a-new-good-password' })).status, 200);
+  assert.equal((await b.call('POST', '/api/auth/login', { username: 'jane', password: 'a-new-good-passwordA1!' })).status, 200);
+
   assert.equal(
     (await b.call('POST', '/api/auth/login', { password: CLUB_PASSWORD })).status,
     200,
@@ -213,7 +223,8 @@ test('changing the club’s shared password still signs every shared session out
   const other = s.browser();
   await other.call('POST', '/api/auth/login', { password: CLUB_PASSWORD });
 
-  const r = await s.club.call('POST', '/api/settings/password', { current: CLUB_PASSWORD, next: 'a-new-club-password' });
+  const r = await s.club.call('POST', '/api/settings/password', { current: CLUB_PASSWORD, next: 'a-new-club-passwordA1!' });
+
   assert.equal(r.status, 200);
   assert.equal((await other.call('GET', '/api/state')).status, 401, 'they were all the same login');
   assert.equal((await s.club.call('GET', '/api/state')).status, 200);
@@ -239,11 +250,12 @@ test('session cookies: shared, named, and what they refuse', () => {
 });
 
 test('a password change ends that account’s older sessions', () => {
-  const user = um.createUser({ username: 'jane', password: 'a good password' });
+  const user = um.createUser({ username: 'jane', password: 'a good passwordA1!' });
   const opened = Date.now();
   assert.equal(um.sessionValid(user, opened), true, 'nothing has signed this account out');
 
-  um.setPassword(user, 'a better password', { now: new Date(opened + 1000) });
+  um.setPassword(user, 'a better passwordA1!', { now: new Date(opened + 1000) });
+
   assert.equal(um.sessionValid(user, opened), false, 'the cookie from before the change is done');
   assert.equal(um.sessionValid(user, opened + 2000), true, 'the one issued after it is good');
 

@@ -51,6 +51,8 @@ class AuditLogger {
       const logFile = path.join(this.logDir, 'security-audit.log');
       this.stream = fs.createWriteStream(logFile, { flags: 'a', mode: 0o640 });
 
+      this.stream.on('error', () => { this.enabled = false; });
+
       this.log(EVENT_TYPES.ADMIN_ACTION, {
         severity: SEVERITY.INFO,
         message: 'Audit logging initialized',
