@@ -105,7 +105,7 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
     border-top: 1px solid var(--line);
     justify-content: space-around;
   }
-  .nav a { flex-direction: column; gap: 2px; font-size: 11px; padding: 6px 10px; }
+  .nav a { flex: 1; min-width: 0; flex-direction: column; gap: 2px; font-size: 11px; padding: 6px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
   .nav a svg { width: 22px; height: 22px; }
   main.page { padding-bottom: 96px; }
 }
@@ -189,7 +189,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--s
 .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
 
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
-.panel-box { padding: 18px; }
+.panel-box { padding: 18px; min-width: 0; }
+.panel-box .help { min-width: 0; }
 .panel-box h2 { font-size: 16px; margin-bottom: 12px; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
