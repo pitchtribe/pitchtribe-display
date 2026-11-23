@@ -1,6 +1,7 @@
 # Pi 4/5 setup hardware and bench record
 
-This is an operator procedure. The phone-facing setup flow is awaiting QA review.
+This is an operator procedure. The phone-facing setup flow needs QA review and
+physical commissioning before release.
 
 ## Wiring and owner retrieval
 
@@ -33,13 +34,33 @@ record. Never paste the UART contents or AP key into the record.
    Press for two seconds; confirm no UART output. Hold for three seconds;
    confirm one owner-only UART disclosure, then no output after 20 seconds.
 3. Verify `dtoverlay -l` has no setup UART overlay after timeout and after
-   `systemctl stop pitchtribe-setup-serial.service`. Confirm no key in
-   `journalctl -u pitchtribe-setup-serial.service`, HDMI, kiosk, or tty1/tty3.
-4. Test AP association, local phone form, station transition, timeout, and guest
-   radio coexistence **after the remaining setup AP service is installed**.
-   Capture timestamped `nmcli device status`, service state, IP address, and
-   radio state. Redact SSIDs if private and never capture passwords or keys.
+   `systemctl stop pitchtribe-setup-network.service`. Confirm no key in
+   `journalctl -u pitchtribe-setup-network.service`, HDMI, kiosk, or tty1/tty3.
+4. With guest Wi-Fi disabled, hold the button for three seconds. Join the unique
+   WPA2 setup AP from a phone and open `http://10.77.0.1:8088/`. Confirm a
+   fresh nonce form and nearby SSID choices. Submit a club SSID and password;
+   confirm `wlan0` gets a club DHCP address and both the AP and listener stop.
+   Confirm the new `.nmconnection` is root:root mode 0600. Repeat with a wrong
+   password; confirm the previous working profile remains and the button is
+   required for another attempt. Do not record either password.
+5. Hold the button and leave the form untouched for over five minutes. Confirm
+   AP, listener, nonce, and `/run/pitchtribe-setup/active` disappear. A browser
+   refresh must fail until a new physical hold. Stop and restart the service
+   during a window; confirm the same cleanup. Reboot without pressing the
+   button; confirm setup is still inactive.
+6. Turn on Guest Wi-Fi while setup is active and confirm the portal apply refuses
+   the radio. With Guest Wi-Fi already active, hold the button and confirm no
+   setup AP starts. Switch Guest Wi-Fi off and confirm NetworkManager regains
+   `wlan0`; then repeat setup. Check that the setup address never serves the
+   guest portal or dashboard.
 
-Current state: the identity and serial gate are installed; AP, form, and station
-transition are still pending. These steps are a verification recipe, not a
-claim of completed Pi hardware commissioning.
+For each row on **both** Pi 4 and Pi 5, capture UTC timestamp, model, image
+SHA256, `systemctl status pitchtribe-setup-network.service`, `nmcli device
+status`, `ip -4 address show wlan0`, and the relevant redacted journal lines.
+Keep owner UART output and credentials out of shared logs. Confirm no station
+password appears in `journalctl`, browser history, app JSON, or world-readable
+files. Record the exact pass/fail and any NetworkManager error code privately.
+
+Current state: the identity, serial gate, AP controller, form, and station
+transition are installed in source. This checklist is a verification recipe,
+not a claim of completed Pi hardware commissioning.

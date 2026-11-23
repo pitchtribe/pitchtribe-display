@@ -35,6 +35,10 @@ PREFIX=22
 PORTAL_PORT=8082
 DRY="${PORTAL_DRY_RUN:-}"
 SETUP_ACTIVE="${PITCHTRIBE_SETUP_ACTIVE:-/run/pitchtribe-setup/active}"
+RADIO_LOCK="${PITCHTRIBE_RADIO_LOCK:-/run/pitchtribe-radio.lock}"
+[[ -n "$DRY" ]] && RADIO_LOCK="${PITCHTRIBE_RADIO_LOCK:-$ETC/pitchtribe-radio.lock}"
+exec 9>"$RADIO_LOCK"
+flock -n 9 || { echo "radio is busy with setup" >&2; exit 1; }
 
 run() { if [[ -n "$DRY" ]]; then echo "+ $*"; else "$@"; fi; }
 

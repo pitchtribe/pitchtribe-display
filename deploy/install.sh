@@ -340,18 +340,21 @@ fi
 # The physical setup button and per-card identity are installed on Pi images
 # and on Pi 4/5 installs. Provisioning runs on the device, never in the chroot.
 if [[ "$IMAGE_BUILD" == 1 || -f /proc/device-tree/model ]]; then
-  log "Installing physical-button setup identity and serial retrieval"
+  log "Installing physical-button offline Wi-Fi setup"
   apt-get install -y -q python3-gpiozero python3-lgpio
   install -d -o root -g root -m 0755 /usr/local/lib/pitchtribe
   install -m 0755 "$SRC_DIR/deploy/setup/setup-identity.py" /usr/local/lib/pitchtribe/
   install -m 0755 "$SRC_DIR/deploy/setup/setup-serial.py" /usr/local/lib/pitchtribe/
+  install -m 0755 "$SRC_DIR/deploy/setup/setup-network.py" /usr/local/lib/pitchtribe/
   install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-setup-identity.service" /etc/systemd/system/
-  install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-setup-serial.service" /etc/systemd/system/
+  install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-setup-network.service" /etc/systemd/system/
+  systemctl disable --now pitchtribe-setup-serial.service 2>/dev/null || true
+  rm -f /etc/systemd/system/pitchtribe-setup-serial.service
   systemctl disable serial-getty@ttyAMA0.service serial-getty@serial0.service 2>/dev/null || true
   systemctl mask serial-getty@ttyAMA0.service serial-getty@serial0.service 2>/dev/null || true
   start_now daemon-reload
-  systemctl enable pitchtribe-setup-identity.service pitchtribe-setup-serial.service
-  start_now start pitchtribe-setup-identity.service pitchtribe-setup-serial.service
+  systemctl enable pitchtribe-setup-identity.service pitchtribe-setup-network.service
+  start_now start pitchtribe-setup-identity.service pitchtribe-setup-network.service
 fi
 
 if [[ "${PITCHTRIBE_NO_KIOSK:-0}" != 1 ]]; then

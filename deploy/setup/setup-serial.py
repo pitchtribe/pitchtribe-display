@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""GPIO17-gated, short UART disclosure. Stdout and logs never hold the key."""
+"""Short UART disclosure, invoked only after the setup controller's GPIO hold."""
 import importlib.util
 import os
 from pathlib import Path
+import signal
 import stat
 import subprocess
 import sys
@@ -20,16 +21,12 @@ def main():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     data = module.checked()
-    from gpiozero import Button
-    button = Button(17, pull_up=True, bounce_time=0.05)
+    def stop(_number, _frame):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, stop)
+    # The setup controller owns GPIO17 and invokes this helper after the hold.
+    # This helper has no web or public-display output path.
     try:
-        while True:
-            button.wait_for_press()
-            start = time.monotonic()
-            while button.is_pressed and time.monotonic() - start < 3:
-                time.sleep(0.02)
-            if button.is_pressed and time.monotonic() - start >= 3:
-                break
         # UART is disabled by config.txt at boot. A runtime overlay limits pin
         # ownership to this window; failure to materialize the device is fatal.
         run("dtoverlay", "uart0")
@@ -53,13 +50,17 @@ def main():
                 os.write(fd, ("PitchTribe owner setup\r\nSSID: " + data["ssid"] +
                               "\r\nKey: " + data["key"] + "\r\n").encode("ascii"))
                 termios.tcdrain(fd)
+                ready_fd = os.environ.get('PITCHTRIBE_READY_FD')
+                if ready_fd is not None:
+                    os.write(int(ready_fd), b'1')
+                    os.close(int(ready_fd))
                 time.sleep(20)
             finally:
                 os.close(fd)
         finally:
             run("dtoverlay", "-r", "uart0")
     finally:
-        button.close()
+        pass
 
 
 if __name__ == "__main__":
