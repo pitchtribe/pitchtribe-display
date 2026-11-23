@@ -258,6 +258,7 @@ body.dragging .dropzone { border-color: var(--accent); background: color-mix(in 
 .upload.error { border-color: var(--danger); }
 .empty { padding: 40px 20px; text-align: center; color: var(--muted); }
 .empty h2 { color: var(--fg); margin-bottom: 6px; font-size: 18px; }
+.jukebox-audio { display: block; width: 100%; margin-top: 14px; }
 
 /* Playlists ----------------------------------------------------------- */
 .pl-card { padding: 16px; display: grid; gap: 10px; text-decoration: none; color: inherit; }
