@@ -428,13 +428,16 @@
   // ================================================================ auth
   function renderAuth(status) {
     const setup = status.setupRequired;
+    const namedLogin = status.stage === 'users';
     const err = h('p', { class: 'error-text', role: 'alert' });
     const club = h('input', { type: 'text', name: 'club', autocomplete: 'organization', maxlength: 80, required: true, placeholder: translate('e.g. Riverside FC') });
+    const username = h('input', { type: 'text', name: 'username', autocomplete: 'username', autocapitalize: 'none', spellcheck: false, required: true });
     const pw = h('input', { type: 'password', name: 'password', autocomplete: setup ? 'new-password' : 'current-password', required: true, minlength: setup ? 8 : null });
     const pw2 = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 8 });
     const btn = h('button', { class: 'btn primary', type: 'submit' }, setup ? translate('Create dashboard') : translate('Sign in'));
     const form = h('form', { class: 'form-grid', onsubmit: submit },
       setup && h('label', { class: 'field' }, translate('Club name'), club),
+      namedLogin && h('label', { class: 'field' }, translate('Username'), username),
       h('label', { class: 'field' }, setup ? translate('Choose an admin password') : translate('Password'), pw, setup && h('span', { class: 'hint' }, translate('At least 8 characters. Share it with the volunteers who manage the screens.'))),
       setup && h('label', { class: 'field' }, translate('Confirm password'), pw2),
       err,
@@ -450,7 +453,7 @@
       btn.disabled = true;
       try {
         if (setup) await api('POST', '/auth/setup', { clubName: club.value, password: pw.value });
-        else await api('POST', '/auth/login', { password: pw.value });
+        else await api('POST', '/auth/login', { ...(namedLogin ? { username: username.value.trim() } : {}), password: pw.value });
         boot();
       } catch (ex) {
         err.textContent = ex.message;
