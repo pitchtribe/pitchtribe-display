@@ -81,6 +81,7 @@
   }
 
   const ICONS = {
+    audio: 'M9 18V5l12-2v13 M9 18a3 3 0 1 1-3-3c1.66 0 3 1.34 3 3z M21 16a3 3 0 1 1-3-3c1.66 0 3 1.34 3 3z',
     image: 'M4 5h16v14H4z M4 16l5-5 4 4 3-3 4 4 M15 9.5a1.5 1.5 0 1 0 0-.01',
     video: 'M4 6h11v12H4z M15 10l5-3v10l-5-3',
     url: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M3 12h18 M12 3c3 3 3 15 0 18 M12 3c-3 3-3 15 0 18',
@@ -157,7 +158,7 @@
     return svg;
   }
 
-  const TYPE_LABEL = { image: 'Image', video: 'Video', url: 'Web page', notice: 'Notice', menu: 'Menu board', fixtures: 'Fixtures', scores: 'Live scores', league: 'League table', widget: 'Widget', sponsor: 'Sponsors' };
+  const TYPE_LABEL = { image: 'Image', video: 'Video', audio: 'MP3 track', url: 'Web page', notice: 'Notice', menu: 'Menu board', fixtures: 'Fixtures', scores: 'Live scores', league: 'League table', widget: 'Widget', sponsor: 'Sponsors' };
   const WIDGETS = {
     clock: { name: 'Clock', icon: 'clock', blurb: 'Big digital or analogue clock, or a countdown to kick-off.' },
     worldclock: { name: 'World clocks', icon: 'globe', blurb: 'The time in up to eight cities around the world.' },
@@ -294,7 +295,7 @@
     if (file.type) return file.type;
     const ext = file.name.split('.').pop().toLowerCase();
     return (
-      { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml', mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' }[ext] ||
+      { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml', mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', mp3: 'audio/mpeg' }[ext] ||
       'application/octet-stream'
     );
   }
@@ -391,6 +392,8 @@
       t.append(h('img', { src: asset.src, alt: '', loading: 'lazy' }));
     } else if (asset.type === 'video') {
       t.append(h('video', { src: `${asset.src}#t=0.5`, preload: 'metadata', muted: true, playsinline: true }));
+    } else if (asset.type === 'audio') {
+      t.append(icon('audio'));
     } else if (asset.type === 'notice') {
       t.classList.add('text', `style-${asset.content?.style || 'default'}`);
       t.append(h('strong', {}, asset.content?.title || asset.name), h('span', {}, asset.content?.body || ''));
@@ -405,6 +408,7 @@
   const NAV = [
     ['content', 'Content', 'content'],
     ['playlists', 'Playlists', 'playlist'],
+    ['jukebox', 'Jukebox', 'audio'],
     ['screens', 'Screens', 'screen'],
     ['wifi', 'Wi-Fi', 'wifi'],
     ['people', 'People', 'people'],
@@ -646,9 +650,9 @@
   const uploads = []; // { name, progress, error }
 
   function viewContent() {
-    const fileInput = h('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime', hidden: true, onchange: () => { startUploads([...fileInput.files]); fileInput.value = ''; } });
+    const fileInput = h('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime,audio/mpeg,.mp3', hidden: true, onchange: () => { startUploads([...fileInput.files]); fileInput.value = ''; } });
 
-    const filters = [['all', 'All'], ['image', 'Images'], ['video', 'Videos'], ['notice', 'Notices'], ['menu', 'Menus'], ['sponsor', 'Sponsors'], ['fixtures', 'Fixtures'], ['scores', 'Scores'], ['league', 'League tables'], ['widget', 'Widgets'], ['url', 'Web pages']];
+    const filters = [['all', 'All'], ['image', 'Images'], ['video', 'Videos'], ['audio', 'Audio'], ['notice', 'Notices'], ['menu', 'Menus'], ['sponsor', 'Sponsors'], ['fixtures', 'Fixtures'], ['scores', 'Scores'], ['league', 'League tables'], ['widget', 'Widgets'], ['url', 'Web pages']];
     const list = state.assets
       .filter((a) => contentFilter === 'all' || a.type === contentFilter)
       .filter((a) => !contentSearch || a.name.toLowerCase().includes(contentSearch.toLowerCase()))
@@ -683,7 +687,7 @@
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'league' }) }, icon('league'), translate('League table')),
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'url' }) }, icon('url'), translate('Web page')),
           fileInput)),
-      h('div', { class: 'dropzone' }, translate('Drop photos or videos here to upload'), h('br'), h('span', { class: 'small' }, localize`JPG, PNG, GIF, WebP, SVG, MP4, WebM · up to ${state.maxUploadMb} MB each`)),
+      h('div', { class: 'dropzone' }, translate('Drop photos or videos here to upload'), h('br'), h('span', { class: 'small' }, localize`JPG, PNG, GIF, WebP, SVG, MP4, WebM, MP3 · up to ${state.maxUploadMb} MB each`)),
       uploads.length ? h('div', { class: 'uploads' }, uploads.map((u) =>
         h('div', { class: `card upload ${u.error ? 'error' : ''}` },
           h('strong', {}, u.name),
@@ -694,6 +698,52 @@
           filters.map(([key, label]) => h('button', { class: 'chip', type: 'button', 'aria-pressed': String(contentFilter === key), onclick: () => { contentFilter = key; render(); } }, translate(label)))),
         h('input', { type: 'search', placeholder: translate('Search content'), value: contentSearch, 'aria-label': translate('Search content'), oninput: (e) => { contentSearch = e.target.value; rerenderKeepingFocus(e.target); } })),
       grid);
+  }
+
+  // =============================================================== jukebox
+  let jukeboxQueue = (() => { try { return JSON.parse(localStorage.getItem('pt_jukebox_queue') || '[]'); } catch { return []; } })();
+  let jukeboxCurrent = null;
+  let jukeboxQueueIndex = -1;
+  function viewJukebox() {
+    const tracks = state.assets.filter((a) => a.type === 'audio' && a.src);
+    const audio = h('audio', { controls: true, preload: 'metadata', class: 'jukebox-audio' });
+    const now = h('strong', {}, jukeboxCurrent ? tracks.find((a) => a.id === jukeboxCurrent)?.name || 'Track unavailable' : 'Choose a track');
+    const queue = h('div', { class: 'grid' });
+    const persist = () => { try { localStorage.setItem('pt_jukebox_queue', JSON.stringify(jukeboxQueue)); } catch { /* private browsing */ } };
+    function play(track, queueIndex = jukeboxQueue.indexOf(track?.id)) {
+      if (!track) return;
+      jukeboxCurrent = track.id;
+      jukeboxQueueIndex = queueIndex;
+      now.textContent = track.name;
+      audio.src = track.src;
+      audio.play().catch(() => toast('Press play to start audio', 'error'));
+    }
+    function drawQueue() {
+      queue.replaceChildren(...jukeboxQueue.map((id, index) => {
+        const track = tracks.find((a) => a.id === id);
+        if (!track) return null;
+        return h('div', { class: 'card', style: 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px' },
+          h('button', { class: 'btn ghost', type: 'button', onclick: () => play(track, index) }, `${index + 1}. ${track.name}`),
+          h('button', { class: 'btn ghost', type: 'button', 'aria-label': `Remove ${track.name}`, onclick: () => { jukeboxQueue.splice(index, 1); persist(); drawQueue(); } }, 'Remove'));
+      }));
+    }
+    audio.addEventListener('ended', () => {
+      const nextIndex = window.PTJukeboxQueue.nextIndex(jukeboxQueueIndex, jukeboxQueue.length);
+      const next = tracks.find((a) => a.id === jukeboxQueue[nextIndex]);
+      if (next) play(next, nextIndex);
+    });
+    drawQueue();
+    return shell('jukebox',
+      h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Jukebox'), h('p', {}, 'Build a queue from your uploaded MP3 tracks and play them from this dashboard.'))),
+      h('section', { class: 'card', style: 'padding:20px;margin-bottom:20px' }, now, audio),
+      h('h2', {}, `Queue · ${jukeboxQueue.length}`), queue,
+      h('h2', {}, 'Your MP3 library'),
+      tracks.length ? h('div', { class: 'grid' }, tracks.map((track) => h('div', { class: 'card', style: 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px' },
+        h('strong', {}, track.name),
+        h('div', { class: 'actions' },
+          h('button', { class: 'btn sm', type: 'button', onclick: () => play(track) }, 'Play'),
+          h('button', { class: 'btn sm', type: 'button', onclick: () => { jukeboxQueue.push(track.id); persist(); drawQueue(); } }, 'Add to queue')))))
+        : h('div', { class: 'card empty' }, h('p', {}, 'Upload MP3 files in Content to add music to your jukebox.'), h('a', { class: 'btn', href: '#/content' }, 'Open Content')));
   }
 
   function rerenderKeepingFocus(input) {
@@ -1714,7 +1764,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       const listEl = h('div', { class: 'picker-list' });
       const addBtn = h('button', { class: 'btn primary', type: 'button', disabled: true }, translate('Add'));
       const draw = () => {
-        const assets = state.assets.slice().reverse().filter((a) => !filter || a.name.toLowerCase().includes(filter));
+        const assets = state.assets.slice().reverse().filter((a) => a.type !== 'audio' && (!filter || a.name.toLowerCase().includes(filter)));
         listEl.replaceChildren(...(assets.length ? assets.map((a) => {
           const inPl = draft.items.some((it) => it.assetId === a.id);
           return h('label', { class: 'picker-row' },
@@ -2954,6 +3004,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     let nodes;
     if (r.view === 'playlists' && r.id) nodes = viewPlaylist(r.id);
     else if (r.view === 'playlists') nodes = viewPlaylists();
+    else if (r.view === 'jukebox') nodes = viewJukebox();
     else if (r.view === 'screens') nodes = viewScreens();
     else if (r.view === 'settings') nodes = viewSettings();
     else if (r.view === 'wifi') nodes = viewWifi();
