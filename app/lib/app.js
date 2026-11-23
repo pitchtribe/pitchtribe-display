@@ -39,6 +39,7 @@ const MEDIA_TYPES = {
   'video/mp4': ['video', '.mp4'],
   'video/webm': ['video', '.webm'],
   'video/quicktime': ['video', '.mov'],
+  'audio/mpeg': ['audio', '.mp3'],
 };
 
 const ASSET_TYPES = ['image', 'video', 'url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget'];
@@ -1199,7 +1200,7 @@ function createApp(opts = {}) {
     route(async (req, res) => {
       const mime = String(req.get('content-type') || '').split(';')[0].trim().toLowerCase();
       const kind = MEDIA_TYPES[mime];
-      if (!kind) throw new v.HttpError(415, 'Unsupported file type. Use JPG, PNG, GIF, WebP, SVG, MP4, WebM or MOV.');
+      if (!kind) throw new v.HttpError(415, 'Unsupported file type. Use JPG, PNG, GIF, WebP, SVG, MP4, WebM, MOV or MP3.');
       const declared = Number(req.get('content-length') || 0);
       if (declared > maxUploadBytes) throw new v.HttpError(413, 'File is too large');
       let originalName = 'Upload';
@@ -1230,6 +1231,16 @@ function createApp(opts = {}) {
       if (size === 0) {
         fs.rmSync(tmp, { force: true });
         throw v.bad('The file is empty');
+      }
+      if (type === 'audio') {
+        const head = Buffer.alloc(3);
+        const fd = fs.openSync(tmp, 'r');
+        try { fs.readSync(fd, head, 0, head.length, 0); } finally { fs.closeSync(fd); }
+        // MP3 commonly begins with an ID3 tag; tagless files begin with an MPEG frame sync.
+        if (!(head.toString('ascii') === 'ID3' || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0))) {
+          fs.rmSync(tmp, { force: true });
+          throw v.bad('This file does not appear to be an MP3 audio file');
+        }
       }
       fs.renameSync(tmp, final);
       const now = new Date().toISOString();
