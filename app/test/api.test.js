@@ -107,6 +107,14 @@ test('content, playlists, timings and the screen manifest', async (t) => {
   assert.equal(image.type, 'image');
   assert.equal(image.name, 'Club crest');
   assert.equal(image.duration, 10);
+  r = await s.call('PATCH', `/api/assets/${image.id}`, { fit: 'blur' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.fit, 'blur');
+  r = await s.call('PATCH', `/api/assets/${image.id}`, { fit: 'color', backgroundColor: '#224466' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.backgroundColor, '#224466');
+  r = await s.call('PATCH', `/api/assets/${image.id}`, { backgroundColor: 'red' });
+  assert.equal(r.status, 400);
 
   // Uploaded media is served with a sandboxing CSP.
   r = await s.call('GET', image.src);
@@ -157,6 +165,8 @@ test('content, playlists, timings and the screen manifest', async (t) => {
   assert.equal(r.body.playlist.ticker, 'Bar open from 12:00');
   assert.deepEqual(r.body.items.map((i) => i.type), ['notice', 'image'], 'disabled items are not sent');
   assert.equal(r.body.items[1].duration, 7, 'per-item duration overrides the default');
+  assert.equal(r.body.items[1].fit, 'color');
+  assert.equal(r.body.items[1].backgroundColor, '#224466');
 
   r = await s.call('GET', '/api/player/bad id!/manifest');
   assert.equal(r.status, 400);

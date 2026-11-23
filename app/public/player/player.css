@@ -76,6 +76,8 @@ html, body {
 }
 .slide.media .fit-contain { object-fit: contain; }
 .slide.media .fit-cover { object-fit: cover; }
+.slide.media .fit-blur, .slide.media .fit-color { object-fit: contain; position: relative; z-index: 1; }
+.slide.media .media-background { position: absolute; inset: -4%; width: 108%; height: 108%; object-fit: cover; filter: blur(36px) brightness(.55); }
 .slide.web { background: #fff; }
 
 /* Text slides ---------------------------------------------------------- */

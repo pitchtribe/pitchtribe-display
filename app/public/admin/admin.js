@@ -264,6 +264,16 @@
     });
   }
 
+  function imageDimensions(file) {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => { resolve({ width: img.naturalWidth, height: img.naturalHeight }); URL.revokeObjectURL(url); };
+      img.onerror = () => { resolve(null); URL.revokeObjectURL(url); };
+      img.src = url;
+    });
+  }
+
   // ================================================================ modal
   function modal({ title, body, footer, wide = false, onClose }) {
     const dlg = h('dialog', { class: wide ? 'wide' : '' });
@@ -590,10 +600,20 @@
     for (const job of jobs) {
       try {
         let last = 0;
-        await uploadFile(job.file, (p) => {
+        const uploaded = await uploadFile(job.file, (p) => {
           job.progress = p;
           if (p - last > 0.05 || p === 1) { last = p; if (currentView === 'content') render(); }
         });
+        if (uploaded.type === 'image') {
+          const dimensions = await imageDimensions(job.file);
+          if (dimensions && dimensions.height > dimensions.width) {
+            try {
+              await api('PATCH', `/assets/${uploaded.id}`, { fit: 'blur' });
+            } catch (err) {
+              toast(`Uploaded ${job.name}, but automatic framing failed: ${err.message}`, 'error');
+            }
+          }
+        }
         ok += 1;
         uploads.splice(uploads.indexOf(job), 1);
       } catch (err) {
@@ -636,7 +656,14 @@
     const f = {}; // field elements
     const body = h('form', { class: 'form-grid', onsubmit: (e) => { e.preventDefault(); save(); } });
 
-    if (type === 'image') body.append(h('img', { class: 'preview-media', src: asset.src, alt: '' }));
+    if (type === 'image') {
+      const preview = h('div', { class: 'image-frame-preview' });
+      const previewBackground = h('img', { class: 'image-frame-background', src: asset.src, alt: '', 'aria-hidden': 'true' });
+      const previewImage = h('img', { class: 'image-frame-foreground', src: asset.src, alt: 'Image framing preview' });
+      preview.append(previewBackground, previewImage);
+      body.append(preview);
+      f.preview = preview;
+    }
     if (type === 'video') body.append(h('video', { class: 'preview-media', src: asset.src, controls: true, muted: true, preload: 'metadata' }));
 
     f.name = h('input', { type: 'text', value: asset.name || (type === 'widget' ? WIDGETS[c.kind]?.name : '') || '', maxlength: 120, required: true, placeholder: { notice: 'e.g. AGM notice', menu: 'e.g. Bar menu', sponsor: 'e.g. Main sponsors', fixtures: 'e.g. First team fixtures', scores: 'e.g. Premier League scores', league: 'e.g. County League', url: 'e.g. League table' }[type] });
@@ -646,8 +673,24 @@
       h('label', { class: 'field' }, 'Show for (seconds)', f.duration, type === 'video' && h('span', { class: 'hint' }, '0 = play the whole video'))));
 
     if (type === 'image' || type === 'video') {
-      f.fit = h('select', {}, h('option', { value: 'contain', selected: asset.fit !== 'cover' }, 'Fit whole picture (may show bars)'), h('option', { value: 'cover', selected: asset.fit === 'cover' }, 'Fill screen (may crop edges)'));
+      const fits = type === 'image'
+        ? [['blur', 'Fit with blurred photo background'], ['color', 'Fit with coloured border'], ['cover', 'Fill screen (may crop edges)'], ['contain', 'Fit with black bars']]
+        : [['contain', 'Fit whole video (may show bars)'], ['cover', 'Fill screen (may crop edges)']];
+      f.fit = h('select', {}, fits.map(([value, label]) => h('option', { value, selected: (asset.fit || 'contain') === value }, label)));
       body.append(h('label', { class: 'field' }, 'Sizing', f.fit));
+      if (type === 'image') {
+        f.backgroundColor = h('input', { type: 'color', value: asset.backgroundColor || '#162943' });
+        const colorField = h('label', { class: 'field' }, 'Border colour', f.backgroundColor);
+        body.append(colorField);
+        const updatePreview = () => {
+          f.preview.dataset.fit = f.fit.value;
+          f.preview.style.backgroundColor = f.backgroundColor.value;
+          colorField.hidden = f.fit.value !== 'color';
+        };
+        f.fit.addEventListener('change', updatePreview);
+        f.backgroundColor.addEventListener('input', updatePreview);
+        updatePreview();
+      }
     }
     if (type === 'video') {
       f.muted = h('input', { type: 'checkbox', checked: asset.muted !== false });
@@ -915,6 +958,7 @@
       if (!body.reportValidity()) return;
       const payload = { name: f.name.value, duration: Number(f.duration.value) };
       if (f.fit) payload.fit = f.fit.value;
+      if (f.backgroundColor) payload.backgroundColor = f.backgroundColor.value;
       if (f.muted) payload.muted = f.muted.checked;
       if (f.url) payload.url = f.url.value;
       if (type === 'notice') payload.content = { title: f.title.value, body: f.body.value, style: f.style.value };
@@ -1633,12 +1677,12 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     };
 
     const cards = state.screens.map((s) =>
-      h('div', { class: 'card screen' },
+      h('div', { class: 'card screen', 'data-screen-id': s.id },
         h('div', { class: 'screen-head' },
           h('span', { class: `dot ${s.online ? 'on' : ''}`, title: s.online ? 'Online' : 'Offline' }),
           h('input', { type: 'text', value: s.name, maxlength: 80, 'aria-label': 'Screen name', onchange: (e) => e.target.value.trim() && patch(s, { name: e.target.value }, 'Renamed') })),
         h('dl', { class: 'kv' },
-          h('dt', {}, 'Status'), h('dd', {}, s.online ? 'Online' : `Offline · last seen ${ago(s.lastSeen)}`),
+          h('dt', {}, 'Status'), h('dd', { 'data-screen-status': '' }, s.online ? 'Online' : `Offline · last seen ${ago(s.lastSeen)}`),
           h('dt', {}, 'Screen id'), h('dd', { class: 'mono' }, s.id),
           s.resolution && [h('dt', {}, 'Resolution'), h('dd', {}, s.resolution)],
           s.ip && [h('dt', {}, 'Address'), h('dd', { class: 'mono' }, s.ip.replace(/^::ffff:/, ''))]),
@@ -2758,6 +2802,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
 
   function render() {
     if (!state) return;
+    const focusedInApp = appEl.contains(document.activeElement);
     const r = parseRoute();
     currentView = r.view;
     if (r.view !== 'playlists' || !r.id) draft = null;
@@ -2774,6 +2819,12 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     const y = window.scrollY;
     appEl.replaceChildren(...nodes);
     window.scrollTo(0, y);
+    // Replacing a view removes its focused control. Give keyboard users a
+    // predictable landing place after an action that rebuilds the page.
+    if (focusedInApp && document.activeElement === document.body) {
+      const heading = appEl.querySelector('h1');
+      if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+    }
   }
 
   let lastHash = location.hash;
@@ -2786,6 +2837,8 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     dirty = false;
     lastHash = location.hash;
     render();
+    const heading = appEl.querySelector('h1');
+    if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
   });
   window.addEventListener('beforeunload', (e) => {
     if (dirty) e.preventDefault();
@@ -2796,10 +2849,26 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     if (!state || document.hidden) return;
     if (currentView !== 'screens') return;
     const active = document.activeElement;
-    if (active && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName)) return;
+    // Keep the screen status fresh while someone is using a control, without
+    // replacing the focused element or the rest of the page.
+    const focusedInApp = active && appEl.contains(active);
     if (document.querySelector('dialog[open]')) return;
     try {
+      const previous = new Map(state.screens.map((screen) => [screen.id, screen.online]));
       await refresh();
+      const changed = state.screens.filter((screen) => previous.has(screen.id) && previous.get(screen.id) !== screen.online);
+      if (changed.length) document.getElementById('screen-status').textContent = changed.map((screen) => `${screen.name} is ${screen.online ? 'online' : 'offline'}`).join('. ');
+      if (focusedInApp) {
+        for (const card of appEl.querySelectorAll('.screen[data-screen-id]')) {
+          const screen = state.screens.find((item) => item.id === card.dataset.screenId);
+          if (!screen) continue;
+          const dot = card.querySelector('.screen-head .dot');
+          if (dot) { dot.classList.toggle('on', Boolean(screen.online)); dot.title = screen.online ? 'Online' : 'Offline'; }
+          const status = card.querySelector('[data-screen-status]');
+          if (status) status.textContent = screen.online ? 'Online' : `Offline · last seen ${ago(screen.lastSeen)}`;
+        }
+        return;
+      }
       render();
     } catch { /* offline: try again later */ }
   }, 10_000);

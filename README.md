@@ -60,12 +60,14 @@ The English pages in `html/` are the single source of truth. At build time `scri
 - `i18n/source.json` lists every translatable English string: text, `alt`, `aria-label`, `title` and meta descriptions.
 - `i18n/<lang>.json` maps a string's position in that list to its translation.
 - A string with no translation shows in English, so the site never breaks.
+- The nine translated website routes are partial. The dashboard and documentation are in English; the player supports ten languages for built-in labels, dates and times. Club-authored content stays in its original language.
 
 After editing English text:
 
 ```bash
 npm run i18n:update   # append new English strings to i18n/source.json (positions never shift)
 npm run i18n:check    # list what still needs translating, per language
+npm run i18n:check -- --min-coverage=65 # fail if any offered locale drops below the current partial-translation floor
 ```
 
 Translations are inserted as plain text: no HTML tags, and `&` must be written as `&amp;`. The build rejects anything else.

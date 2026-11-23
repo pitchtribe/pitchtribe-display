@@ -294,7 +294,12 @@ function createApp(opts = {}) {
       }),
     };
     if (type === 'image' || type === 'video') {
-      a.fit = v.oneOf(body.fit ?? existing.fit, ['contain', 'cover'], 'contain');
+      a.fit = v.oneOf(body.fit ?? existing.fit, type === 'image' ? ['contain', 'cover', 'blur', 'color'] : ['contain', 'cover'], 'contain');
+      if (type === 'image') {
+        const color = body.backgroundColor ?? existing.backgroundColor ?? '#162943';
+        if (!/^#[0-9a-fA-F]{6}$/.test(color)) throw v.bad('Background colour must be a six-digit hex colour');
+        a.backgroundColor = color;
+      }
     }
     if (type === 'video') a.muted = v.bool(body.muted, existing.muted ?? true);
     if (type === 'url') a.url = v.httpUrl(body.url ?? existing.url);
@@ -622,6 +627,7 @@ function createApp(opts = {}) {
         src: mediaUrl(a),
         url: a.url,
         fit: a.fit,
+        backgroundColor: a.backgroundColor,
         muted: a.muted,
         content: resolveContent(a.content, assets),
         data: slideData(a, assets),

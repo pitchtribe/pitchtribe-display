@@ -237,7 +237,18 @@
     switch (item.type) {
       case 'image': {
         slide.classList.add('media');
-        const img = el('img', `fit-${item.fit || 'contain'}`);
+        const fit = ['contain', 'cover', 'blur', 'color'].includes(item.fit) ? item.fit : 'contain';
+        if (fit === 'blur') {
+          const background = el('img', 'media-background');
+          background.alt = '';
+          background.setAttribute('aria-hidden', 'true');
+          background.src = item.src;
+          slide.append(background);
+        }
+        if (fit === 'color' && /^#[0-9a-fA-F]{6}$/.test(item.backgroundColor || '')) {
+          slide.style.backgroundColor = item.backgroundColor;
+        }
+        const img = el('img', `fit-${fit}`);
         img.alt = '';
         img.src = item.src;
         ready = withTimeout(img.decode(), 8000);
