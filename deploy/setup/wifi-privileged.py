@@ -43,6 +43,12 @@ def dispatch(request):
         if guest_enabled():
             return {'error': 'Wi-Fi setup is unavailable while Guest Wi-Fi is active.', 'status': 409}
         try:
+            # NetworkManager can leave its software radio switch off after a
+            # prior setup or administrative change. The startup picker owns
+            # station Wi-Fi only when the guest portal is disabled, so turn
+            # that switch on before asking it to scan. A hardware block still
+            # fails closed and is reported through the normal scan error.
+            nm('radio', 'wifi', 'on')
             output = nm('-t', '-f', 'SSID', 'device', 'wifi', 'list', 'ifname', DEVICE, timeout=12)
             return {'networks': sorted({line.replace('\\:', ':') for line in output.splitlines()
                                         if line and len(line) <= 32})[:50]}
