@@ -121,6 +121,18 @@ test('content, playlists, timings and the screen manifest', async (t) => {
   assert.equal(r.status, 200);
   assert.match(r.headers.get('content-security-policy'), /sandbox/);
 
+  // MP3 uploads enter the managed library and can be fetched by the jukebox.
+  r = await s.call('POST', '/api/assets/upload', Buffer.from('ID3\u0004\u0000\u0000fake-mp3-data'), {
+    raw: true,
+    headers: { 'content-type': 'audio/mpeg', 'x-filename': encodeURIComponent('Matchday.mp3') },
+  });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.type, 'audio');
+  assert.equal(r.body.name, 'Matchday');
+  assert.equal((await s.call('GET', r.body.src)).status, 200);
+  r = await s.call('POST', '/api/assets/upload', Buffer.from('not an mp3'), { raw: true, headers: { 'content-type': 'audio/mpeg' } });
+  assert.equal(r.status, 400);
+
   // Unsupported upload types are refused.
   r = await s.call('POST', '/api/assets/upload', 'hello', { raw: true, headers: { 'content-type': 'text/html' } });
   assert.equal(r.status, 415);
