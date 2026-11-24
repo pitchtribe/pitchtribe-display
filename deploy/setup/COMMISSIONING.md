@@ -24,11 +24,22 @@ optional compatibility check and is not a mandatory runbook requirement.
 
 ## Required Pi 4 commissioning checklist
 
-Perform each row on a Pi 4 with a newly flashed image and a wired button.
-Record UTC time, model, image hash, and pass/fail in a private bench record.
-Never paste the UART contents or AP key into the record. The same checklist may
-be run on a Pi 5 as an optional compatibility check; Pi 5 results are not
-required to satisfy this runbook.
+For the d79b615 release-candidate gate, the owner retired the GPIO17 button.
+Run the startup screen acceptance and local authorization checks below on the
+newly flashed Pi 4. Also verify the applicable default-state and secret-handling
+parts of hardware rows 1–3: serial login disabled, identity permissions and
+separate-card uniqueness, setup AP/listener inactive without a trigger, and no
+key in shared output. Record UTC time, model, compressed image SHA-256, and a
+pass/fail result for each applicable check. Do not require button wiring, a
+UART receiver, or a GPIO17 hold for this gate.
+
+The button-triggered actions in hardware rows 2–6 below are **not applicable**
+to this gate. Mark them N/A in the bench record, never passed. The candidate
+image still includes the button service; this gate does not certify its
+button-triggered AP, UART disclosure, timeout, or Guest Wi-Fi exclusion paths.
+Retain the steps below as a legacy recipe until that feature is removed or
+separately commissioned. Pi 5 remains optional compatibility testing.
+Never paste UART contents, AP keys, or Wi-Fi passwords into the record.
 
 ### Startup screen acceptance (required on Pi 4; optional on Pi 5)
 
@@ -83,9 +94,12 @@ still works. Check the kiosk starts if the local helper restarts during boot.
    confirm two separately flashed cards have different identities by comparing
    private digests, not by printing keys.
 2. Reboot. Confirm no setup radio or listener is active and no UART key appears.
+   The following button-hold and timed UART checks are N/A for the d79b615 gate.
    Press for two seconds; confirm no UART output. Hold for three seconds;
    confirm one owner-only UART disclosure, then no output after 20 seconds.
-3. Verify `dtoverlay -l` has no setup UART overlay after timeout and after
+3. Verify `dtoverlay -l` has no setup UART overlay by default. The timeout
+   and service-stop overlay checks are N/A for the d79b615 gate. Legacy check:
+   verify no overlay after timeout and after
    `systemctl stop pitchtribe-setup-network.service`. Confirm no key in
    `journalctl -u pitchtribe-setup-network.service`, HDMI, kiosk, or tty1/tty3.
 4. With guest Wi-Fi disabled, hold the button for three seconds. Join the unique
@@ -106,7 +120,7 @@ still works. Check the kiosk starts if the local helper restarts during boot.
    `wlan0`; then repeat setup. Check that the setup address never serves the
    guest portal or dashboard.
 
-For each required Pi 4 row, capture UTC timestamp, model, image SHA256,
+For each applicable Pi 4 check, capture UTC timestamp, model, image SHA256,
 `systemctl status pitchtribe-setup-network.service`, `nmcli device status`,
 `ip -4 address show wlan0`, and the relevant redacted journal lines. If running
 the optional Pi 5 check, capture the same evidence separately. Keep owner UART
