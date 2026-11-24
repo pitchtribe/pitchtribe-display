@@ -7,10 +7,10 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
 
-// 2 added the users collection. A version-1 file still loads: its users list
+// 2 added users; 3 adds musicLists. A version-1 file still loads: its users list
 // is empty and settings.adminHash is the club's shared password, which is the
 // signal that the owner account has yet to be created from it.
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 function defaultSports() {
   return {
@@ -44,6 +44,7 @@ function emptyData() {
     users: [],
     assets: [],
     playlists: [],
+    musicLists: [],
     screens: [],
   };
 }
@@ -76,7 +77,7 @@ class Store extends EventEmitter {
     // Collections are arrays whatever the file on disk says. An older database
     // has no users key at all, and a hand-edited or half-restored one can hold
     // null — both would otherwise crash the first lookup that iterates them.
-    for (const key of ['users', 'assets', 'playlists', 'screens']) {
+    for (const key of ['users', 'assets', 'playlists', 'musicLists', 'screens']) {
       if (!Array.isArray(out[key])) out[key] = [];
     }
     return out;
