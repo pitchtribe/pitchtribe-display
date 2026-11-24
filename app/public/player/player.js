@@ -70,6 +70,66 @@
     if (hours < 24) return rel(hours, 'hour');
     return rel(Math.ceil(ms / 86400000), 'day');
   }
+  // Music is independent of the visual slide lifecycle.
+  const musicAudio = new Audio();
+  musicAudio.preload = 'auto';
+  let musicTrackId = null;
+  let musicStopped = false;
+  let musicFailed = false;
+  const musicTracks = () => manifest?.music?.tracks || [];
+  const musicAllowed = () => manifest?.music?.enabled && musicTracks().length &&
+    PTSchedule.isLive({ enabled: true, schedule: manifest.music.schedule });
+  function playMusic(index = 0) {
+    const tracks = musicTracks();
+    if (!musicAllowed() || !tracks.length) return;
+    const track = tracks[((index % tracks.length) + tracks.length) % tracks.length];
+    if (musicTrackId !== track.id) {
+      musicTrackId = track.id;
+      musicAudio.src = track.src;
+    }
+    musicStopped = false;
+    musicAudio.play().then(() => { musicFailed = false; }).catch(() => { musicFailed = true; });
+  }
+  function stepMusic(delta) {
+    const tracks = musicTracks();
+    if (!tracks.length) return;
+    const at = tracks.findIndex((track) => track.id === musicTrackId);
+    if (manifest.music.shuffle && delta > 0 && tracks.length > 1) {
+      const choices = tracks.map((_, index) => index).filter((index) => index !== at);
+      playMusic(choices[Math.floor(Math.random() * choices.length)]);
+      return;
+    }
+    const nextIndex = at < 0 ? 0 : at + delta;
+    if (nextIndex < 0 || nextIndex >= tracks.length) {
+      if (manifest.music.repeat === 'all') playMusic(nextIndex);
+      else { musicAudio.pause(); musicStopped = true; }
+    } else playMusic(nextIndex);
+  }
+  musicAudio.addEventListener('ended', () => {
+    if (manifest?.music?.repeat === 'one') { musicAudio.currentTime = 0; playMusic(musicTracks().findIndex((track) => track.id === musicTrackId)); }
+    else stepMusic(1);
+  });
+  function syncMusic() {
+    musicAudio.volume = Math.max(0, Math.min(1, (manifest?.music?.volume ?? 70) / 100));
+    const slideVideo = stage.querySelector('.slide.in video');
+    if (slideVideo) slideVideo.muted = musicAllowed() || !!current?.item?.muted;
+    if (!musicAllowed()) { musicAudio.pause(); return; }
+    const index = musicTracks().findIndex((track) => track.id === musicTrackId);
+    if (index < 0) { musicStopped = false; playMusic(0); }
+    else if (!musicStopped && musicAudio.paused && !musicFailed) playMusic(index);
+  }
+  function musicCommand(data) {
+    switch (data.action) {
+      case 'play': musicFailed = false; playMusic(Math.max(0, musicTracks().findIndex((track) => track.id === musicTrackId))); break;
+      case 'pause': musicAudio.pause(); musicStopped = true; break;
+      case 'stop': musicAudio.pause(); musicAudio.currentTime = 0; musicStopped = true; break;
+      case 'previous': stepMusic(-1); break;
+      case 'next': stepMusic(1); break;
+      case 'seek': if (musicAudio.src) musicAudio.currentTime = Math.min(data.seconds || 0, musicAudio.duration || 86400); break;
+    }
+  }
+  document.addEventListener('pointerdown', () => { if (musicFailed && musicAllowed() && !musicStopped) { musicFailed = false; playMusic(Math.max(0, musicTracks().findIndex((track) => track.id === musicTrackId))); } }, { passive: true });
+
   let current = null; // { item, sig, el }
   let advanceTimer = null;
   let renderToken = 0;
@@ -111,6 +171,7 @@
 
   function apply(m) {
     manifest = m;
+    syncMusic();
     if (t.lang !== (m.language || 'en')) {
       t = PTI18n.translator(m.language || 'en');
       document.documentElement.lang = t.lang;
@@ -197,6 +258,7 @@
 
     if (item.type === 'video') {
       const video = slide.el.querySelector('video');
+      if (musicAllowed()) video.muted = true;
       const playing = video.play();
       if (playing) playing.catch(() => { video.muted = true; video.play().catch(() => {}); });
       if (!item.duration) {
@@ -1212,6 +1274,7 @@
   setInterval(() => {
     if (!manifest) return;
     if (current && !PTSchedule.isLive(current.item)) next();
+    syncMusic();
   }, 30_000);
 
   if (previewId) {
@@ -1224,6 +1287,7 @@
       es.addEventListener('changed', () => scheduleLoad());
       es.addEventListener('identify', (e) => identify(JSON.parse(e.data || '{}')));
       es.addEventListener('reload', () => location.reload());
+      es.addEventListener('music', (e) => musicCommand(JSON.parse(e.data || '{}')));
     }
   }
   load();

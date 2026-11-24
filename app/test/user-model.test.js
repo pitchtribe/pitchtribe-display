@@ -214,7 +214,7 @@ test('the store starts with an empty people list and keeps it across a save', ()
   try {
     const store = new Store(file);
     assert.deepEqual(store.data.users, []);
-    assert.equal(store.data.schemaVersion, 2);
+    assert.equal(store.data.schemaVersion, 3);
 
     const jane = um.createUser({ username: 'jane', password: 'a good passwordA1!', role: 'owner' });
 
