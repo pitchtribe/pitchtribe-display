@@ -353,7 +353,7 @@ test('create-admin: adopts the shared password for the club’s first login', (t
   assert.equal(data.users[0].role, 'owner');
   assert.equal(data.users[0].name, 'Club Chair');
   assert.ok(um.verifyUserPassword(data.users[0], SHARED));
-  assert.equal(data.schemaVersion, 2, 'the file is written back at the current version');
+  assert.equal(data.schemaVersion, 3, 'the file is written back at the current version');
   assert.equal(data.assets.length, 1, 'with the club’s content untouched');
   assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'and still readable only by the service');
 });

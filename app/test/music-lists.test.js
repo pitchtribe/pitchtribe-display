@@ -37,7 +37,7 @@ test('music lists persist, validate tracks, and appear in screen and preview man
     if (response.headers.get('set-cookie')) cookie = response.headers.get('set-cookie').split(';')[0];
     return { status: response.status, body: await response.json() };
   }
-  await call('POST', '/api/auth/setup', { clubName: 'Test', password: 'correct horse' });
+  assert.equal((await call('POST', '/api/auth/setup', { clubName: 'Test', password: 'correct horse A1!' })).status, 200);
   const playlistId = (await call('GET', '/api/state')).body.playlists[0].id;
   const track = (await call('POST', '/api/assets/upload', Buffer.from('ID3\x04\x00\x00fake-mp3-data'), 'audio/mpeg')).body;
   const list = await call('POST', '/api/music-lists', { name: 'Matchday', tracks: [track.id], repeat: 'one' });
@@ -45,7 +45,7 @@ test('music lists persist, validate tracks, and appear in screen and preview man
   assert.equal((await call('PUT', `/api/music-lists/${list.body.id}`, { tracks: ['missing'] })).status, 400);
   assert.equal((await call('GET', '/api/state')).body.musicLists[0].tracks[0], track.id);
   assert.equal((await call('GET', `/api/preview/${playlistId}/manifest`)).body.music.tracks[0].src, track.src);
-  await call('GET', '/api/player/bar/manifest');
+  assert.equal((await call('GET', '/api/player/bar/manifest')).body.music, null, 'a screen plays no unassigned music list');
   const screen = await call('PATCH', '/api/screens/bar', {
     musicListId: list.body.id, musicVolume: 35, musicEnabled: true,
     musicSchedule: { days: [1, 2], startTime: '09:00', endTime: '18:00' },
@@ -53,6 +53,7 @@ test('music lists persist, validate tracks, and appear in screen and preview man
   assert.equal(screen.status, 200);
   const manifest = (await call('GET', '/api/player/bar/manifest')).body;
   assert.equal(manifest.music.name, 'Matchday');
+  assert.equal(manifest.music.tracks[0].src, track.src);
   assert.equal(manifest.music.volume, 35);
   assert.deepEqual(manifest.music.schedule.days, [1, 2]);
   assert.equal((await call('POST', '/api/screens/bar/command', { command: 'music', action: 'bad' })).status, 400);
