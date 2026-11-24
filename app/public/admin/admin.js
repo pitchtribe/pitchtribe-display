@@ -670,7 +670,7 @@
         }))
       : h('div', { class: 'card empty' },
           h('h2', {}, state.assets.length ? translate('Nothing matches') : translate('No content yet')),
-          h('p', {}, state.assets.length ? translate('Try another filter.') : translate('Upload photos and videos, or create a notice, menu or fixture list.')));
+          h('p', {}, state.assets.length ? translate('Try another filter.') : translate('Upload photos, videos or MP3 tracks, or create a notice, menu or fixture list.')));
 
     return shell('content',
       h('div', { class: 'page-head' },
@@ -687,7 +687,7 @@
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'league' }) }, icon('league'), translate('League table')),
           h('button', { class: 'btn', type: 'button', onclick: () => editAsset({ type: 'url' }) }, icon('url'), translate('Web page')),
           fileInput)),
-      h('div', { class: 'dropzone' }, translate('Drop photos or videos here to upload'), h('br'), h('span', { class: 'small' }, localize`JPG, PNG, GIF, WebP, SVG, MP4, WebM, MP3 · up to ${state.maxUploadMb} MB each`)),
+      h('div', { class: 'dropzone' }, translate('Drop photos, videos or MP3 tracks here to upload'), h('br'), h('span', { class: 'small' }, localize`JPG, PNG, GIF, WebP, SVG, MP4, WebM, MP3 · up to ${state.maxUploadMb} MB each`)),
       uploads.length ? h('div', { class: 'uploads' }, uploads.map((u) =>
         h('div', { class: `card upload ${u.error ? 'error' : ''}` },
           h('strong', {}, u.name),
@@ -701,49 +701,96 @@
   }
 
   // =============================================================== jukebox
-  let jukeboxQueue = (() => { try { return JSON.parse(localStorage.getItem('pt_jukebox_queue') || '[]'); } catch { return []; } })();
-  let jukeboxCurrent = null;
-  let jukeboxQueueIndex = -1;
+  let selectedMusicListId = null;
+  let legacyMusicImport = false;
   function viewJukebox() {
-    const tracks = state.assets.filter((a) => a.type === 'audio' && a.src);
+    // Import the old browser queue once when this club has no saved music lists.
+    if (!legacyMusicImport && !(state.musicLists || []).length) {
+      let oldQueue = [];
+      try { oldQueue = JSON.parse(localStorage.getItem('pt_jukebox_queue') || '[]'); } catch { /* ignore invalid old queue */ }
+      const valid = Array.isArray(oldQueue) ? oldQueue.filter((id) => state.assets.some((asset) => asset.id === id && asset.type === 'audio')) : [];
+      if (valid.length) {
+        legacyMusicImport = true;
+        api('POST', '/music-lists', { name: 'Imported queue', tracks: valid }).then(async (list) => {
+          selectedMusicListId = list.id;
+          localStorage.removeItem('pt_jukebox_queue');
+          await refresh(); render(); toast('Imported your saved jukebox queue');
+        }).catch((err) => { legacyMusicImport = false; toast(err.message, 'error'); });
+      }
+    }
+    const tracks = state.assets.filter((asset) => asset.type === 'audio' && asset.src);
+    const lists = state.musicLists || [];
+    const list = lists.find((entry) => entry.id === selectedMusicListId) || lists[0];
+    if (list) selectedMusicListId = list.id;
     const audio = h('audio', { controls: true, preload: 'metadata', class: 'jukebox-audio' });
-    const now = h('strong', {}, jukeboxCurrent ? tracks.find((a) => a.id === jukeboxCurrent)?.name || 'Track unavailable' : 'Choose a track');
     const queue = h('div', { class: 'grid' });
-    const persist = () => { try { localStorage.setItem('pt_jukebox_queue', JSON.stringify(jukeboxQueue)); } catch { /* private browsing */ } };
-    function play(track, queueIndex = jukeboxQueue.indexOf(track?.id)) {
+    const now = h('strong', {}, 'Choose a track');
+    let currentIndex = -1;
+    const save = async (body) => {
+      try { await api('PUT', `/music-lists/${encodeURIComponent(list.id)}`, body); await refresh(); render(); }
+      catch (err) { toast(err.message, 'error'); }
+    };
+    function play(index) {
+      const track = tracks.find((asset) => asset.id === list.tracks[index]);
       if (!track) return;
-      jukeboxCurrent = track.id;
-      jukeboxQueueIndex = queueIndex;
+      currentIndex = index;
       now.textContent = track.name;
       audio.src = track.src;
       audio.play().catch(() => toast('Press play to start audio', 'error'));
     }
     function drawQueue() {
-      queue.replaceChildren(...jukeboxQueue.map((id, index) => {
-        const track = tracks.find((a) => a.id === id);
+      queue.replaceChildren(...list.tracks.map((id, index) => {
+        const track = tracks.find((asset) => asset.id === id);
         if (!track) return null;
+        const move = (offset) => { const next = list.tracks.slice(); [next[index], next[index + offset]] = [next[index + offset], next[index]]; save({ tracks: next }); };
         return h('div', { class: 'card', style: 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px' },
-          h('button', { class: 'btn ghost', type: 'button', onclick: () => play(track, index) }, `${index + 1}. ${track.name}`),
-          h('button', { class: 'btn ghost', type: 'button', 'aria-label': `Remove ${track.name}`, onclick: () => { jukeboxQueue.splice(index, 1); persist(); drawQueue(); } }, 'Remove'));
+          h('button', { class: 'btn ghost', type: 'button', onclick: () => play(index) }, `${index + 1}. ${track.name}`),
+          h('div', { class: 'actions' },
+            h('button', { class: 'btn sm ghost', type: 'button', disabled: index === 0, onclick: () => move(-1) }, '↑'),
+            h('button', { class: 'btn sm ghost', type: 'button', disabled: index === list.tracks.length - 1, onclick: () => move(1) }, '↓'),
+            h('button', { class: 'btn sm ghost', type: 'button', onclick: () => save({ tracks: list.tracks.filter((_, at) => at !== index) }) }, 'Remove')));
       }));
     }
     audio.addEventListener('ended', () => {
-      const nextIndex = window.PTJukeboxQueue.nextIndex(jukeboxQueueIndex, jukeboxQueue.length);
-      const next = tracks.find((a) => a.id === jukeboxQueue[nextIndex]);
-      if (next) play(next, nextIndex);
+      if (list.repeat === 'one') play(currentIndex);
+      else if (currentIndex + 1 < list.tracks.length) play(currentIndex + 1);
+      else if (list.repeat === 'all') play(0);
     });
-    drawQueue();
+    if (list) drawQueue();
+    const create = async () => {
+      const name = prompt('New music list name');
+      if (!name?.trim()) return;
+      try { const added = await api('POST', '/music-lists', { name: name.trim() }); selectedMusicListId = added.id; await refresh(); render(); }
+      catch (err) { toast(err.message, 'error'); }
+    };
     return shell('jukebox',
-      h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Jukebox'), h('p', {}, 'Build a queue from your uploaded MP3 tracks and play them from this dashboard.'))),
-      h('section', { class: 'card', style: 'padding:20px;margin-bottom:20px' }, now, audio),
-      h('h2', {}, `Queue · ${jukeboxQueue.length}`), queue,
-      h('h2', {}, 'Your MP3 library'),
-      tracks.length ? h('div', { class: 'grid' }, tracks.map((track) => h('div', { class: 'card', style: 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px' },
-        h('strong', {}, track.name),
-        h('div', { class: 'actions' },
-          h('button', { class: 'btn sm', type: 'button', onclick: () => play(track) }, 'Play'),
-          h('button', { class: 'btn sm', type: 'button', onclick: () => { jukeboxQueue.push(track.id); persist(); drawQueue(); } }, 'Add to queue')))))
-        : h('div', { class: 'card empty' }, h('p', {}, 'Upload MP3 files in Content to add music to your jukebox.'), h('a', { class: 'btn', href: '#/content' }, 'Open Content')));
+      h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Jukebox'), h('p', {}, 'Build named music lists from uploaded MP3 tracks, then assign them to screens.'))),
+      h('div', { class: 'actions' },
+        h('select', { 'aria-label': 'Music list', onchange: (event) => { selectedMusicListId = event.target.value; render(); } }, lists.map((entry) => h('option', { value: entry.id, selected: entry.id === list?.id }, entry.name))),
+        h('button', { class: 'btn', type: 'button', onclick: create }, 'New music list'),
+        list && h('button', { class: 'btn ghost', type: 'button', onclick: async () => {
+          const name = prompt('Music list name', list.name);
+          if (name?.trim()) save({ name: name.trim() });
+        } }, 'Rename'),
+        list && h('button', { class: 'btn ghost danger', type: 'button', onclick: async () => {
+          if (!(await confirmDialog(`Delete “${list.name}”?`, 'Screens using this music list will stop playing music.'))) return;
+          try { await api('DELETE', `/music-lists/${encodeURIComponent(list.id)}`); selectedMusicListId = null; await refresh(); render(); }
+          catch (err) { toast(err.message, 'error'); }
+        } }, 'Delete')),
+      list ? [
+        h('section', { class: 'card', style: 'padding:20px;margin:20px 0' }, now, audio,
+          h('div', { class: 'actions', style: 'margin-top:12px' },
+            h('button', { class: 'btn sm', type: 'button', onclick: () => play(Math.max(0, currentIndex - 1)) }, 'Previous'),
+            h('button', { class: 'btn sm', type: 'button', onclick: () => play(Math.min(list.tracks.length - 1, currentIndex + 1)) }, 'Next'),
+            h('label', {}, 'Shuffle ', h('input', { type: 'checkbox', checked: list.shuffle, onchange: (event) => save({ shuffle: event.target.checked }) })),
+            h('label', {}, 'Repeat ', h('select', { onchange: (event) => save({ repeat: event.target.value }) }, ['all', 'one', 'off'].map((mode) => h('option', { value: mode, selected: mode === list.repeat }, mode)))))),
+        h('h2', {}, `Queue · ${list.tracks.length}`), queue,
+        h('h2', {}, 'Your MP3 library'),
+        tracks.length ? h('div', { class: 'grid' }, tracks.map((track) => h('div', { class: 'card', style: 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px' },
+          h('strong', {}, track.name),
+          h('button', { class: 'btn sm', type: 'button', onclick: () => save({ tracks: [...list.tracks, track.id] }) }, 'Add to queue'))))
+          : h('div', { class: 'card empty' }, 'Upload MP3 files in Content to build a music list.'),
+      ] : h('div', { class: 'card empty' }, 'Create a music list to start building a queue.'));
   }
 
   function rerenderKeepingFocus(input) {
@@ -1867,6 +1914,28 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
           h('label', { class: 'field' }, translate('Playlist'), h('select', { onchange: (e) => patch(s, { playlistId: e.target.value }, 'Playlist changed — the screen updates now') }, playlistOptions(s.playlistId))),
           h('label', { class: 'field' }, translate('Rotation'), h('select', { onchange: (e) => patch(s, { rotation: Number(e.target.value) }, 'Rotation changed') },
             [[0, 'Landscape'], [90, 'Portrait (90°)'], [180, 'Upside down'], [270, 'Portrait (270°)']].map(([v, l]) => h('option', { value: v, selected: (s.rotation || 0) === v }, translate(l)))))),
+        h('div', { class: 'row-2' },
+          h('label', { class: 'field' }, 'Music list', h('select', { onchange: (e) => patch(s, { musicListId: e.target.value }, 'Music list changed') },
+            h('option', { value: '', selected: !s.musicListId }, '— No music —'),
+            (state.musicLists || []).map((list) => h('option', { value: list.id, selected: s.musicListId === list.id }, list.name)))),
+          h('label', { class: 'field' }, 'Music volume', h('input', { type: 'range', min: 0, max: 100, value: s.musicVolume ?? 70, onchange: (e) => patch(s, { musicVolume: Number(e.target.value) }, 'Music volume changed') }))),
+        h('label', { class: 'field' }, 'Music enabled', h('input', { type: 'checkbox', checked: s.musicEnabled !== false, onchange: (e) => patch(s, { musicEnabled: e.target.checked }, 'Music playback changed') })),
+        h('details', { class: 'field' }, h('summary', {}, 'Music schedule'),
+          h('div', { class: 'row-2' }, ['startDate', 'endDate', 'startTime', 'endTime'].map((key) => h('label', { class: 'field' },
+            ({ startDate: 'Start date', endDate: 'End date', startTime: 'From time', endTime: 'Until time' })[key],
+            h('input', { type: key.includes('Date') ? 'date' : 'time', value: s.musicSchedule?.[key] || '', onchange: (e) => patch(s, { musicSchedule: { ...s.musicSchedule, [key]: e.target.value } }, 'Music schedule changed') })))),
+          h('label', { class: 'field' }, 'Days (none selected = every day)',
+            h('div', { class: 'chips' }, PTSchedule.DAY_NAMES.map((name, day) => h('button', { class: 'chip', type: 'button', 'aria-pressed': String((s.musicSchedule?.days || []).includes(day)), onclick: () => {
+              const days = s.musicSchedule?.days || [];
+              patch(s, { musicSchedule: { ...s.musicSchedule, days: days.includes(day) ? days.filter((n) => n !== day) : [...days, day].sort() } }, 'Music schedule changed');
+            } }, name))))),
+        s.musicListId && h('div', { class: 'actions' }, ['play', 'pause', 'stop', 'previous', 'next'].map((action) => h('button', { class: 'btn sm', type: 'button', onclick: async () => {
+          try { const result = await api('POST', `/screens/${encodeURIComponent(s.id)}/command`, { command: 'music', action }); toast(result.delivered ? `Music: ${action}` : 'Screen is not connected', result.delivered ? 'ok' : 'error'); }
+          catch (err) { toast(err.message, 'error'); }
+        } }, action)), h('button', { class: 'btn sm', type: 'button', onclick: async () => {
+          const seconds = Number(prompt('Seek to seconds from start', '0'));
+          if (Number.isFinite(seconds)) await api('POST', `/screens/${encodeURIComponent(s.id)}/command`, { command: 'music', action: 'seek', seconds });
+        } }, 'Seek')),
         h('label', { class: 'field' }, translate('Language on screen'), h('select', { onchange: (e) => patch(s, { language: e.target.value }, 'Language changed — the screen updates now') },
           h('option', { value: '', selected: !s.language }, localize`Club default (${(state.languages.find((l) => l.code === state.settings.language) || { name: 'English' }).name})`),
           state.languages.map((l) => h('option', { value: l.code, selected: s.language === l.code }, l.name)))),

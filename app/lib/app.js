@@ -603,6 +603,19 @@ function createApp(opts = {}) {
     };
   }
 
+  function sanitizeMusicList(body, existing = {}) {
+    const audioIds = new Set(data().assets.filter((asset) => asset.type === 'audio' && asset.file).map((asset) => asset.id));
+    const tracks = body.tracks === undefined ? (existing.tracks || []) : body.tracks;
+    if (!Array.isArray(tracks) || tracks.length > 500) throw v.bad('Music list must have at most 500 tracks');
+    if (tracks.some((id) => !audioIds.has(id))) throw v.bad('Music list contains an unavailable MP3 track');
+    return {
+      name: v.str(body.name ?? existing.name, { max: 80, required: true, field: 'Music list name' }),
+      tracks: tracks.slice(),
+      shuffle: v.bool(body.shuffle, existing.shuffle || false),
+      repeat: v.oneOf(body.repeat ?? existing.repeat, ['all', 'one', 'off'], 'all'),
+    };
+  }
+
   function mediaUrl(asset) {
     return asset.file ? `/media/${asset.file.filename}` : undefined;
   }
@@ -658,8 +671,18 @@ function createApp(opts = {}) {
         updatedAt: a.updatedAt,
       });
     }
+    const musicList = d.musicLists.find((list) => list.id === (screen ? screen.musicListId : d.musicLists[0]?.id));
+    const music = musicList ? {
+      id: musicList.id, name: musicList.name, shuffle: musicList.shuffle, repeat: musicList.repeat,
+      tracks: musicList.tracks.map((id) => assets.get(id)).filter((asset) => asset?.type === 'audio' && mediaUrl(asset))
+        .map((asset) => ({ id: asset.id, name: asset.name, src: mediaUrl(asset) })),
+      enabled: screen ? screen.musicEnabled !== false : true,
+      volume: screen ? (screen.musicVolume ?? 70) : 70,
+      schedule: screen?.musicSchedule || {},
+    } : null;
     return {
       revision: d.revision,
+      music,
       generatedAt: new Date().toISOString(),
       clubName: d.settings.clubName || 'PitchTribe',
       language: (screen && screen.language) || d.settings.language || 'en',
@@ -947,6 +970,7 @@ function createApp(opts = {}) {
       settings: publicSettings(),
       assets: d.assets.map((a) => ({ ...a, src: mediaUrl(a) })),
       playlists: d.playlists,
+      musicLists: d.musicLists,
       screens: d.screens.map(screenView),
       dashboardUrls: lanUrls(port),
       maxUploadMb: Math.round(maxUploadBytes / 1024 / 1024),
@@ -1344,6 +1368,7 @@ function createApp(opts = {}) {
       store.mutate((d) => {
         d.assets = d.assets.filter((a) => a.id !== asset.id);
         for (const p of d.playlists) p.items = p.items.filter((it) => it.assetId !== asset.id);
+        for (const list of d.musicLists) list.tracks = list.tracks.filter((id) => id !== asset.id);
       });
       if (asset.file) fs.rmSync(path.join(mediaDir, path.basename(asset.file.filename)), { force: true });
       res.json({ ok: true });
@@ -1393,6 +1418,28 @@ function createApp(opts = {}) {
     })
   );
 
+  // Music lists --------------------------------------------------------------
+  api.post('/music-lists', route((req, res) => {
+    const now = new Date().toISOString();
+    const list = { id: newId(), ...sanitizeMusicList({ ...req.body, tracks: req.body.tracks || [] }), createdAt: now, updatedAt: now };
+    store.mutate((d) => d.musicLists.push(list));
+    res.status(201).json(list);
+  }));
+  api.put('/music-lists/:id', route((req, res) => {
+    const list = findOr404(data().musicLists, req.params.id, 'Music list');
+    const next = sanitizeMusicList(req.body, list);
+    store.mutate(() => Object.assign(list, next, { updatedAt: new Date().toISOString() }));
+    res.json(list);
+  }));
+  api.delete('/music-lists/:id', route((req, res) => {
+    findOr404(data().musicLists, req.params.id, 'Music list');
+    store.mutate((d) => {
+      d.musicLists = d.musicLists.filter((list) => list.id !== req.params.id);
+      for (const screen of d.screens) if (screen.musicListId === req.params.id) screen.musicListId = null;
+    });
+    res.json({ ok: true });
+  }));
+
   // Screens -----------------------------------------------------------------
   api.patch(
     '/screens/:id',
@@ -1404,6 +1451,13 @@ function createApp(opts = {}) {
         update.playlistId = req.body.playlistId || null;
         if (update.playlistId) findOr404(data().playlists, update.playlistId, 'Playlist');
       }
+      if (req.body.musicListId !== undefined) {
+        update.musicListId = req.body.musicListId || null;
+        if (update.musicListId) findOr404(data().musicLists, update.musicListId, 'Music list');
+      }
+      if (req.body.musicEnabled !== undefined) update.musicEnabled = v.bool(req.body.musicEnabled);
+      if (req.body.musicVolume !== undefined) update.musicVolume = v.int(req.body.musicVolume, { min: 0, max: 100 });
+      if (req.body.musicSchedule !== undefined) update.musicSchedule = v.schedule(req.body.musicSchedule);
       if (req.body.rotation !== undefined) update.rotation = v.oneOf(Number(req.body.rotation), ROTATIONS, 0);
       if (req.body.language !== undefined) update.language = v.oneOf(req.body.language, i18n.codes, '');
       store.mutate(() => Object.assign(screen, update));
@@ -1426,9 +1480,13 @@ function createApp(opts = {}) {
     '/screens/:id/command',
     route((req, res) => {
       const screen = findOr404(data().screens, req.params.id, 'Screen');
-      const command = v.oneOf(req.body.command, ['identify', 'reload'], null);
+      const command = v.oneOf(req.body.command, ['identify', 'reload', 'music'], null);
       if (!command) throw v.bad('Unknown command');
-      const delivered = hub.send(screen.id, command, { name: screen.name, id: screen.id });
+      const actions = ['play', 'pause', 'stop', 'previous', 'next', 'seek'];
+      const action = command === 'music' ? v.oneOf(req.body.action, actions, null) : null;
+      if (command === 'music' && !action) throw v.bad('Unknown music action');
+      const seconds = action === 'seek' ? v.int(req.body.seconds, { min: 0, max: 86400 }) : undefined;
+      const delivered = hub.send(screen.id, command, command === 'music' ? { action, seconds } : { name: screen.name, id: screen.id });
       res.json({ delivered });
     })
   );
