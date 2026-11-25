@@ -8,12 +8,28 @@ name: SD card image
 #   - a pushed version tag (v1.2.3): build it and attach it to that GitHub release,
 #     which is what the website's download link points at
 #   - run by hand from the Actions tab: build it as an artifact
-#   - called by the Release workflow (release.yml) with release_tag: build it
-#     from that tag and attach it to that release
+#   - called by the Release workflow (release.yml) with release_tag: build it from
+#     that tag and attach it to that release
 on:
   pull_request:
     branches: [main]
-    paths: ['image/**', 'deploy/**', '.github/workflows/image.yml']
+    # The last three are a single club's own card content. image/build.sh copies a
+    # club directory and the marker into the image, so changing what a card boots as
+    # is changing the image — but none of those paths are under image/ or deploy/, so
+    # a pull request that renamed a club file, broke its JSON or dropped the marker
+    # altogether got every other check and never built the one artefact that goes to
+    # the building. They are written as the layout rather than as a club's name
+    # (`<club>/card/`, `<club>/card.env`, `.pitchtribe-club`), so this needs no edit
+    # whenever a card is built for a building. There is no such directory on `main`
+    # today — a club's screen is config in the data directory — so these match
+    # nothing until somebody adds one.
+    paths:
+      - 'image/**'
+      - 'deploy/**'
+      - '.github/workflows/image.yml'
+      - '.pitchtribe-club'
+      - '*/card/**'
+      - '*/card.env'
   push:
     tags: ['v*']
   workflow_dispatch:
@@ -104,7 +120,15 @@ jobs:
           entry["url"] = sys.argv[1]
           json.dump({"os_list": [entry]}, open("out/pitchtribe-imager.json", "w"), indent=2)
           PY
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "PitchTribe $TAG" --generate-notes
+          # Only a finished version is the website's download. A club-line tag and a
+          # pre-release version (v0.5.0-pre.2) are both prereleases, so
+          # /releases/latest stays on the last shipped base system: the download
+          # button on the site, and the Imager repository in docs, point at that.
+          # Written as what a release looks like rather than what it doesn't, because
+          # `v*` called v0.5.0-pre.1 a release and would have put a test card on the
+          # front page.
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then pre=''; else pre='--prerelease'; fi
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "PitchTribe $TAG" --generate-notes $pre
           gh release upload "$TAG" --clobber \
             out/$IMAGE_NAME.img.xz out/$IMAGE_NAME.img.xz.sha256 out/pitchtribe-imager.json
 

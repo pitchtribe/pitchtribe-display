@@ -90,7 +90,15 @@ git clone --depth 1 --branch "$REF" --quiet "$REPO" "$WORK/pitchtribe" \
 # For a tag, check the commit we were given is the commit that tag names.
 # This is not a signature — both answers come from GitHub — but it does catch a
 # tag that moved between the two calls, and a checkout that does not match it.
-if [[ "$REF" == v* ]]; then
+#
+# Asked of the checkout rather than of the ref's spelling. This used to test
+# `$REF == v*`, which covered the base system's own releases and nothing else —
+# so a club line, tagged caldecote-X.Y.Z, skipped the check silently. That is the
+# build that goes on a card in a pavilion, so it gets the same check as v0.4.2.
+# `--branch <tag>` leaves refs/tags/<tag> in the clone and a branch leaves none,
+# which is the whole discriminator; the comparison stays HEAD-against-the-API,
+# because refs/tags/<tag> on an annotated tag is the tag object, not the commit.
+if git -C "$WORK/pitchtribe" rev-parse --verify --quiet "refs/tags/$REF" >/dev/null; then
   got="$(git -C "$WORK/pitchtribe" rev-parse HEAD)"
   # grep -o, not sed: the API answers on one line, and a greedy pattern would
   # pick the last "sha" in the body (a parent commit) instead of the first.

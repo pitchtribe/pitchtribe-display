@@ -25,7 +25,7 @@ test('db.json is 0600 however it was written — service, password reset, or USB
 
   // 1. The service writing it normally.
   const store = new Store(file);
-  store.data.settings.adminHash = auth.hashPassword('correct horse');
+  store.data.settings.adminHash = auth.hashPassword('correct horseA1!');
   store.flush();
   assert.equal(mode(file), 0o600, 'the running service');
 
@@ -65,7 +65,7 @@ test('restoring a backup does not bring old sessions back to life', async (t) =>
   const setup = await fetch(`${base}/api/auth/setup`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-pitchtribe': '1' },
-    body: JSON.stringify({ clubName: 'Riverside FC', password: 'correct horse' }),
+    body: JSON.stringify({ clubName: 'Riverside FC', password: 'correct horseA1!' }),
   });
   const cookie = (setup.headers.get('set-cookie') || '').split(';')[0];
   assert.equal((await fetch(`${base}/api/state`, { headers: { cookie, 'x-pitchtribe': '1' } })).status, 200);
@@ -90,7 +90,7 @@ test('restoring a backup does not bring old sessions back to life', async (t) =>
   const login = await fetch(`${base}/api/auth/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-pitchtribe': '1' },
-    body: JSON.stringify({ password: 'correct horse' }),
+    body: JSON.stringify({ password: 'correct horseA1!' }),
   });
   assert.equal(login.status, 200);
 });
@@ -105,7 +105,7 @@ test('the guest Wi-Fi CSV export cannot carry a spreadsheet formula', async (t) 
   const setup = await fetch(`${base}/api/auth/setup`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-pitchtribe': '1' },
-    body: JSON.stringify({ clubName: 'Riverside FC', password: 'correct horse' }),
+    body: JSON.stringify({ clubName: 'Riverside FC', password: 'correct horseA1!' }),
   });
   const cookie = (setup.headers.get('set-cookie') || '').split(';')[0];
 

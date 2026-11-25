@@ -1,5 +1,9 @@
 name: Signage app + server
 
+# One line, `main`. There was briefly a long-lived club branch listed here as well;
+# it is retired, and a club's own screen is now config on a base card rather than a
+# build of its own. A branch filter naming a dead branch is a trap: it reads as
+# coverage and provides none.
 on:
   push:
     branches: [main]
@@ -41,5 +45,23 @@ jobs:
         run: npm test
 
       - name: Check deploy scripts
-        working-directory: deploy
-        run: bash -n install.sh && bash -n bootstrap.sh && bash -n reset-password.sh && bash -n kiosk.sh && bash -n update/os-update.sh && bash -n ../image/build.sh && bash -n ../image/harden-cmdline.sh && bash -n portal/portal-apply.sh && node --check ../app/lib/portal-hw.js && node --check ../app/bin/backup.js && node --check ../app/bin/remote-access.js
+        # The job defaults to app/, and these paths are the repo's.
+        working-directory: .
+        # Every script, found rather than listed. A hand-written list is a list that
+        # rots: the one this replaces named eight files, and the ninth script added to
+        # deploy/ would have gone unchecked without anybody noticing. These run
+        # unattended on somebody's Pi, which is the whole reason to check them.
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS= read -r -d '' f; do
+            echo "bash -n $f"
+            bash -n "$f"
+            found=$((found + 1))
+          done < <(find deploy image -name '*.sh' -print0 | sort -z)
+          # A glob that matches nothing would turn this step into a no-op that passes.
+          [[ "$found" -ge 9 ]] || { echo "only $found shell scripts found — expected at least 9"; exit 1; }
+          echo "checked $found shell scripts"
+          node --check app/lib/portal-hw.js
+          node --check app/bin/backup.js
+          node --check app/bin/remote-access.js

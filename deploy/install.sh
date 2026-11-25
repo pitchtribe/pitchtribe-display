@@ -35,6 +35,12 @@
 #   PITCHTRIBE_IMAGE_BUILD=1      used by image/build.sh: install into a mounted SD card
 #                                 image from a chroot. Services are enabled for the
 #                                 first boot but not started now.
+#   PITCHTRIBE_CLUB_DIR=<club>    one club's own card content (a clubhouse wall rather
+#                                 than a playlist player): a directory in this checkout
+#                                 holding card/ and card.env — see deploy/club-content.sh.
+#                                 Optional, and there is no such directory in this repo:
+#                                 the ordinary route is to put clubhouse.json in the data
+#                                 directory on the card (signage-server/CLUBHOUSE.md).
 set -euo pipefail
 
 log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
@@ -66,6 +72,7 @@ PORTAL_USER=pitchtribe-portal
 # group with anything a guest on an untrusted network can reach.
 MIRROR_GROUP=pitchtribe-dashboard
 KIOSK_USER=pitchtribe-kiosk
+WIFI_SETUP=0
 PORT="${PITCHTRIBE_PORT:-80}"
 HTTPS_PORT="${PITCHTRIBE_HTTPS_PORT:-443}"
 SERVER="${PITCHTRIBE_SERVER:-}"
@@ -331,6 +338,34 @@ if [[ "${PITCHTRIBE_PORTAL:-0}" == 1 ]]; then
   log "Guest Wi-Fi installed — switch it on and design the sign-in page under Guest Wi-Fi in the dashboard"
 fi
 
+# The physical setup button and per-card identity are installed on Pi images
+# and on Pi 4/5 installs. Provisioning runs on the device, never in the chroot.
+if [[ "$IMAGE_BUILD" == 1 || -f /proc/device-tree/model ]]; then
+  log "Installing physical-button offline Wi-Fi setup"
+  WIFI_SETUP=1
+  getent group pitchtribe-wifi >/dev/null || groupadd --system pitchtribe-wifi
+  apt-get install -y -q python3-gpiozero python3-lgpio nftables
+  install -d -o root -g root -m 0755 /usr/local/lib/pitchtribe
+  install -m 0755 "$SRC_DIR/deploy/setup/setup-identity.py" /usr/local/lib/pitchtribe/
+  install -m 0755 "$SRC_DIR/deploy/setup/setup-serial.py" /usr/local/lib/pitchtribe/
+  install -m 0755 "$SRC_DIR/deploy/setup/setup-network.py" /usr/local/lib/pitchtribe/
+  install -m 0755 "$SRC_DIR/deploy/setup/wifi-startup.py" /usr/local/lib/pitchtribe/
+  install -m 0755 "$SRC_DIR/deploy/setup/wifi-privileged.py" /usr/local/lib/pitchtribe/
+  install -m 0755 "$SRC_DIR/deploy/setup/wifi-http-firewall.sh" /usr/local/lib/pitchtribe/
+  install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-setup-identity.service" /etc/systemd/system/
+  install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-setup-network.service" /etc/systemd/system/
+  install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-wifi-privileged.service" /etc/systemd/system/
+  install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-wifi-startup.service" /etc/systemd/system/
+  install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-wifi-http-firewall.service" /etc/systemd/system/
+  systemctl disable --now pitchtribe-setup-serial.service 2>/dev/null || true
+  rm -f /etc/systemd/system/pitchtribe-setup-serial.service
+  systemctl disable serial-getty@ttyAMA0.service serial-getty@serial0.service 2>/dev/null || true
+  systemctl mask serial-getty@ttyAMA0.service serial-getty@serial0.service 2>/dev/null || true
+  start_now daemon-reload
+  systemctl enable pitchtribe-setup-identity.service pitchtribe-setup-network.service pitchtribe-wifi-privileged.service pitchtribe-wifi-http-firewall.service pitchtribe-wifi-startup.service
+  start_now start pitchtribe-setup-identity.service pitchtribe-setup-network.service pitchtribe-wifi-privileged.service
+fi
+
 if [[ "${PITCHTRIBE_NO_KIOSK:-0}" != 1 ]]; then
   # ----------------------------------------------------------------- kiosk
   log "Installing the kiosk display (cage + Chromium)"
@@ -341,13 +376,21 @@ if [[ "${PITCHTRIBE_NO_KIOSK:-0}" != 1 ]]; then
   CHROMIUM="$(command -v chromium || command -v chromium-browser)"
 
   id -u "$KIOSK_USER" >/dev/null 2>&1 || useradd --create-home --shell /usr/sbin/nologin "$KIOSK_USER"
-  usermod -a -G video,render,input,audio "$KIOSK_USER"
+  usermod -a -G video,render,input,audio,pitchtribe-wifi "$KIOSK_USER"
 
   install -m 0755 "$SRC_DIR/deploy/kiosk.sh" /usr/local/bin/pitchtribe-kiosk
   cat >/etc/default/pitchtribe-kiosk <<EOF
 # Read by pitchtribe-kiosk.service. @HOSTNAME@ becomes this Pi's hostname when the
 # kiosk starts, so each Pi shows its own screen (and an SD card image works on any Pi).
+#
+# For a single-club clubhouse wall instead of the playlist player, put the club's own
+# file at ${DATA_DIR}/clubhouse.json, restart pitchtribe, then point this line at the
+# wall and restart pitchtribe-kiosk (see signage-server/CLUBHOUSE.md, "On a card"):
+#   PITCHTRIBE_URL=${SERVER%/}/feeds/clubhouse
+# Without that file the page answers, but with our name on it and no football — so the
+# file comes first.
 PITCHTRIBE_URL=${SERVER%/}/player/?screen=@HOSTNAME@
+PITCHTRIBE_WIFI_SETUP=${WIFI_SETUP}
 CHROMIUM=${CHROMIUM}
 EOF
   install -m 0644 "$SRC_DIR/deploy/pitchtribe-kiosk.service" /etc/systemd/system/pitchtribe-kiosk.service
@@ -356,6 +399,37 @@ EOF
   systemctl set-default multi-user.target
   systemctl disable getty@tty1.service 2>/dev/null || true
   systemctl enable pitchtribe-kiosk.service
+  if [[ "$WIFI_SETUP" == 1 ]]; then
+    start_now start pitchtribe-wifi-startup.service || true
+  fi
+  start_now restart pitchtribe-kiosk.service || true
+  KIOSK_ENV_FILE=/etc/default/pitchtribe-kiosk
+fi
+
+# ------------------------------------------------------------- club content
+# Most cards are playlist players and are configured from the dashboard after
+# they boot. A card built for one named building is not: its screen is driven by
+# files in the data directory, and the only person near it is a volunteer with no
+# keyboard — so those files have to be on the card before its first boot.
+#
+# A checkout prepared for one building names its club directory in a
+# .pitchtribe-club file at the top of it. There is no such file in this repo, so
+# this is inert for the system everybody downloads.
+CLUB_DIR="${PITCHTRIBE_CLUB_DIR:-}"
+if [[ -z "$CLUB_DIR" && -f "$SRC_DIR/.pitchtribe-club" ]]; then
+  CLUB_DIR="$(tr -d '[:space:]' <"$SRC_DIR/.pitchtribe-club")"
+  # It is joined onto a path, so it names one directory here and nothing else.
+  [[ "$CLUB_DIR" =~ ^[A-Za-z0-9._-]+$ && "$CLUB_DIR" != .* ]] \
+    || die ".pitchtribe-club must name one directory in this checkout, not “$CLUB_DIR”"
+fi
+if [[ -n "$CLUB_DIR" ]]; then
+  [[ "$CLUB_DIR" == /* ]] || CLUB_DIR="$SRC_DIR/$CLUB_DIR"
+  log "Club card: putting $(basename "$CLUB_DIR")'s own content on it"
+  # Not `|| true`: a club card that installs as a playlist player with the
+  # club's name on the box is the failure this is here to prevent, so a missing
+  # or unreadable club directory fails the install rather than passing quietly.
+  "$SRC_DIR/deploy/club-content.sh" "$CLUB_DIR" "$DATA_DIR" "${KIOSK_ENV_FILE:-}"
+  start_now restart pitchtribe.service || true
   start_now restart pitchtribe-kiosk.service || true
 fi
 

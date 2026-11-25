@@ -25,8 +25,45 @@ All live sources need no API key unless noted. Each slide shows the credit line 
 | News headlines | Any RSS/Atom feed you add | **Depends on the feed** | Only feeds you have rights to show | No |
 | Calendar | Any iCal (.ics) feed you add | Depends on the calendar | Your own calendars | No |
 | Live scores | ESPN public scoreboard JSON (unofficial) | **Undocumented; for personal / non-commercial use** | ⚠️ not for commercial use | No |
+| Grassroots results, fixtures & tables | The club's own JSON file on the card (`manual` source) | The club's own data, kept by the club | ✅ | No |
+| Grassroots results, fixtures & tables | [The FA Full-Time](https://fulltime.thefa.com/) code-snippet feeds, read by the engine (`fulltime` source) | Sanctioned club/league feed, issued per division or team from the Full-Time admin area. **Not an open API, and the public pages must not be scraped** — see [FULL_TIME.md](FULL_TIME.md) | ✅ for the club whose league issued the codes, with the shown credit | **Yes** — a snippet id (`lrcode`) per feed, from the club's own Full-Time login |
+| Grassroots league table, fixtures & results | [FA Full-Time](https://fulltime.thefa.com/) embed snippets, rendered as Full-Time draws them (`app/lib/fulltime.js`) | The FA's own embed feature, shown as Full-Time renders it | ✅ for the club's own league | Needs a Full-Time admin login to create the snippet |
+| The club's own photographs (the archive wall) — **shelved for v1** | A folder on the card (`data/photos/`), filled once from the club's Facebook Page by a Page admin's export or one short-lived Page token | The club's own photographs. **Facebook must not be scraped** — its `robots.txt` prohibits automated collection, and the logged-out Page contains no photographs anyway — see [FACEBOOK_PHOTOS.md](FACEBOOK_PHOTOS.md) | ⚠️ **Not yet.** Needs a one-line yes from the club before anything goes on the wall, and nothing from this pool ever leaves the Pavilion | **Yes**, once — an export or a Page token from a club admin. Not asked for in v1; nothing is stored and the card phones nobody |
+
+Three rows for the same football, because there are three ways to get it and they cost different
+things.
+
+The **club file** fetches nothing: the results, fixtures and table live on the card and somebody keeps
+them up to date — see [CLUBHOUSE.md](CLUBHOUSE.md). It needs no provider's permission, which is why v1
+ships on it.
+
+The **Full-Time feed read by the engine** is built (`src/sources/fulltime.js`, read once a week and
+cached) and the access route is settled in [FULL_TIME.md](FULL_TIME.md). It is not switched on
+anywhere, because it needs snippet codes from a club's own Full-Time login and one capture of a real
+feed response before anyone should trust what it parses. `npm run fulltime:capture -- --code=…` is
+that capture.
+
+The **embed snippet** is the dashboard's League table panel: the club pastes its own snippet and the
+browser renders it, sandboxed, exactly as the FA draws it. Nothing is fetched by the Pi and nothing is
+parsed, so there is nothing to go stale — but the FA's insert is a 350px-wide table, which is a column
+on a club website and **cannot pass the clubhouse wall's six-metre test** at any scale. That is the
+division between the two: the embed is for a dashboard panel someone stands in front of, the engine's
+adapter is for a slide read across a room.
+
 
 The bundled packs in `data/widgets/` (jokes, phrases, quiz, trivia, history, countries, emoji) were written for this project and ship under the repository's MIT licence.
+
+Full-Time is the odd one out twice over. The FA publishes no open API and answers
+a plain HTTP client with 403, and it moved its embed snippets behind the
+Full-Time admin login specifically to stop products harvesting every league's
+fixtures — so **the public pages are never read, by either route.** What the club
+is issued is a snippet, and this repo uses it in two places. The dashboard's
+**League table** panel renders the snippet in its own sandboxed document
+(`app/lib/fulltime.js`): no key, nothing parsed, nothing on the Pi to go stale.
+The clubhouse engine instead reads that snippet's own feed server-side, once a
+week, and draws its own slide from it (`src/sources/fulltime.js`), because the
+FA's insert is a dense 350px table and a clubhouse slide has to read from six
+metres. Same grant, same politeness budget, two renderings.
 
 ## Not included yet (need registration)
 

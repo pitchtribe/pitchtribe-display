@@ -10,10 +10,14 @@
   <link rel="stylesheet" href="admin.css">
 </head>
 <body>
-  <div id="app" aria-live="polite"><div class="boot">Loading…</div></div>
+  <div id="app"><div class="boot">Loading…</div></div>
+  <div id="screen-status" class="sr-only" role="status" aria-live="polite"></div>
   <div id="toasts" role="status" aria-live="polite"></div>
   <script src="/shared/schedule.js"></script>
   <script src="/shared/formats.js"></script>
+  <script src="/shared/i18n.js"></script>
+  <script src="/shared/jukebox-queue.js"></script>
+  <script src="dashboard-translations.js"></script>
   <script src="admin.js"></script>
 </body>
 </html>

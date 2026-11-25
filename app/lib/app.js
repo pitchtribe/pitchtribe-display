@@ -13,8 +13,15 @@ const { DEFAULT_PORTAL, renderSplash, themeCss } = require('./portal-page');
 const { readPortalFiles, writePortalSettings, portalFile } = require('./portal');
 const { mountBackupRoutes } = require('./backup-routes');
 const { mountRemoteAccessRoutes } = require('./remote-access-routes');
+const { mountUserRoutes } = require('./user-routes');
+const um = require('./user-model');
+const setup = require('./setup');
+const { AuditLogger } = require('./audit-log');
+
 const { osUpdateView } = require('./os-update');
+const { createHealth } = require('./health');
 const { Feeds, LEAGUE_KEY_RE, SHOW_OPTIONS } = require('./feeds');
+const fulltime = require('./fulltime');
 const auth = require('./auth');
 const v = require('./validate');
 const pkg = require('../package.json');
@@ -33,10 +40,11 @@ const MEDIA_TYPES = {
   'video/mp4': ['video', '.mp4'],
   'video/webm': ['video', '.webm'],
   'video/quicktime': ['video', '.mov'],
+  'audio/mpeg': ['audio', '.mp3'],
 };
 
-const ASSET_TYPES = ['image', 'video', 'url', 'notice', 'menu', 'fixtures', 'scores', 'widget'];
-const TEXT_TYPES = ['url', 'notice', 'menu', 'fixtures', 'scores', 'widget'];
+const ASSET_TYPES = ['image', 'video', 'url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget', 'sponsor'];
+const TEXT_TYPES = ['url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget', 'sponsor'];
 const WIDGET_KINDS = ['clock', 'worldclock', 'weather', 'joke', 'phrase', 'trivia', 'quiz', 'history', 'emoji', 'geoquiz', 'country', 'spotball',
   'transport', 'bankholiday', 'floods', 'carbon', 'quakes', 'currency', 'potd', 'births', 'sky', 'headlines', 'events'];
 const CURRENCIES = ['AUD', 'BGN', 'BRL', 'CAD', 'CHF', 'CNY', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD', 'HUF', 'IDR', 'ILS', 'INR', 'ISK', 'JPY', 'KRW', 'MXN', 'MYR', 'NOK', 'NZD', 'PHP', 'PLN', 'RON', 'SEK', 'SGD', 'THB', 'TRY', 'USD', 'ZAR'];
@@ -45,7 +53,7 @@ const WIDGET_DURATION = { clock: 15, worldclock: 15, weather: 15, joke: 14, phra
   transport: 20, bankholiday: 12, floods: 12, carbon: 14, quakes: 14, currency: 12, potd: 15, births: 15, sky: 12, headlines: 18, events: 18 };
 const DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const GRID = { cols: 10, rows: 8 };
-const DEFAULT_DURATION = { image: 10, video: 0, url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, widget: 15 };
+const DEFAULT_DURATION = { image: 10, video: 0, url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, league: 25, widget: 15, sponsor: 20 };
 const NOTICE_STYLES = ['default', 'accent', 'amber', 'alert', 'light'];
 const ROTATIONS = [0, 90, 180, 270];
 const MAX_SCREENS = 200;
@@ -72,6 +80,8 @@ function createApp(opts = {}) {
   const store = new Store(path.join(dataDir, 'db.json'));
   const hub = new Hub();
   const limiter = new auth.LoginLimiter();
+  const audit = new AuditLogger({ logDir: path.join(dataDir, 'audit') });
+  audit.init();
   store.on('change', (revision) => hub.broadcast('changed', { revision }));
 
   // signage-server engine (sports + widgets), configured from dashboard settings.
@@ -79,6 +89,10 @@ function createApp(opts = {}) {
     fetchImpl: opts.feedsFetch || opts.sportsFetch,
     log: opts.log || console.error,
     publicUrl: `${(lanUrls(port)[0] || `http://localhost:${port}/`).replace(/\/$/, '')}/feeds`,
+    // One club's wall at /feeds/clubhouse, from a file in the data directory —
+    // /var/lib/pitchtribe/clubhouse.json on a card. Absent on a playlist player,
+    // which is most of them, and then nothing about this card changes.
+    clubFile: opts.clubFile ?? process.env.PITCHTRIBE_CLUB_FILE ?? path.join(dataDir, 'clubhouse.json'),
   });
   const configureFeeds = () =>
     feeds.configure({
@@ -149,7 +163,7 @@ function createApp(opts = {}) {
         'Content-Security-Policy',
         "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'"
       );
-    } else if (!req.path.startsWith('/media/')) {
+    } else if (!req.path.startsWith('/media/') && !req.path.startsWith('/league/')) {
       res.set({
         'Content-Security-Policy':
           "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'self'",
@@ -179,7 +193,11 @@ function createApp(opts = {}) {
       const given = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '');
       const tokenOk =
         token && given.length === token.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(token));
-      const sessionOk = isAuthed(req) && req.get('x-pitchtribe') === '1';
+      const signed = session(req);
+      if (signed?.user && (signed.user.mustChangePassword || !um.can(signed.user, 'settings'))) {
+        return res.status(403).json({ error: 'Feed administration requires an owner with a completed password change' });
+      }
+      const sessionOk = signed && req.get('x-pitchtribe') === '1';
       if (!tokenOk && !sessionOk) {
         res.set('WWW-Authenticate', 'Bearer').status(401).json({ error: 'Unauthorized' });
         return;
@@ -206,10 +224,32 @@ function createApp(opts = {}) {
     }
   };
 
-  function isAuthed(req) {
+  /* Who the session cookie says is asking, or null when nobody is signed in.
+     A session either names a volunteer on the people list or is the one the
+     club's shared password issues, which is nobody in particular. A named
+     session is good only while that account is still there, still switched on,
+     and has not been signed out since the cookie was issued, so suspending
+     somebody or resetting their password takes their dashboard away on their
+     very next request (um.sessionValid). */
+  function session(req) {
     const token = auth.parseCookies(req.headers.cookie)[auth.COOKIE];
-    return Boolean(data().settings.adminHash) && auth.verifyToken(token, data().settings.sessionSecret);
+    const claim = auth.readToken(token, data().settings.sessionSecret);
+    if (!claim) return null;
+    if (claim.userId) {
+      const user = um.findById(data().users, claim.userId);
+      return user && um.sessionValid(user, claim.issuedAt) ? { user } : null;
+    }
+    // Only while the club still has a shared password to have known.
+    return data().settings.adminHash ? { user: null } : null;
   }
+
+  const isAuthed = (req) => session(req) !== null;
+
+  /** The signed-in volunteer, or null for a shared-password session. */
+  const sessionUser = (req) => {
+    const s = session(req);
+    return s ? s.user : null;
+  };
 
   /** Dashboard API guard. Mutations also need a custom header, which a
       cross-site form or <img> can't send (CSRF defence alongside SameSite). */
@@ -217,6 +257,20 @@ function createApp(opts = {}) {
     if (!isAuthed(req)) return res.status(401).json({ error: 'Please sign in' });
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.get('x-pitchtribe') !== '1') {
       return res.status(403).json({ error: 'Missing request header' });
+    }
+    const user = sessionUser(req);
+    const pathname = req.path.replace(/\/$/, '').toLowerCase();
+    const selfPassword = pathname === '/settings/password' && req.method === 'POST';
+    const identity = pathname === '/api/auth/me' && ['GET', 'HEAD'].includes(req.method);
+    if (user?.mustChangePassword && !selfPassword && !identity) {
+      return res.status(403).json({ error: 'Change your password before continuing', code: 'PASSWORD_CHANGE_REQUIRED' });
+    }
+    if (user && !identity && !selfPassword) {
+      const sensitive = /^\/(settings|tls|backup|remote-access|portal|setup)(\/|$)/.test(pathname);
+      const mutation = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+      const content = /^\/(assets|playlists|screens)(\/|$)/.test(pathname);
+      const capability = sensitive ? 'settings' : mutation ? (content ? 'content' : 'settings') : 'view';
+      if (!um.can(user, capability)) return res.status(403).json({ error: 'Your role cannot perform this operation' });
     }
     next();
   }
@@ -226,13 +280,13 @@ function createApp(opts = {}) {
     return { clubName: s.clubName, defaultPlaylistId: s.defaultPlaylistId, language: s.language || 'en' };
   };
 
-  function sportsView() {
+  function sportsView(includeSecrets = true) {
     const s = data().settings.sports;
     return {
       enabled: s.enabled,
       leagues: s.leagues,
       timezone: s.timezone,
-      apiToken: s.apiToken,
+      apiToken: includeSecrets ? s.apiToken : undefined,
       running: feeds.sportsOn,
       catalog: feeds.catalog.map(({ key, name }) => ({ key, name })),
       status: feeds.status(),
@@ -244,10 +298,10 @@ function createApp(opts = {}) {
     return { weather: w.weather, wikipedia: w.wikipedia, trains: w.trains || null, bods: w.bods || null, kinds: feeds.widgetKinds };
   }
 
-  const screenView = (s) => ({
-    ...s,
-    online: hub.isConnected(s.id) || Date.now() - (s.lastSeen || 0) < ONLINE_MS,
-  });
+  /** One rule for "is this screen with us?", shared by the dashboard and /healthz. */
+  const isOnline = (s) => hub.isConnected(s.id) || Date.now() - (s.lastSeen || 0) < ONLINE_MS;
+
+  const screenView = (s) => ({ ...s, online: isOnline(s) });
 
   // ---------- Content model ----------
   function sanitizeAsset(type, body, existing = {}) {
@@ -263,7 +317,12 @@ function createApp(opts = {}) {
       }),
     };
     if (type === 'image' || type === 'video') {
-      a.fit = v.oneOf(body.fit ?? existing.fit, ['contain', 'cover'], 'contain');
+      a.fit = v.oneOf(body.fit ?? existing.fit, type === 'image' ? ['contain', 'cover', 'blur', 'color'] : ['contain', 'cover'], 'contain');
+      if (type === 'image') {
+        const color = body.backgroundColor ?? existing.backgroundColor ?? '#162943';
+        if (!/^#[0-9a-fA-F]{6}$/.test(color)) throw v.bad('Background colour must be a six-digit hex colour');
+        a.backgroundColor = color;
+      }
     }
     if (type === 'video') a.muted = v.bool(body.muted, existing.muted ?? true);
     if (type === 'url') a.url = v.httpUrl(body.url ?? existing.url);
@@ -278,10 +337,34 @@ function createApp(opts = {}) {
       if (!a.content.title && !a.content.body) throw v.bad('A notice needs a title or a message');
     }
     if (type === 'menu') {
-      a.content = {
-        title: v.str(c.title, { max: 200, field: 'Title' }),
-        text: v.str(c.text, { max: 20000, field: 'Menu' }),
-      };
+      if (c.mode === 'bar') {
+        const HEX6 = /^#[0-9a-fA-F]{6}$/;
+        const raw = Array.isArray(c.drinks) ? c.drinks.slice(0, 50) : [];
+        a.content = {
+          mode: 'bar',
+          title: v.str(c.title, { max: 200, field: 'Title' }),
+          drinks: raw
+            .map((d) => {
+              const logoAssetId = d?.logoAssetId || null;
+              const logoAsset = logoAssetId ? data().assets.find((a) => a.id === logoAssetId && a.type === 'image') : null;
+              const logoUrl = !logoAsset && typeof d?.logoUrl === 'string' ? d.logoUrl.trim().slice(0, 2048) : '';
+              return {
+                name: v.str(d?.name, { max: 100, field: 'Drink name' }),
+                color: HEX6.test(d?.color || '') ? d.color : '#888888',
+                price: v.str(d?.price, { max: 20, field: 'Price' }),
+                memberPrice: v.str(d?.memberPrice, { max: 20, field: 'Member price' }),
+                ...(logoAsset ? { logoAssetId: logoAsset.id } : {}),
+                ...(logoUrl ? { logoUrl } : {}),
+              };
+            })
+            .filter((d) => d.name),
+        };
+      } else {
+        a.content = {
+          title: v.str(c.title, { max: 200, field: 'Title' }),
+          text: v.str(c.text, { max: 20000, field: 'Menu' }),
+        };
+      }
     }
     if (type === 'fixtures') {
       a.content = {
@@ -290,6 +373,7 @@ function createApp(opts = {}) {
         limit: v.int(c.limit, { min: 1, max: 20, fallback: 8 }),
       };
     }
+    if (type === 'league') a.content = sanitizeLeague(c);
     if (type === 'widget') a.content = sanitizeWidget(c);
     if (type === 'scores') {
       const leagues = Array.isArray(c.leagues) ? c.leagues.filter((k) => typeof k === 'string' && LEAGUE_KEY_RE.test(k)) : [];
@@ -297,10 +381,62 @@ function createApp(opts = {}) {
         title: v.str(c.title, { max: 200, field: 'Title' }),
         leagues: [...new Set(leagues)].slice(0, 30),
         show: v.oneOf(c.show, SHOW_OPTIONS, 'all'),
-        limit: v.int(c.limit, { min: 1, max: 30, fallback: 10 }),
+        // Room for a full weekend across several leagues: the slide scrolls what
+        // it cannot fit, so the cap is about the size of the feed, not the screen.
+        limit: v.int(c.limit, { min: 1, max: 100, fallback: 10 }),
+      };
+    }
+    if (type === 'sponsor') {
+      const SPONSOR_TIERS = ['gold', 'silver', 'bronze', 'partner'];
+      const raw = Array.isArray(c.sponsors) ? c.sponsors.slice(0, 50) : [];
+      a.content = {
+        title: v.str(c.title, { max: 200, field: 'Title' }),
+        layout: v.oneOf(c.layout, ['grid', 'row'], 'grid'),
+        sponsors: raw
+          .map((s) => {
+            const logoAssetId = s?.logoAssetId || null;
+            const logoAsset = logoAssetId ? data().assets.find((x) => x.id === logoAssetId && x.type === 'image') : null;
+            const logoUrl = !logoAsset && typeof s?.logoUrl === 'string' ? s.logoUrl.trim().slice(0, 2048) : '';
+            return {
+              name: v.str(s?.name, { max: 100, field: 'Sponsor name' }),
+              tagline: v.str(s?.tagline, { max: 200, field: 'Tagline' }),
+              tier: v.oneOf(s?.tier, SPONSOR_TIERS, null) || '',
+              ...(logoAsset ? { logoAssetId: logoAsset.id } : {}),
+              ...(logoUrl ? { logoUrl } : {}),
+            };
+          })
+          .filter((s) => s.name),
+
       };
     }
     return a;
+  }
+
+  /**
+   * A league slide: one to three Full-Time panels (table, fixtures, results)
+   * side by side. Each panel holds the code snippet the club generated in
+   * Full-Time; parsing it here is what turns a bad paste into a 400 the
+   * volunteer can read, instead of a blank screen in the bar.
+   */
+  function sanitizeLeague(c) {
+    const raw = Array.isArray(c.panels) ? c.panels.slice(0, fulltime.MAX_PANELS) : [];
+    const panels = raw
+      .filter((p) => p && v.str(p.snippet, { max: fulltime.MAX_SNIPPET, field: 'Code snippet' }))
+      .map((p, i) => {
+        const label = v.str(p.label, { max: 60, field: 'Panel heading' });
+        const snippet = v.str(p.snippet, { max: fulltime.MAX_SNIPPET, field: 'Code snippet' });
+        fulltime.parseSnippet(snippet, { field: `Panel ${i + 1} ("${label || 'untitled'}")` });
+        return { label, snippet };
+      });
+    if (!panels.length) throw v.bad('Paste at least one Full-Time code snippet (table, fixtures or results)');
+    return {
+      title: v.str(c.title, { max: 200, field: 'Title' }),
+      panels,
+      // 0 = fit the panel, which is what a club wants on a TV. A fixed zoom is
+      // there for the odd snippet whose own height makes the fit too small.
+      zoom: v.int(c.zoom === '' || c.zoom == null ? 0 : Math.round(Number(c.zoom) * 100), { min: 0, max: 600, fallback: 0 }) / 100,
+      credit: v.str(c.credit, { max: 200, field: 'Credit' }) || 'Data from The FA Full-Time',
+    };
   }
 
   function num(value, min, max, fallback) {
@@ -448,7 +584,7 @@ function createApp(opts = {}) {
   }
 
   function sanitizePlaylist(body, existing) {
-    const assets = new Set(data().assets.map((a) => a.id));
+    const assets = new Map(data().assets.map((a) => [a.id, a]));
     const items = Array.isArray(body.items) ? body.items : existing.items;
     if (items.length > 500) throw v.bad('Too many items in one playlist');
     return {
@@ -456,7 +592,7 @@ function createApp(opts = {}) {
       showClock: v.bool(body.showClock, existing.showClock ?? true),
       ticker: v.str(body.ticker ?? existing.ticker, { max: 2000, field: 'Ticker' }),
       items: items
-        .filter((it) => it && assets.has(it.assetId))
+        .filter((it) => it && assets.has(it.assetId) && assets.get(it.assetId).type !== 'audio')
         .map((it) => ({
           id: typeof it.id === 'string' && /^[\w-]{1,32}$/.test(it.id) ? it.id : newId(),
           assetId: it.assetId,
@@ -467,8 +603,48 @@ function createApp(opts = {}) {
     };
   }
 
+  function sanitizeMusicList(body, existing = {}) {
+    const audioIds = new Set(data().assets.filter((asset) => asset.type === 'audio' && asset.file).map((asset) => asset.id));
+    const tracks = body.tracks === undefined ? (existing.tracks || []) : body.tracks;
+    if (!Array.isArray(tracks) || tracks.length > 500) throw v.bad('Music list must have at most 500 tracks');
+    if (tracks.some((id) => !audioIds.has(id))) throw v.bad('Music list contains an unavailable MP3 track');
+    return {
+      name: v.str(body.name ?? existing.name, { max: 80, required: true, field: 'Music list name' }),
+      tracks: tracks.slice(),
+      shuffle: v.bool(body.shuffle, existing.shuffle || false),
+      repeat: v.oneOf(body.repeat ?? existing.repeat, ['all', 'one', 'off'], 'all'),
+    };
+  }
+
   function mediaUrl(asset) {
     return asset.file ? `/media/${asset.file.filename}` : undefined;
+  }
+
+  function resolveContent(content, assets) {
+    if (!content) return content;
+    if (content.mode === 'bar') {
+      return {
+        ...content,
+        drinks: (content.drinks || []).map((d) => {
+          if (!d.logoAssetId) return d;
+          const a = assets.get(d.logoAssetId);
+          const src = a ? mediaUrl(a) : undefined;
+          return src ? { ...d, logoSrc: src } : d;
+        }),
+      };
+    }
+    if (Array.isArray(content.sponsors)) {
+      return {
+        ...content,
+        sponsors: content.sponsors.map((s) => {
+          if (!s.logoAssetId) return s;
+          const a = assets.get(s.logoAssetId);
+          const src = a ? mediaUrl(a) : undefined;
+          return src ? { ...s, logoSrc: src } : s;
+        }),
+      };
+    }
+    return content;
   }
 
   function buildManifest(playlist, screen) {
@@ -488,14 +664,25 @@ function createApp(opts = {}) {
         src: mediaUrl(a),
         url: a.url,
         fit: a.fit,
+        backgroundColor: a.backgroundColor,
         muted: a.muted,
-        content: a.content,
+        content: resolveContent(a.content, assets),
         data: slideData(a, assets),
         updatedAt: a.updatedAt,
       });
     }
+    const musicList = d.musicLists.find((list) => list.id === (screen ? screen.musicListId : d.musicLists[0]?.id));
+    const music = musicList ? {
+      id: musicList.id, name: musicList.name, shuffle: musicList.shuffle, repeat: musicList.repeat,
+      tracks: musicList.tracks.map((id) => assets.get(id)).filter((asset) => asset?.type === 'audio' && mediaUrl(asset))
+        .map((asset) => ({ id: asset.id, name: asset.name, src: mediaUrl(asset) })),
+      enabled: screen ? screen.musicEnabled !== false : true,
+      volume: screen ? (screen.musicVolume ?? 70) : 70,
+      schedule: screen?.musicSchedule || {},
+    } : null;
     return {
       revision: d.revision,
+      music,
       generatedAt: new Date().toISOString(),
       clubName: d.settings.clubName || 'PitchTribe',
       language: (screen && screen.language) || d.settings.language || 'en',
@@ -587,11 +774,19 @@ function createApp(opts = {}) {
 
   // ---------- Auth ----------
   app.get('/api/auth/status', (req, res) => {
-    const setupRequired = !data().settings.adminHash;
+    const state = setup.setupState(data());
+    const setupRequired = state.setupRequired;
     res.set('Cache-Control', 'no-store').json({
       setupRequired,
       authenticated: isAuthed(req),
       clubName: data().settings.clubName,
+      // Whether the sign-in box should ask for a username as well as a password,
+      // and whether this club still has its shared password to move off (see
+      // lib/setup.js).
+      stage: state.stage,
+      migrationRequired: state.migrationRequired,
+      sharedPassword: state.sharedPassword,
+
       // A freshly flashed card: offer to restore a backup instead of starting again.
       ...(setupRequired ? { restore: backups.setupInfo() } : {}),
     });
@@ -600,10 +795,13 @@ function createApp(opts = {}) {
   app.post(
     '/api/auth/setup',
     route((req, res) => {
-      if (data().settings.adminHash) throw new v.HttpError(409, 'Already set up');
+      /* Not simply "is there a password": a club that has moved onto its own
+         logins and retired the shared one has no adminHash either, and running
+         the wizard again would hand the card to whoever opened the page. */
+      if (!setup.setupRequired(data())) throw new v.HttpError(409, 'Already set up');
       const clubName = v.str(req.body.clubName, { max: 80, required: true, field: 'Club name' });
       const password = String(req.body.password || '');
-      if (password.length < 8) throw v.bad('Password must be at least 8 characters');
+      um.password(password);
       store.mutate((d) => {
         d.settings.clubName = clubName;
         d.settings.adminHash = auth.hashPassword(password);
@@ -642,21 +840,72 @@ function createApp(opts = {}) {
     })
   );
 
+  /* Sign in, by name for a club that has a people list and with the one
+     password everyone shared for a club that has not grown one yet. Both end in
+     a cookie; only a named sign-in's cookie says whose it is, and only it can be
+     signed out on its own (see session() above). */
   app.post(
     '/api/auth/login',
     route((req, res) => {
-      if (limiter.blocked(req.ip)) throw new v.HttpError(429, 'Too many attempts — wait 15 minutes and try again');
-      if (!auth.verifyPassword(req.body.password, data().settings.adminHash)) {
+      if (limiter.blocked(req.ip)) { audit.logLoginLocked(req.ip); throw new v.HttpError(429, 'Too many attempts — wait 15 minutes and try again'); }
+
+      const password = String(req.body.password || '');
+      const username = req.body.username === undefined ? '' : um.normalizeUsername(req.body.username);
+
+      /* Asked for by name: that account or nothing. Letting a wrong username
+         through on the club's shared password would make every volunteer's
+         sign-in box a way in as somebody else. */
+      const user = username ? um.findByUsername(data().users, username) : null;
+      if (username && !user) auth.burnPasswordTime(password);
+      const ok = username
+        ? um.verifyUserPassword(user, password)
+        : Boolean(data().settings.adminHash) && auth.verifyPassword(password, data().settings.adminHash);
+
+      if (!ok) {
         limiter.fail(req.ip);
-        throw new v.HttpError(401, 'Wrong password');
+        audit.logLoginFailure(req.ip, 'Invalid credentials');
+
+        /* A username nobody has, a suspended account and a wrong password all
+           get the same answer: which of the three it was is not something to
+           tell a stranger on the clubhouse wifi. */
+        throw new v.HttpError(401, username ? 'Wrong username or password' : 'Wrong password');
       }
       limiter.reset(req.ip);
-      res.set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret), req)).json({ ok: true });
+      audit.logLoginSuccess(req.ip, { userId: user?.id || null });
+
+
+      if (!user) {
+        return res.set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret), req)).json({ ok: true });
+      }
+      // "Last seen" on the people list, and the only thing signing in writes.
+      store.touch((d) => {
+        um.recordLogin(um.findById(d.users, user.id));
+      });
+      const token = auth.issueToken(data().settings.sessionSecret, user.id);
+      // The dashboard needs mustChangePassword to know to ask for a new one
+      // before letting this volunteer get on with anything else.
+      res.set('Set-Cookie', auth.sessionCookie(token, req)).json({ ok: true, user: um.publicUser(user) });
     })
   );
 
   app.post('/api/auth/logout', (req, res) => {
+    audit.logLogout(req.ip);
     res.set('Set-Cookie', auth.clearCookie()).json({ ok: true });
+  });
+
+  /* Who the dashboard is signed in as. It asks on load to put a name in the
+     corner, to decide whether to insist on a new password first, and to grey
+     out the controls this person cannot use — `can` is that list, whichever
+     kind of session this is. */
+  app.get('/api/auth/me', requireAuth, (req, res) => {
+    const user = sessionUser(req);
+    res.set('Cache-Control', 'no-store').json({
+      user: um.publicUser(user),
+      /* A shared-password session names nobody, and is the club itself, so it
+         gets an owner's rights — the same answer lib/user-routes.js gives it. */
+      shared: !user,
+      can: user ? um.CAPABILITIES[user.role] || [] : um.CAPABILITIES.owner,
+    });
   });
 
   // ---------- Dashboard API ----------
@@ -667,12 +916,37 @@ function createApp(opts = {}) {
   const backups = mountBackupRoutes({
     app, api, dataDir, mediaDir, store, version: pkg.version, maxUploadBytes,
     maxRestoreBytes: opts.maxRestoreBytes,
-    setupRequired: () => !data().settings.adminHash,
+    setupRequired: () => setup.setupRequired(data()),
     onRestored: () => { configureFeeds(); publishPortalSettings(); },
   });
 
   // Remote access: switch SSH on or off (via the root helper).
-  mountRemoteAccessRoutes({ api, dataDir, limiter, adminHash: () => data().settings.adminHash, hashPassword: opts.hashSshPassword });
+  mountRemoteAccessRoutes({ api, dataDir, limiter, adminHash: (req) => sessionUser(req)?.passwordHash || data().settings.adminHash, hashPassword: opts.hashSshPassword });
+
+  /* Settings → People: the club's dashboard logins. `currentUser` is how those
+     routes find out whose rights to apply — the volunteer the session names, or
+     null for a session opened with the club's shared password, which
+     lib/user-routes.js treats as the owner it is. Tests override it to sign in
+     as somebody without going through the sign-in page. */
+  mountUserRoutes({
+    api,
+    store,
+    limiter,
+    adminHash: () => data().settings.adminHash,
+    currentUser: opts.currentUser || sessionUser,
+    audit,
+  });
+
+  /* Settings → People, first time through: turn the club's shared password into
+     the first owner's own login, and later switch the shared password off. */
+  setup.mountSetupRoutes({
+    api,
+    store,
+    limiter,
+    adminHash: () => data().settings.adminHash,
+    currentUser: opts.currentUser || sessionUser,
+    audit,
+  });
 
   // Secure connection (Settings → Secure connection).
   api.get('/tls', (req, res) => res.set('Cache-Control', 'no-store').json(tlsView()));
@@ -696,12 +970,13 @@ function createApp(opts = {}) {
       settings: publicSettings(),
       assets: d.assets.map((a) => ({ ...a, src: mediaUrl(a) })),
       playlists: d.playlists,
+      musicLists: d.musicLists,
       screens: d.screens.map(screenView),
       dashboardUrls: lanUrls(port),
       maxUploadMb: Math.round(maxUploadBytes / 1024 / 1024),
       languages: i18n.LANGUAGES.map(({ code, name }) => ({ code, name })),
-      sports: sportsView(),
-      widgets: widgetsView(),
+      sports: { ...sportsView(false), ...(um.can(sessionUser(req), 'settings') || !sessionUser(req) ? { apiToken: data().settings.sports.apiToken } : {}) },
+      widgets: um.can(sessionUser(req), 'settings') || !sessionUser(req) ? widgetsView() : { weather: data().settings.widgets.weather, kinds: feeds.widgetKinds },
       tls: tlsView(),
       // Settings → About. A few hundred bytes the root helper left behind last
       // night, read per request so a restart that became due at 03:30 is on the
@@ -732,9 +1007,39 @@ function createApp(opts = {}) {
   api.post(
     '/settings/password',
     route((req, res) => {
-      if (!auth.verifyPassword(req.body.current, data().settings.adminHash)) throw v.bad('Current password is wrong');
+      const me = sessionUser(req);
       const next = String(req.body.next || '');
-      if (next.length < 8) throw v.bad('New password must be at least 8 characters');
+      if (limiter.blocked(req.ip)) throw new v.HttpError(429, 'Too many attempts');
+      if (next === req.body.current) throw v.bad('Choose a different password');
+
+
+      /* A volunteer signed in as themselves changes their own password here —
+         the club's shared one is not theirs to change. Their other cookies stop
+         working (um.setPassword stamps the account) and this one is replaced, so
+         nobody else is signed out and the screens carry on. */
+      if (me) {
+        if (!um.verifyUserPassword(me, req.body.current)) { limiter.fail(req.ip); audit.logPasswordChange(req.ip, false); throw v.bad('Current password is wrong'); }
+
+        um.password(next, { username: me.username }); // throws before anything is written
+        store.touch(
+          (d) => {
+            um.setPassword(um.findById(d.users, me.id), next);
+          },
+          { immediate: true }
+        );
+        limiter.reset(req.ip);
+        audit.logPasswordChange(req.ip, true, { userId: me.id });
+
+        return res
+          .set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret, me.id), req))
+          .json({ ok: true });
+      }
+
+      // The club's shared password. Rotating the secret with it signs every
+      // shared session out, which is the point: they were all the same login.
+      if (!auth.verifyPassword(req.body.current, data().settings.adminHash)) { limiter.fail(req.ip); audit.logPasswordChange(req.ip, false); throw v.bad('Current password is wrong'); }
+      um.password(next);
+
       store.touch(
         (d) => {
           d.settings.adminHash = auth.hashPassword(next);
@@ -742,6 +1047,8 @@ function createApp(opts = {}) {
         },
         { immediate: true }
       );
+      limiter.reset(req.ip);
+      audit.logPasswordChange(req.ip, true);
       res.set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret), req)).json({ ok: true });
     })
   );
@@ -969,7 +1276,7 @@ function createApp(opts = {}) {
     route(async (req, res) => {
       const mime = String(req.get('content-type') || '').split(';')[0].trim().toLowerCase();
       const kind = MEDIA_TYPES[mime];
-      if (!kind) throw new v.HttpError(415, 'Unsupported file type. Use JPG, PNG, GIF, WebP, SVG, MP4, WebM or MOV.');
+      if (!kind) throw new v.HttpError(415, 'Unsupported file type. Use JPG, PNG, GIF, WebP, SVG, MP4, WebM, MOV or MP3.');
       const declared = Number(req.get('content-length') || 0);
       if (declared > maxUploadBytes) throw new v.HttpError(413, 'File is too large');
       let originalName = 'Upload';
@@ -1001,6 +1308,16 @@ function createApp(opts = {}) {
         fs.rmSync(tmp, { force: true });
         throw v.bad('The file is empty');
       }
+      if (type === 'audio') {
+        const head = Buffer.alloc(3);
+        const fd = fs.openSync(tmp, 'r');
+        try { fs.readSync(fd, head, 0, head.length, 0); } finally { fs.closeSync(fd); }
+        // MP3 commonly begins with an ID3 tag; tagless files begin with an MPEG frame sync.
+        if (!(head.toString('ascii') === 'ID3' || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0))) {
+          fs.rmSync(tmp, { force: true });
+          throw v.bad('This file does not appear to be an MP3 audio file');
+        }
+      }
       fs.renameSync(tmp, final);
       const now = new Date().toISOString();
       const name = originalName.replace(/\.[a-z0-9]{2,5}$/i, '').slice(0, 120) || 'Upload';
@@ -1028,7 +1345,7 @@ function createApp(opts = {}) {
       const playlist = playlistId ? findOr404(data().playlists, playlistId, 'Playlist') : null;
       store.mutate((d) => {
         d.assets.push(asset);
-        if (playlist) playlist.items.push({ id: newId(), assetId: asset.id, enabled: true, duration: null, schedule: v.schedule({}) });
+        if (playlist && asset.type !== 'audio') playlist.items.push({ id: newId(), assetId: asset.id, enabled: true, duration: null, schedule: v.schedule({}) });
       });
       res.status(201).json(asset);
     })
@@ -1051,6 +1368,7 @@ function createApp(opts = {}) {
       store.mutate((d) => {
         d.assets = d.assets.filter((a) => a.id !== asset.id);
         for (const p of d.playlists) p.items = p.items.filter((it) => it.assetId !== asset.id);
+        for (const list of d.musicLists) list.tracks = list.tracks.filter((id) => id !== asset.id);
       });
       if (asset.file) fs.rmSync(path.join(mediaDir, path.basename(asset.file.filename)), { force: true });
       res.json({ ok: true });
@@ -1100,6 +1418,28 @@ function createApp(opts = {}) {
     })
   );
 
+  // Music lists --------------------------------------------------------------
+  api.post('/music-lists', route((req, res) => {
+    const now = new Date().toISOString();
+    const list = { id: newId(), ...sanitizeMusicList({ ...req.body, tracks: req.body.tracks || [] }), createdAt: now, updatedAt: now };
+    store.mutate((d) => d.musicLists.push(list));
+    res.status(201).json(list);
+  }));
+  api.put('/music-lists/:id', route((req, res) => {
+    const list = findOr404(data().musicLists, req.params.id, 'Music list');
+    const next = sanitizeMusicList(req.body, list);
+    store.mutate(() => Object.assign(list, next, { updatedAt: new Date().toISOString() }));
+    res.json(list);
+  }));
+  api.delete('/music-lists/:id', route((req, res) => {
+    findOr404(data().musicLists, req.params.id, 'Music list');
+    store.mutate((d) => {
+      d.musicLists = d.musicLists.filter((list) => list.id !== req.params.id);
+      for (const screen of d.screens) if (screen.musicListId === req.params.id) screen.musicListId = null;
+    });
+    res.json({ ok: true });
+  }));
+
   // Screens -----------------------------------------------------------------
   api.patch(
     '/screens/:id',
@@ -1111,6 +1451,13 @@ function createApp(opts = {}) {
         update.playlistId = req.body.playlistId || null;
         if (update.playlistId) findOr404(data().playlists, update.playlistId, 'Playlist');
       }
+      if (req.body.musicListId !== undefined) {
+        update.musicListId = req.body.musicListId || null;
+        if (update.musicListId) findOr404(data().musicLists, update.musicListId, 'Music list');
+      }
+      if (req.body.musicEnabled !== undefined) update.musicEnabled = v.bool(req.body.musicEnabled);
+      if (req.body.musicVolume !== undefined) update.musicVolume = v.int(req.body.musicVolume, { min: 0, max: 100 });
+      if (req.body.musicSchedule !== undefined) update.musicSchedule = v.schedule(req.body.musicSchedule);
       if (req.body.rotation !== undefined) update.rotation = v.oneOf(Number(req.body.rotation), ROTATIONS, 0);
       if (req.body.language !== undefined) update.language = v.oneOf(req.body.language, i18n.codes, '');
       store.mutate(() => Object.assign(screen, update));
@@ -1133,9 +1480,13 @@ function createApp(opts = {}) {
     '/screens/:id/command',
     route((req, res) => {
       const screen = findOr404(data().screens, req.params.id, 'Screen');
-      const command = v.oneOf(req.body.command, ['identify', 'reload'], null);
+      const command = v.oneOf(req.body.command, ['identify', 'reload', 'music'], null);
       if (!command) throw v.bad('Unknown command');
-      const delivered = hub.send(screen.id, command, { name: screen.name, id: screen.id });
+      const actions = ['play', 'pause', 'stop', 'previous', 'next', 'seek'];
+      const action = command === 'music' ? v.oneOf(req.body.action, actions, null) : null;
+      if (command === 'music' && !action) throw v.bad('Unknown music action');
+      const seconds = action === 'seek' ? v.int(req.body.seconds, { min: 0, max: 86400 }) : undefined;
+      const delivered = hub.send(screen.id, command, command === 'music' ? { action, seconds } : { name: screen.name, id: screen.id });
       res.json({ delivered });
     })
   );
@@ -1151,6 +1502,40 @@ function createApp(opts = {}) {
 
   app.use('/api', api);
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
+
+  // ---------- FA Full-Time panels ----------
+  // One panel of a league slide, as its own document. Open on the LAN like the
+  // player and /media: it is a county league table, and a screen has no login.
+  //
+  // The snippet is parsed again here rather than trusted from db.json, and the
+  // document goes out under a CSP that names Full-Time and applies `sandbox`,
+  // so the FA's script renders a table in an opaque origin and never sees the
+  // dashboard's cookie. See lib/fulltime.js.
+  app.get('/league/:assetId/:panel', (req, res) => {
+    const index = Number(req.params.panel);
+    const asset = data().assets.find((a) => a.id === req.params.assetId && a.type === 'league');
+    const panels = (asset && asset.content && asset.content.panels) || [];
+    const panel = Number.isInteger(index) && index >= 0 ? panels[index] : null;
+    if (!panel) return res.status(404).type('text/plain').send('No such league panel');
+    let nodes;
+    try {
+      nodes = fulltime.parseSnippet(panel.snippet);
+    } catch (err) {
+      // Saving validates the same snippet, so reaching here means db.json was
+      // changed outside the dashboard. Say so on the screen rather than framing it.
+      (opts.log || console.error)(`[league] ${asset.id}/${index}: ${err.message}`);
+      return res.status(422).type('text/plain').send('This league panel is not a usable Full-Time snippet');
+    }
+    res.set({
+      'Content-Security-Policy': fulltime.EMBED_CSP,
+      'X-Frame-Options': 'SAMEORIGIN',
+      // Full-Time may well check who is embedding its snippet, so let it see
+      // the Pi's origin — just the origin, never the path.
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Cache-Control': 'no-store',
+    });
+    res.type('html').send(fulltime.embedDocument(nodes, { zoom: asset.content.zoom }));
+  });
 
   // ---------- Static ----------
   app.use(
@@ -1172,7 +1557,40 @@ function createApp(opts = {}) {
   app.use('/portal-assets', express.static(path.join(PUBLIC_DIR, 'portal'), { maxAge: 0 }));
   app.get('/favicon.svg', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'shared', 'favicon.svg')));
   app.get('/', (req, res) => res.redirect('/admin/'));
-  app.get('/healthz', (req, res) => res.json({ ok: true, version: pkg.version }));
+  /* Still a liveness check — always 200, `ok` always true — with the few
+     numbers a watcher off the card needs to see trouble coming. lib/health.js
+     says what is in it and what is deliberately left out. `no-store` because a
+     monitor reading a cached body would report a fault that has been fixed, or
+     miss one that has just started.
+
+     Who can reach this. On a card running the guest portal, the one rule that
+     keeps guests off it is the **default drop at the end of the `input` chain**
+     in deploy/portal/portal-apply.sh: guests get DHCP, DNS, ping and the portal
+     port, and everything else from `br-guest` to this Pi is dropped. If you are
+     tidying that chain's accept list, that last `drop` is load-bearing for this
+     route. (The RFC1918 drop in the `forward` chain is *not* — that governs
+     traffic routed through the Pi to other hosts, and a request addressed to
+     the Pi itself never reaches `forward`.) Port 80 is separately DNAT'd to the
+     portal in `prerouting`, so it cannot land here either.
+
+     Two limits on that, both deployment assumptions rather than anything the
+     code enforces: a card with no guest portal has no such ruleset at all, so
+     this route is open to whatever network the Pi is plugged into — a shared
+     venue network, say. That is why health.js keeps the body to things that are
+     safe for a stranger on the same wire, not merely for a club member. */
+  const health = createHealth({
+    version: pkg.version,
+    dataDir,
+    screens: () => {
+      const list = data().screens;
+      return { total: list.length, online: list.reduce((n, s) => n + (isOnline(s) ? 1 : 0), 0) };
+    },
+    osUpdate: () => osUpdateView(dataDir),
+    // So a test can stand the real route up against a full card; the route
+    // keeping its 200 is the whole point and it is only breakable here.
+    statfs: opts.statfs,
+  });
+  app.get('/healthz', (req, res) => res.set('Cache-Control', 'no-store').json(health()));
 
   // ---------- Errors ----------
   // eslint-disable-next-line no-unused-vars
@@ -1188,6 +1606,7 @@ function createApp(opts = {}) {
     feeds.close();
     hub.close();
     store.flush();
+    return audit.close();
   };
 
   // On every start, not only when the settings are saved: the portal cannot

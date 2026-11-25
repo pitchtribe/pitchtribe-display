@@ -658,6 +658,18 @@ test('support access: a client under a login that is no longer a login is still 
   assert.match(s.last.message, /no support session is recorded/);
 });
 
+test('remote access: a real shell with "nologin" inside its path is still a login', () => {
+  // `/nologin|false$/` anchored only the `false` branch, so `nologin` matched
+  // anywhere in the path: a working shell under /opt/nologin-helper dropped out
+  // of the list of accounts support access may be started as.
+  const pi = fakePi({ users: ['dan'] });
+  fs.appendFileSync(pi.o.passwdFile, 'kit:x:1600:1600::/home/kit:/opt/nologin-helper/sh\n');
+  const { users } = helper.main('status', pi.o);
+  assert.ok(users.includes('kit'), `expected kit among ${users.join(', ')}`);
+  // and the shells that genuinely are not logins stay out
+  assert.ok(!users.includes('sshd') && !users.includes('pitchtribe'), 'nologin accounts still excluded');
+});
+
 /* ---------------------------------------------------------------- the lock */
 
 test('remote access: a lock a live helper is holding is waited for, not taken away', () => {
