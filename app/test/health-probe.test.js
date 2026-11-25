@@ -169,3 +169,48 @@ test('probe: a healthy card is still exit 0', async (t) => {
   assert.equal(r.json.up, true);
   assert.equal(r.json.version, '0.4.2');
 });
+
+/* --address, and the outage it exists for.
+ *
+ * A card sat with its service stopped through nine consecutive firings (PIT-76)
+ * because the watcher's resolver failed first: the probe exited 3 "unobservable"
+ * and nobody was woken. Honest, and blind. These two pin the way out — going to
+ * the address while keeping the certificate's name for SNI, the Host header and
+ * the pin — and they pin it from the direction that failed, i.e. with a name
+ * that genuinely does not resolve. */
+
+test('probe: --address reaches the card when the name does not resolve', async (t) => {
+  let sawHost = null;
+  const server = http.createServer((req, res) => {
+    sawHost = req.headers.host;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, version: '0.4.2' }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const port = server.address().port;
+
+  // .invalid never resolves, so this only works by going to the address.
+  const r = await probe(['--host', 'pitchtribe.invalid', '--address', '127.0.0.1', '--port', String(port), '--http']);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.up, true);
+  assert.equal(r.json.version, '0.4.2');
+  // The card has to be addressed by its name, not by where the packets went:
+  // that header is what picks a vhost, and over TLS the same name is the SNI
+  // that decides which certificate is offered to the pin.
+  assert.equal(sawHost, `pitchtribe.invalid:${port}`);
+  // Said out loud, because the resolver this bypassed is still broken.
+  assert.ok(r.json.notes.some((n) => /by address/.test(n)), r.json.notes.join('; '));
+});
+
+test('probe: a stopped service is down even when the name does not resolve', async () => {
+  // Exactly PIT-76: nothing listening on the card's web port, and a watcher
+  // whose resolver cannot see the name. Before --address this was a 3 that read
+  // as "my fault, look at the watcher"; it has to be a 2 about the card.
+  const r = await probe(['--host', 'pitchtribe.invalid', '--address', '127.0.0.1', '--port', '1', '--http']);
+  assert.equal(r.code, 2);
+  assert.equal(r.json.up, false);
+  assert.equal(r.json.reason, undefined);
+  // And it says where it tried, so the report is actionable on its own.
+  assert.equal(r.json.address, '127.0.0.1');
+});
