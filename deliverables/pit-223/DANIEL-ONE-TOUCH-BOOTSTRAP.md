@@ -28,21 +28,45 @@ The `SSH may not work until a valid user has been set up` line is the stock Rasp
 
 ## 1. Copy the connector token (do not paste it anywhere but the Pi)
 
-Cloudflare dashboard → **Zero Trust → Networking → Tunnels → `pitchtribe-cpfa` → Install and run a connector**. Copy the long `eyJ...` string out of the shown command.
+**It is not an API token — do not create one.** What `cloudflared` needs is the *tunnel connector token*: a long `eyJ...` string that Cloudflare already generated when the tunnel `pitchtribe-cpfa` was created. It identifies this one tunnel and nothing else in the account.
 
-The token can attach a machine to the tunnel. Never put it in the Paperclip thread, a commit, a chat message or a screenshot. If it is exposed, rotate it (runbook B4).
+Where to copy it: [one.dash.cloudflare.com](https://one.dash.cloudflare.com) → **Networks → Tunnels** (older UI: *Access → Tunnels*) → `pitchtribe-cpfa` → **Configure / Install and run a connector** → Debian tab. The displayed command ends in `sudo cloudflared service install eyJhIjoi…` — the token is everything after `install`.
+
+Tunnel for cross-check: `pitchtribe-cpfa`, ID `ca5e80f9-a318-4c73-a607-ceacad3a3fb3`, account `ad7861717c55f5e2f439ca07d7402f35`.
+
+The token can attach any machine to the tunnel. Never put it in the Paperclip thread, a commit, a chat message or a screenshot. If it is exposed, rotate it (runbook B4).
 
 ## 2. Install the connector
+
+First check the architecture — the Cloudflare apt repo carries `amd64` and `arm64` only, so a 32-bit Raspberry Pi OS will fail the apt path:
+
+```
+dpkg --print-architecture
+```
+
+**If `arm64`** (64-bit Raspberry Pi OS — expected):
 
 ```
 sudo mkdir -p --mode=0755 /usr/share/keyrings
 curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
 echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
 sudo apt-get update && sudo apt-get install -y cloudflared
+```
+
+**If `armhf`** (32-bit), skip the repo and install the release package directly:
+
+```
+curl -fsSL -o /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm.deb
+sudo dpkg -i /tmp/cloudflared.deb
+```
+
+Then, either way, register the connector as a boot service:
+
+```
 sudo cloudflared service install <PASTE_TOKEN_HERE>
 ```
 
-No local `config.yml` is created or wanted — this tunnel is remotely managed, so routing lives in Cloudflare.
+That one command writes the token to `/etc/cloudflared/`, creates the `cloudflared` systemd unit, enables it at boot and starts it. No local `config.yml` is created or wanted — this tunnel is remotely managed, so routing lives in Cloudflare.
 
 ## 3. Prove it is healthy and report the origin
 
