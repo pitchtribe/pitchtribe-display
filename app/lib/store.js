@@ -7,7 +7,10 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
 
-const SCHEMA_VERSION = 1;
+// 2 added users; 3 adds musicLists. A version-1 file still loads: its users list
+// is empty and settings.adminHash is the club's shared password, which is the
+// signal that the owner account has yet to be created from it.
+const SCHEMA_VERSION = 3;
 
 function defaultSports() {
   return {
@@ -36,8 +39,12 @@ function emptyData() {
       // warning. The club turns it on under Settings → Secure connection.
       httpsRedirect: false,
     },
+    // Dashboard logins, one record per volunteer (see lib/user-model.js).
+    // Each holds a scrypt password hash, so it never leaves the server as-is.
+    users: [],
     assets: [],
     playlists: [],
+    musicLists: [],
     screens: [],
   };
 }
@@ -65,7 +72,15 @@ class Store extends EventEmitter {
     const settings = { ...base.settings, ...data.settings };
     settings.sports = { ...base.settings.sports, ...(data.settings && data.settings.sports) };
     settings.widgets = { ...base.settings.widgets, ...(data.settings && data.settings.widgets) };
-    return { ...base, ...data, settings };
+    const out = { ...base, ...data, settings };
+    out.schemaVersion = SCHEMA_VERSION;
+    // Collections are arrays whatever the file on disk says. An older database
+    // has no users key at all, and a hand-edited or half-restored one can hold
+    // null — both would otherwise crash the first lookup that iterates them.
+    for (const key of ['users', 'assets', 'playlists', 'musicLists', 'screens']) {
+      if (!Array.isArray(out[key])) out[key] = [];
+    }
+    return out;
   }
 
   writeNow(data = this.data) {
@@ -126,4 +141,4 @@ class Store extends EventEmitter {
 
 const newId = () => crypto.randomBytes(6).toString('base64url');
 
-module.exports = { Store, newId };
+module.exports = { Store, newId, SCHEMA_VERSION };

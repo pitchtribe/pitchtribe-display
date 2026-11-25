@@ -463,7 +463,10 @@ function accounts(o) {
 }
 
 /** Accounts people log in as (uid 1000 and up, with a real shell). */
-const people = (o) => accounts(o).filter((u) => u.shell && !/nologin|false$/.test(u.shell));
+// Both alternatives need the anchor: `/nologin|false$/` leaves `nologin`
+// unanchored, so a real shell at a path like /opt/nologin-helper/sh would be
+// filtered out of the account list.
+const people = (o) => accounts(o).filter((u) => u.shell && !/(?:nologin|false)$/.test(u.shell));
 const login = (o, name) => (name ? accounts(o).find((u) => u.name === name) || null : null);
 
 function sshState(o) {

@@ -61,6 +61,31 @@ test('something is watching for a vulnerable dependency', () => {
   assert.match(read('.github/workflows/codeql.yml'), /languages:\s*javascript-typescript/);
 });
 
+test('the CodeQL exclusions stay narrow and keep saying why', () => {
+  // The query suite and the ignore list live in the config file, so the
+  // assertion above can no longer see them. Without this, dropping
+  // security-extended or silencing a rule is a one-line change nobody notices.
+  const wf = read('.github/workflows/codeql.yml');
+  assert.match(wf, /config-file:\s*\.\/\.github\/codeql\/codeql-config\.yml/,
+    'the workflow must point at the config file or the exclusions below do nothing');
+
+  const cfg = read('.github/codeql/codeql-config.yml');
+  assert.match(cfg, /uses:\s*security-extended/,
+    'security-extended is what catches path traversal in the archive and USB paths');
+
+  // Excluding a rule turns it off for code nobody has written yet, so the list
+  // is allowed to grow only with a reason next to it. .github/codeql/triage.md
+  // records the per-alert reasoning.
+  const excluded = [...cfg.matchAll(/^\s*id:\s*(\S+)/gm)].map((m) => m[1]);
+  assert.deepEqual(excluded, ['js/missing-rate-limiting', 'js/file-access-to-http'],
+    'a new query-filter exclusion needs a line in .github/codeql/triage.md and this list updated');
+  for (const rule of ['js/reflected-xss', 'js/http-to-file-access', 'js/polynomial-redos',
+    'js/remote-property-injection', 'js/log-injection', 'js/file-system-race']) {
+    assert.ok(!excluded.includes(rule),
+      `${rule} fired once here as a false positive; dismiss that one alert, do not disable the rule`);
+  }
+});
+
 test('the download page cannot be reached in plaintext, and the trade is written down', () => {
   // The first plaintext request to the site is the one a volunteer makes before
   // copying `curl … | sudo bash`, so it is the one worth never making.

@@ -7,17 +7,30 @@ URL="${PITCHTRIBE_URL:-http://localhost/player/?screen=@HOSTNAME@}"
 # Each Pi shows the screen named after its hostname (lounge-tv.local → lounge-tv).
 SCREEN_ID="$(hostname | tr -c 'a-zA-Z0-9_\n-' '-')"
 URL="${URL//@HOSTNAME@/$SCREEN_ID}"
+if [[ "${PITCHTRIBE_WIFI_SETUP:-0}" == 1 ]]; then
+  URL="http://127.0.0.1:8090/"
+fi
 CHROMIUM="${CHROMIUM:-$(command -v chromium || command -v chromium-browser)}"
 PROFILE="${HOME}/.config/pitchtribe-chromium"
 mkdir -p "$PROFILE"
 
 # Wait (up to ~60 s) for the server so the screen doesn't open on an error page.
-# The player retries by itself too, so carry on regardless.
-base="${URL%%/player*}"
-for _ in $(seq 1 30); do
-  curl -fsS -o /dev/null --max-time 2 "${base}/healthz" && break
-  sleep 2
-done
+# The page retries by itself too, so carry on regardless. Both health paths are tried
+# because this URL may be the app's player page or the signage server's clubhouse wall.
+if [[ "${PITCHTRIBE_WIFI_SETUP:-0}" != 1 ]]; then
+  origin="$(printf '%s' "$URL" | sed -E 's#^([a-z]+://[^/]+).*#\1#')"
+  for _ in $(seq 1 30); do
+    curl -fsS -o /dev/null --max-time 2 "${origin}/healthz" && break
+    curl -fsS -o /dev/null --max-time 2 "${origin}/api/health" && break
+    sleep 2
+  done
+else
+  # systemd considers a Type=simple helper started before its HTTP listener
+  # binds. Keep waiting so Chromium cannot launch on a connection error page.
+  until curl -fsS -o /dev/null --max-time 2 "$URL"; do
+    sleep 1
+  done
+fi
 
 # Clear "Chromium didn't shut down correctly" after a power cut.
 prefs="$PROFILE/Default/Preferences"
