@@ -27,6 +27,6 @@
   "devDependencies": {
     "@tailwindcss/cli": "4.3.5",
     "tailwindcss": "4.3.5",
-    "wrangler": "4.166.0"
+    "wrangler": "4.168.0"
   }
 }
