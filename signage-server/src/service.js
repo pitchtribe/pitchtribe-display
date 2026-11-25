@@ -8,6 +8,9 @@ import { createMcpHandler } from './mcp.js';
 import { createRequestHandler, createHttpServer } from './http.js';
 import { loadConfig, resolveConfig, exampleConfig } from './config.js';
 import { renderDisplay } from './render.js';
+import { buildClubhouse } from './clubhouse.js';
+import { renderClubhouse } from './clubhouse-render.js';
+import { listPhotos } from './photos.js';
 import * as sources from './sources.js';
 import { createWidgets, WIDGET_KINDS, TOPICS, HISTORY_TOPICS, TOPIC_LABELS, describeWeather, flagEmoji } from './widgets.js';
 
@@ -58,6 +61,9 @@ export {
   resolveConfig,
   exampleConfig,
   renderDisplay,
+  buildClubhouse,
+  renderClubhouse,
+  listPhotos,
   createWidgets,
   WIDGET_KINDS,
   TOPICS,

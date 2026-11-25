@@ -1,0 +1,66 @@
+'use strict';
+// Run with Playwright available on NODE_PATH: node app/test/admin-browser.cjs
+const { chromium } = require('playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { createApp } = require('../lib/app');
+(async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-browser-'));
+  const offline = async () => ({ ok: false, status: 503, json: async () => ({}), text: async () => '' });
+  const ctx = createApp({ dataDir: dir, feedsFetch: offline, log: () => {} });
+  const server = await new Promise(resolve => { const s = ctx.app.listen(0, '127.0.0.1', () => resolve(s)); });
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', err => errors.push(err.message));
+    const base = 'http://127.0.0.1:' + server.address().port;
+    await page.goto(base + '/admin/');
+    await page.getByLabel('Club name').fill('Browser QA Club');
+    await page.getByLabel('Choose an admin password').fill('Browser-owner-password1!');
+    await page.getByLabel('Confirm password', { exact: true }).fill('Browser-owner-password1!');
+    await page.getByRole('button', { name: 'Create dashboard', exact: true }).click();
+    await page.getByRole('link', { name: 'People', exact: true }).click();
+    await page.getByLabel('Owner username').fill('owner');
+    await page.getByRole('button', { name: 'Create owner login', exact: true }).click();
+    await page.getByLabel('Username', { exact: false }).fill('owner');
+    await page.getByLabel('Password', { exact: true }).fill('Browser-owner-password1!');
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await page.getByRole('heading', { name: 'Retire the shared password' }).waitFor();
+    await page.getByLabel('Your current password', { exact: true }).fill('Browser-owner-password1!');
+    await page.getByRole('button', { name: 'Retire shared password', exact: true }).click();
+    await page.getByRole('heading', { name: 'Retire the shared password' }).waitFor({ state: 'detached' });
+    const added = await page.request.post(base + '/api/users', { headers: { 'x-pitchtribe': '1' }, data: { username: 'viewer', role: 'viewer' } });
+    assert.equal(added.status(), 201);
+    const { temporaryPassword } = await added.json();
+    await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+    await page.getByLabel('Username', { exact: true }).fill('viewer');
+    await page.getByLabel('Password', { exact: true }).fill(temporaryPassword);
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await page.getByRole('heading', { name: 'Change your password to continue' }).waitFor();
+    await page.goto(base + '/admin/#/settings');
+    await page.getByRole('heading', { name: 'Change your password to continue' }).waitFor();
+    assert.equal((await page.request.get(base + '/api/state')).status(), 403);
+    await page.getByLabel('Current password', { exact: true }).fill(temporaryPassword);
+    await page.getByLabel('New password', { exact: true }).fill('Browser-viewer-password2!');
+    await page.getByLabel('Confirm new password', { exact: true }).fill('Browser-viewer-password2!');
+    await page.getByRole('button', { name: 'Replace password', exact: true }).click();
+    await page.getByRole('heading', { name: 'Content', exact: true }).waitFor();
+    assert.equal(await page.getByRole('link', { name: 'People', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('link', { name: 'Settings', exact: true }).count(), 0);
+    assert.equal(await page.locator('main button:enabled').count(), 0);
+    assert.equal((await page.request.put(base + '/api/settings', { headers: { 'x-pitchtribe': '1' }, data: { clubName: 'bypass' } })).status(), 403);
+    if (process.env.QA_SCREENSHOT) await page.screenshot({ path: process.env.QA_SCREENSHOT, fullPage: true });
+    assert.deepEqual(errors, []);
+    console.log('PASS Chromium: fresh setup → owner migration → named login → shared retirement → temporary viewer login → mandatory replacement/reload guard → read-only dashboard. No browser script errors.');
+  } finally {
+    if (browser) await browser.close();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    await ctx.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+})().catch(err => { console.error(err); process.exitCode = 1; });

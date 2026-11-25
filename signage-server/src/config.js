@@ -20,6 +20,9 @@ const DEFAULTS = {
   leagues: [],
   pushTargets: [],
   weather: null, // { place, latitude, longitude, windUnit: 'mph' | 'kmh' }
+  // One club's wall (GET /clubhouse) — see CLUBHOUSE.md. Null keeps this a pure feed
+  // server: the clubhouse routes stay inert and `/` still goes to /display.
+  clubhouse: null,
   widgets: { wikipedia: true },
   // Off by default: with `access-control-allow-origin: *` any web page open on
   // the same network could read this API from the browser of whoever visited
@@ -58,8 +61,15 @@ export function resolveConfig(fromFile = {}, { env = {}, configFile = null, base
   if (!config.publicUrl) config.publicUrl = `http://localhost:${config.port}`;
   config.publicUrl = config.publicUrl.replace(/\/+$/, '');
 
-  // Resolve relative paths (manual sources) against the server root.
+  // Resolve relative paths (manual sources, the photo pool, the badge) against the server root.
   config.leagues = config.leagues.map((l) => (l.file ? { ...l, file: resolve(baseDir, l.file) } : l));
+  if (config.clubhouse) {
+    config.clubhouse = {
+      ...config.clubhouse,
+      photosDir: config.clubhouse.photosDir ? resolve(baseDir, config.clubhouse.photosDir) : '',
+      badge: config.clubhouse.badge ? resolve(baseDir, config.clubhouse.badge) : '',
+    };
+  }
   config.pushTargets = config.pushTargets.filter((t) => t.enabled !== false);
   return config;
 }

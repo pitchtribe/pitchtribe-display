@@ -1,6 +1,7 @@
 <!-- {"title": "Using the dashboard", "description": "How to use the PitchTribe dashboard: add notices, menus, fixtures, photos, videos, widgets and live scores, build playlists, set when things show, and manage your screens."} -->
 <p class="eyebrow">Running your screens</p>
 <h1>Using the dashboard</h1>
+<p class="text-sm">The dashboard controls are currently in English. Screen language changes built-in display labels, dates and times; it does not translate dashboard controls or the notices and menus your club writes. The public website offers partial translations with English fallback.</p>
 <p class="lede">The dashboard is where you decide what the TVs show. Open it on any phone, tablet or laptop on the club’s network — at <code>http://pitchtribe.local</code>, or whatever name you gave the Pi — and sign in with the admin password.</p>
 
 <p>It has five sections, along the top:</p>
@@ -54,6 +55,18 @@ Chicken &amp; mushroom pie | £7.00 | | sold out</code></pre>
 <h3 id="live-scores">Live scores</h3>
 <p>Fixtures, live scores and results from the Premier League, Championship, Scottish Premiership, Champions League, NFL and NBA. First choose the competitions in <a href="#settings">Settings → Sports feeds</a>, then add a <strong>Live scores</strong> item. Scores update every minute while matches are on.</p>
 <p class="text-sm">The scores come from a free public feed meant for personal and non-commercial use. See <a href="https://github.com/pitchtribe/pitchtribe-display/blob/main/signage-server/DATA_SOURCES.md" target="_blank" rel="noopener noreferrer">data sources and licences</a>.</p>
+
+<h3 id="league-tables">League tables (FA Full-Time)</h3>
+<p>Your own grassroots league — table, recent results and next fixtures — straight from <a href="https://fulltime.thefa.com/" target="_blank" rel="noopener noreferrer">FA Full-Time</a>. A <strong>League table</strong> slide shows up to three Full-Time panels side by side on one screen.</p>
+<p>The FA doesn’t publish Full-Time as a feed, so the slide uses the official embed code your league gives you:</p>
+<ol>
+  <li>Sign in to <a href="https://fulltime.thefa.com/" target="_blank" rel="noopener noreferrer">fulltime.thefa.com</a> as a team or league administrator.</li>
+  <li>Go to <strong>Media → Code Snippets</strong>, choose your division and season, and pick the snippet you want: <em>Table</em>, <em>Recent Results</em>, <em>Upcoming Fixtures</em>, or your club’s own fixtures and results.</li>
+  <li>Create it, copy the embed code, and paste it into a panel on the slide. Repeat for each panel you want.</li>
+</ol>
+<p>Full-Time sends a fixed 350&nbsp;pixel-wide table, which is far too small for a TV, so PitchTribe scales each panel up to fill its column. Leave <strong>Size on screen</strong> on <em>Fit the panel</em> unless a panel comes out too small, then try a fixed zoom.</p>
+<p>Two things to know. Full-Time deletes a snippet that goes unused for 30 days, so create it, paste it here and check the slide in <strong>Preview</strong> the same day. And the table is drawn by Full-Time rather than stored on the Pi, so this slide needs the screen to have internet — keep a <a href="#fixtures">fixture list</a> in the playlist if your connection drops.</p>
+<p class="text-sm">Only snippets from <code>thefa.com</code> can be pasted here, and each one runs sealed off from the rest of the dashboard. If you paste something else you’ll get an error rather than a slide.</p>
 
 <h3 id="widgets">Widgets</h3>
 <p>Ready-made slides that fill themselves in. Tap <strong>Widgets</strong> to see them all, including:</p>

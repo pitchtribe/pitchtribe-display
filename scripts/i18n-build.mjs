@@ -28,7 +28,7 @@ const current = [...new Set(PAGES.flatMap((p) => extract(pagesHtml[p])))];
 const unknown = current.filter((s) => !index.has(s));
 
 // Strings that are the same in every language (names, specs, codes) — not reported as missing.
-const SAME = /^(PITCH|TRIBE|EN|PitchTribe|GitHub|FAQ|OS|CPU|RAM|GPU|USB|4K|PCIe 2\.0|Micro-HDMI ×2|USB 3\.0 ×2|VideoCore VII|BCM2712 · 4× A76|2\.4 GHz|GbE \+ Wi-Fi|microSD \/ NVMe|hostapd \+ dnsmasq \+ nftables|Raspberry Pi( 5| OS| OS Lite \((?:Bookworm|Trixie)\)| 5\.)?|English|Français|Español|Deutsch|Italiano|Português|Polski|Русский|中文|日本語|[A-D]|\d.*|.*@.*|Riverside FC|Rovers United|Northdale Ath|City Athletic|Hilltop Town|Valley Wanderers|Parkside|Old Boys XI|Reading|Glastonbury|Isle of Wight|Download|London Kings Cross|Peterborough|Brighton|Victoria|Central|Elizabeth line|EZY45TK|RYR92QF|RiversideFC-Guest|A320 · .*|B38M · .*|PITCHTRIBE · HDMI OUT|Daniel Newbury.*|— Riverside FC)$/;
+const SAME = /^(PITCH|TRIBE|EN|PitchTribe|GitHub|Amazon|The Pi Hut|FAQ|OS|CPU|RAM|GPU|USB|4K|PCIe 2\.0|Micro-HDMI ×2|USB 3\.0 ×2|VideoCore VII|BCM2712 · 4× A76|2\.4 GHz|GbE \+ Wi-Fi|microSD \/ NVMe|hostapd \+ dnsmasq \+ nftables|Raspberry Pi( 5| OS| OS Lite \((?:Bookworm|Trixie)\)| 5\.)?|English|Français|Español|Deutsch|Italiano|Português|Polski|Русский|中文|日本語|[A-D]|\d.*|.*@.*|Riverside FC|Rovers United|Northdale Ath|City Athletic|Hilltop Town|Valley Wanderers|Parkside|Old Boys XI|Reading|Glastonbury|Isle of Wight|Download|London Kings Cross|Peterborough|Brighton|Victoria|Central|Elizabeth line|EZY45TK|RYR92QF|RiversideFC-Guest|A320 · .*|B38M · .*|PITCHTRIBE · HDMI OUT|Daniel Newbury.*|— Riverside FC)$/;
 
 if (mode === '--update') {
   if (!unknown.length) console.log('i18n: source.json is up to date');
@@ -51,12 +51,19 @@ const tables = Object.fromEntries(LANGS.map(({ code }) => {
 }));
 
 if (mode === '--check') {
+  const minCoverageArg = process.argv.find((arg) => arg.startsWith('--min-coverage='));
+  const minCoverage = minCoverageArg ? Number(minCoverageArg.split('=')[1]) : 0;
+  if (!Number.isFinite(minCoverage) || minCoverage < 0 || minCoverage > 100) throw new Error('--min-coverage must be a percentage from 0 to 100');
   if (unknown.length) console.log(`New English strings not in source.json (run --update):\n  ${unknown.join('\n  ')}\n`);
+  let belowMinimum = false;
   for (const { code } of LANGS) {
-    const missing = current.filter((s) => index.has(s) && !SAME.test(s) && tables[code][index.get(s)] === undefined);
-    console.log(`${code}: ${current.length - missing.length}/${current.length} strings${missing.length ? `, missing:\n  ${missing.join('\n  ')}` : ' ✓'}`);
+    const missing = current.filter((s) => !SAME.test(s) && (!index.has(s) || tables[code][index.get(s)] === undefined));
+    const coverage = 100 * (current.length - missing.length) / current.length;
+    if (coverage < minCoverage) belowMinimum = true;
+    console.log(`${code}: ${current.length - missing.length}/${current.length} strings (${coverage.toFixed(1)}%)${missing.length ? `, missing:\n  ${missing.join('\n  ')}` : ' ✓'}`);
   }
-  process.exit(0);
+  if (belowMinimum) console.error(`i18n: at least one locale is below ${minCoverage}% coverage`);
+  process.exit(belowMinimum ? 1 : 0);
 }
 
 // ---------------------------------------------------------------- build

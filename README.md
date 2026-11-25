@@ -60,12 +60,14 @@ The English pages in `html/` are the single source of truth. At build time `scri
 - `i18n/source.json` lists every translatable English string: text, `alt`, `aria-label`, `title` and meta descriptions.
 - `i18n/<lang>.json` maps a string's position in that list to its translation.
 - A string with no translation shows in English, so the site never breaks.
+- The nine translated website routes are partial. The dashboard and documentation are in English; the player supports ten languages for built-in labels, dates and times. Club-authored content stays in its original language.
 
 After editing English text:
 
 ```bash
 npm run i18n:update   # append new English strings to i18n/source.json (positions never shift)
 npm run i18n:check    # list what still needs translating, per language
+npm run i18n:check -- --min-coverage=65 # fail if any offered locale drops below the current partial-translation floor
 ```
 
 Translations are inserted as plain text: no HTML tags, and `&` must be written as `&amp;`. The build rejects anything else.
@@ -244,7 +246,41 @@ A release is a tag on `main` plus the SD card image attached to it, which the we
 - **To release:** open **Actions → Release → Run workflow** and enter the version (e.g. `v0.2.0`, matching `app/package.json`). The workflow tags `main`, creates the release and builds the image. That build runs `.github/workflows/image.yml` as a reusable workflow, and takes about 15 minutes.
 - **To redo a release that went wrong** (for example one whose tag points at the wrong commit): run it again with **replace** ticked. It deletes the old release and tag first.
 
-Publishing a release by hand on GitHub still works too: the tag push starts the same image build.
+**It publishes second.** The release is created as a *prerelease*, the image is attached over the following
+quarter of an hour, and a last job flips it to the latest release only once `pitchtribe-rpi-arm64.img.xz`
+and `pitchtribe-imager.json` are both downloadable from it. That ordering is the point: `/releases/latest`
+is the download button on the site and the Imager repository in the docs, so it must not answer a version
+before there is an image behind it — and a build that fails leaves a prerelease nobody is pointed at
+instead of a public download that 404s. If a release is still marked *pre-release* after a run, read the
+run's log: the image never finished, and the version is not shipped.
+
+Publishing a release by hand on GitHub still works — the tag push starts the same image build — but use the
+Release button for a finished `vX.Y.Z`: a full release created by hand becomes `/releases/latest`
+immediately, with nothing to download until the build catches up.
+
+### A card for one building
+
+**There is one line, `main`, and one release button.** A card that shows one club's own wall instead
+of a playlist is a *configured* base card, not a build of its own: the same released image, plus a
+`clubhouse.json` in its data directory and a kiosk pointed at `/feeds/clubhouse`. See
+[`signage-server/CLUBHOUSE.md`](signage-server/CLUBHOUSE.md).
+
+This was briefly done the other way — a long-lived `caldecote` branch with its own numbering and its
+own release button, tagged `caldecote-0.0.1` … `0.0.3`. **That line is retired** (archived at
+`archive/caldecote-line`, and those three prereleases are marked *withdrawn — do not flash*). It is
+worth knowing why, because the reasoning applies to the next building that asks:
+
+- A branch per building needs a merge forward per base release, forever, and the base system had to
+  grow a second release workflow, a second version file and four branch filters to carry it. All of
+  that is overhead paid every week to hold content that changes once.
+- Every fault it actually shipped was a **content-delivery** fault, not a code fault — the right page
+  with the wrong club on it, three times over. Config in a data directory has none of those seams.
+- A non-`v*` tag is still forced to a prerelease by `image.yml`, so no such tag could move the
+  download link a stranger clicks. That guard stays, because it costs one line and it is the one that
+  protects the public button.
+
+What survived the retirement is all of it bar the branch: the wall, the six-metre measurement, the
+Full-Time adapter, the soak instrument and `deploy/club-content.sh` are base code on `main`.
 
 ## Conventions worth knowing
 

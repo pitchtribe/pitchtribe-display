@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="background" x2="1" y2="1"><stop stop-color="#071b1b"/><stop offset="1" stop-color="#091526"/></linearGradient>
+    <linearGradient id="screen" x2="0" y2="1"><stop stop-color="#0a3b30"/><stop offset="1" stop-color="#0b2224"/></linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#background)"/>
+  <circle cx="1020" cy="70" r="330" fill="#2ce6a8" opacity=".07"/>
+  <path d="M64 66h25l12 10v20L77 109 53 96V76z" fill="none" stroke="#2ce6a8" stroke-width="4"/>
+  <path d="M77 79l11 6v12l-11 6-11-6V85z" fill="#2ce6a8"/>
+  <text x="120" y="101" fill="#f2f7f6" font-size="32" font-family="Arial, sans-serif" font-weight="800" letter-spacing="3">PITCH<tspan fill="#2ce6a8">TRIBE</tspan></text>
+  <text x="64" y="231" fill="#f2f7f6" font-size="61" font-family="Arial, sans-serif" font-weight="800">Your club's screens,</text>
+  <text x="64" y="305" fill="#2ce6a8" font-size="61" font-family="Arial, sans-serif" font-weight="800">working for you.</text>
+  <text x="65" y="376" fill="#b5c9c9" font-size="25" font-family="Arial, sans-serif">Notices, fixtures, menus and more on a Raspberry Pi 5.</text>
+  <rect x="64" y="422" width="460" height="52" rx="26" fill="#2ce6a8"/>
+  <text x="91" y="456" fill="#06211d" font-size="21" font-family="Arial, sans-serif" font-weight="700">Open source · No monthly fees</text>
+  <rect x="727" y="177" width="420" height="290" rx="20" fill="#020b13" stroke="#365653" stroke-width="7"/>
+  <rect x="744" y="195" width="386" height="252" rx="9" fill="url(#screen)"/>
+  <text x="770" y="240" fill="#2ce6a8" font-size="15" font-family="Arial, sans-serif" font-weight="700" letter-spacing="2">RIVERSIDE FC</text>
+  <text x="770" y="298" fill="#f1f6f6" font-size="35" font-family="Arial, sans-serif" font-weight="700">Welcome to</text>
+  <text x="770" y="340" fill="#f1f6f6" font-size="35" font-family="Arial, sans-serif" font-weight="700">Riverside FC</text>
+  <text x="770" y="393" fill="#a5c0bb" font-size="18" font-family="Arial, sans-serif">Notices · Menus · Fixtures</text>
+  <path d="M900 469v25m-83 0h166" stroke="#365653" stroke-width="9" stroke-linecap="round"/>
+  <text x="64" y="571" fill="#83a7a2" font-size="21" font-family="Arial, sans-serif">pitchtribe.media</text>
+</svg>

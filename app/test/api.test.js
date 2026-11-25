@@ -6,9 +6,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { createApp } = require('../lib/app');
 
-const espnFixture = JSON.parse(
-  fs.readFileSync(path.join(__dirname, '..', '..', 'signage-server', 'test', 'fixtures', 'espn-eng1.json'), 'utf8')
-);
+const { espnFixtureAroundNow } = require('./espn-fixture');
+
 const fakeEspn = async (url) => {
   if (String(url).startsWith('https://api.open-meteo.com')) {
     return { ok: true, status: 200, json: async () => ({
@@ -16,7 +15,7 @@ const fakeEspn = async (url) => {
       daily: { time: ['2026-11-03', '2026-11-04'], weather_code: [2, 61], temperature_2m_max: [10, 9], temperature_2m_min: [4, 5], precipitation_probability_max: [10, 70] },
     }) };
   }
-  return { ok: true, status: 200, json: async () => espnFixture };
+  return { ok: true, status: 200, json: async () => espnFixtureAroundNow() };
 };
 
 async function startServer(extra = {}) {
@@ -65,7 +64,7 @@ test('first-run setup, login and auth guard', async (t) => {
   r = await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'short' });
   assert.equal(r.status, 400);
 
-  r = await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  r = await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
   assert.equal(r.status, 200);
 
   r = await s.call('GET', '/api/state');
@@ -85,7 +84,7 @@ test('first-run setup, login and auth guard', async (t) => {
   s.clearCookie();
   r = await s.call('POST', '/api/auth/login', { password: 'wrong password' });
   assert.equal(r.status, 401);
-  r = await s.call('POST', '/api/auth/login', { password: 'correct horse' });
+  r = await s.call('POST', '/api/auth/login', { password: 'correct horseA1!' });
   assert.equal(r.status, 200);
   r = await s.call('GET', '/api/state');
   assert.equal(r.status, 200);
@@ -94,7 +93,7 @@ test('first-run setup, login and auth guard', async (t) => {
 test('content, playlists, timings and the screen manifest', async (t) => {
   const s = await startServer();
   t.after(s.stop);
-  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
   const playlistId = (await s.call('GET', '/api/state')).body.playlists[0].id;
 
   // Upload an image (raw body).
@@ -108,11 +107,40 @@ test('content, playlists, timings and the screen manifest', async (t) => {
   assert.equal(image.type, 'image');
   assert.equal(image.name, 'Club crest');
   assert.equal(image.duration, 10);
+  r = await s.call('PATCH', `/api/assets/${image.id}`, { fit: 'blur' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.fit, 'blur');
+  r = await s.call('PATCH', `/api/assets/${image.id}`, { fit: 'color', backgroundColor: '#224466' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.backgroundColor, '#224466');
+  r = await s.call('PATCH', `/api/assets/${image.id}`, { backgroundColor: 'red' });
+  assert.equal(r.status, 400);
 
   // Uploaded media is served with a sandboxing CSP.
   r = await s.call('GET', image.src);
   assert.equal(r.status, 200);
   assert.match(r.headers.get('content-security-policy'), /sandbox/);
+
+  // MP3 uploads enter the managed library and can be fetched by the jukebox.
+  r = await s.call('POST', '/api/assets/upload', Buffer.from('ID3\u0004\u0000\u0000fake-mp3-data'), {
+    raw: true,
+    headers: { 'content-type': 'audio/mpeg', 'x-filename': encodeURIComponent('Matchday.mp3') },
+  });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.type, 'audio');
+  assert.equal(r.body.name, 'Matchday');
+  assert.equal((await s.call('GET', r.body.src)).status, 200);
+  const audio = r.body;
+  r = await s.call('GET', '/api/state');
+  r = await s.call('PUT', `/api/playlists/${playlistId}`, {
+    items: [...r.body.playlists[0].items, { assetId: audio.id, enabled: true }],
+  });
+  assert.equal(r.status, 200);
+  assert.ok(r.body.items.every((item) => item.assetId !== audio.id), 'audio assets are excluded from saved signage playlists');
+  r = await s.call('GET', '/api/state');
+  assert.ok(r.body.playlists[0].items.every((item) => item.assetId !== audio.id), 'the persisted playlist remains free of audio assets');
+  r = await s.call('POST', '/api/assets/upload', Buffer.from('not an mp3'), { raw: true, headers: { 'content-type': 'audio/mpeg' } });
+  assert.equal(r.status, 400);
 
   // Unsupported upload types are refused.
   r = await s.call('POST', '/api/assets/upload', 'hello', { raw: true, headers: { 'content-type': 'text/html' } });
@@ -158,6 +186,8 @@ test('content, playlists, timings and the screen manifest', async (t) => {
   assert.equal(r.body.playlist.ticker, 'Bar open from 12:00');
   assert.deepEqual(r.body.items.map((i) => i.type), ['notice', 'image'], 'disabled items are not sent');
   assert.equal(r.body.items[1].duration, 7, 'per-item duration overrides the default');
+  assert.equal(r.body.items[1].fit, 'color');
+  assert.equal(r.body.items[1].backgroundColor, '#224466');
 
   r = await s.call('GET', '/api/player/bad id!/manifest');
   assert.equal(r.status, 400);
@@ -195,7 +225,7 @@ test('content, playlists, timings and the screen manifest', async (t) => {
 test('screens receive a push when content changes', async (t) => {
   const s = await startServer();
   t.after(s.stop);
-  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
   await s.call('GET', '/api/player/lounge/manifest');
 
   const ac = new AbortController();
@@ -226,7 +256,7 @@ test('screens receive a push when content changes', async (t) => {
 test('sports engine runs inside the app: settings, /feeds routes, MCP auth, live-score slides', async (t) => {
   const s = await startServer();
   t.after(s.stop);
-  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
   await s.ctx.sports.ready;
 
   let r = await s.call('GET', '/api/state');
@@ -266,7 +296,7 @@ test('sports engine runs inside the app: settings, /feeds routes, MCP auth, live
   r = await s.call('POST', '/feeds/mcp', rpc, { headers: { authorization: `Bearer ${token}`, 'x-pitchtribe': '' } });
   assert.equal(r.status, 200);
   assert.ok(r.body.result.tools.some((tool) => tool.name === 'get_live_scores'));
-  await s.call('POST', '/api/auth/login', { password: 'correct horse' });
+  await s.call('POST', '/api/auth/login', { password: 'correct horseA1!' });
 
   // A "Live scores" slide carries the data in the screen manifest.
   r = await s.call('POST', '/api/assets', {
@@ -298,7 +328,7 @@ test('sports engine runs inside the app: settings, /feeds routes, MCP auth, live
 test('widgets: settings, every kind in manifests, spot-the-ball answer stays secret until reveal', async (t) => {
   const s = await startServer();
   t.after(s.stop);
-  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
   await s.ctx.feeds.ready;
   const playlistId = (await s.call('GET', '/api/state')).body.playlists[0].id;
 
@@ -353,7 +383,10 @@ test('widgets: settings, every kind in manifests, spot-the-ball answer stays sec
   const hidden = r.body.items.find((i) => i.assetId === later.id).data;
   assert.equal(hidden.revealed, false);
   assert.equal(hidden.answer, null);
-  assert.ok(!JSON.stringify(hidden).includes('42.5'), 'exact answer not sent before reveal');
+  // The blur patch is a deliberate near-miss, so it is excluded from the text scan:
+  // scanning it too fails whenever its random offset rounds into '42.5' (1.95% of runs).
+  assert.ok(!JSON.stringify({ ...hidden, patch: null }).includes('42.5'), 'exact answer not sent before reveal');
+  assert.ok(hidden.patch && !(hidden.patch.x === 42.5 && hidden.patch.y === 61), 'the patch is not centred on the ball');
   assert.ok(hidden.patch && Math.abs(hidden.patch.x - 42.5) <= 6 * 0.4 && hidden.patch.r > 6, 'blur patch covers the ball area');
   assert.equal(hidden.src, photo.src);
   const shown = r.body.items.find((i) => i.assetId === past.id).data;
@@ -373,7 +406,7 @@ test('widgets: settings, every kind in manifests, spot-the-ball answer stays sec
 test('culture widgets: topics, emoji quiz, flags & capitals, country of the day, world clocks', async (t) => {
   const s = await startServer();
   t.after(s.stop);
-  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
   await s.ctx.feeds.ready;
   const playlistId = (await s.call('GET', '/api/state')).body.playlists[0].id;
   const add = (content) => s.call('POST', '/api/assets', { type: 'widget', name: content.kind, content, addToPlaylist: playlistId });
@@ -407,7 +440,7 @@ test('culture widgets: topics, emoji quiz, flags & capitals, country of the day,
 test('data-source widgets and transport hub: validation, options reach the engine, keys stay server-side', async (t) => {
   const s = await startServer();
   t.after(s.stop);
-  await s.call('POST', '/api/auth/setup', { clubName: 'Biggleswade Town', password: 'correct horse' });
+  await s.call('POST', '/api/auth/setup', { clubName: 'Biggleswade Town', password: 'correct horseA1!' });
   await s.ctx.feeds.ready;
   const playlistId = (await s.call('GET', '/api/state')).body.playlists[0].id;
   const add = (content) => s.call('POST', '/api/assets', { type: 'widget', name: content.kind, content, addToPlaylist: playlistId });
@@ -469,7 +502,7 @@ test('data-source widgets and transport hub: validation, options reach the engin
 test('screen language: club default, per-screen override, validation', async (t) => {
   const s = await startServer();
   t.after(s.stop);
-  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
   let r = await s.call('GET', '/api/state');
   assert.equal(r.body.settings.language, 'en');
   assert.ok(r.body.languages.some((l) => l.code === 'ja' && l.name === '日本語'));
@@ -494,7 +527,7 @@ test('Settings → About: the nightly OS update reaches the dashboard', async (t
   // in os-updates.test.js; this is the wire between the two.
   const s = await startServer();
   t.after(s.stop);
-  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await s.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
 
   // A dashboard that isn't on a Pi (or a card whose first night hasn't come
   // round) says nothing rather than looking broken.
@@ -524,7 +557,7 @@ test('guest wi-fi: the dashboard says whether this Pi can actually broadcast it'
   // to be able to tell the difference, so it reports it.
   const missing = await startServer({ portalApplyBin: path.join(os.tmpdir(), 'pitchtribe-no-such-helper') });
   t.after(missing.stop);
-  await missing.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await missing.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
 
   let r = await missing.call('GET', '/api/portal');
   assert.equal(r.status, 200);
@@ -545,7 +578,7 @@ test('guest wi-fi: the dashboard says whether this Pi can actually broadcast it'
 
   const present = await startServer({ portalApplyBin: __filename }); // any file that exists
   t.after(present.stop);
-  await present.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await present.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
   assert.equal((await present.call('GET', '/api/portal')).body.installed, true);
 });
 
