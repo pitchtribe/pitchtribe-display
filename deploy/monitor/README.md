@@ -87,11 +87,38 @@ The probe forces IPv4. The Pi's name resolves to both an A and an AAAA record
 and the order is not stable between lookups, so on an IPv4-only watcher an
 unpinned probe fails intermittently against a card that is perfectly healthy.
 
+## "Down" and "I cannot see it" are different answers
+
+Exit `3` means the probe never reached the card: the name did not resolve, or
+there is no route to its network. No TCP connection, no TLS handshake, no
+certificate and no body — so **the card's state is unknown**, and it may be
+perfectly healthy. The failure is on this machine, in its resolver or its
+routing. Fix that; do not drive to the clubhouse.
+
+This exists because a watcher with no path to the club LAN turned two transport
+errors into a confirmed "the card is down" report about a card nobody had
+looked at (PIT-71). An honest monitor has to be able to say "I don't know".
+
+Two failures stay exit `2` on purpose, because on a watcher that normally
+reaches the card they are the faults this probe exists to catch:
+
+- **connection refused** — something answers at the IP level and the service is
+  not there, i.e. the service has stopped;
+- **timeout** — the card is wedged, or a firewall is dropping the connection.
+
+Both are also what an unroutable network looks like from inside a container,
+where the router and an unassigned address refuse identically to the card. So
+if a watcher reports a refusal for every address on the subnet, including ones
+with nothing on them, it is on the wrong network rather than looking at a dead
+card.
+
 ## Alerting
 
-The unit exits `0` up, `1` needs attention, `2` down, so a non-zero exit leaves
-it failed and visible to `systemctl --failed`. Wire up whatever notifier you use
-as a drop-in rather than editing the unit:
+The unit exits `0` up, `1` needs attention, `2` down, `3` unobservable, so a
+non-zero exit leaves it failed and visible to `systemctl --failed`. A `3` is
+still worth acting on — a watcher that cannot see the card is a watch that has
+stopped — but it is a different job for a different person. Wire up whatever
+notifier you use as a drop-in rather than editing the unit:
 
 ```sh
 sudo systemctl edit pitchtribe-health-probe.service
