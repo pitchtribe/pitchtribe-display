@@ -75,10 +75,15 @@ function diskView(dir, statfs) {
  * MemFree on a Pi that has been up a fortnight is nearly zero because the
  * kernel has cached the media files, and a warning built on it would fire every
  * day on perfectly healthy cards.
+ *
+ * Injectable for the same reason `statfs` is: a test that reads the real host's
+ * memory asserts about the machine it happens to run on, so it passes on a
+ * roomy CI runner and fails on a busy laptop with no code having changed.
  */
-function memoryView() {
-  const totalBytes = os.totalmem();
-  const availableBytes = os.freemem();
+const realMeminfo = () => ({ totalBytes: os.totalmem(), availableBytes: os.freemem() });
+
+function memoryView(meminfo) {
+  const { totalBytes, availableBytes } = meminfo();
   if (!totalBytes) return null;
   return { availableBytes, totalBytes, usedPercent: pct(totalBytes - availableBytes, totalBytes) };
 }
@@ -146,7 +151,7 @@ function osUpdateState(osUpdate) {
  * @param {Function} [o.statfs]        fs.statfsSync, swapped out to test a full card
  * @returns {() => object} the body, ready to send
  */
-function createHealth({ version, dataDir, screens, osUpdate, cacheMs = CACHE_MS, now = Date.now, statfs = fs.statfsSync }) {
+function createHealth({ version, dataDir, screens, osUpdate, cacheMs = CACHE_MS, now = Date.now, statfs = fs.statfsSync, meminfo = realMeminfo }) {
   let cached = null;
   let cachedAt = 0;
 
@@ -155,7 +160,7 @@ function createHealth({ version, dataDir, screens, osUpdate, cacheMs = CACHE_MS,
     if (cached && at - cachedAt < cacheMs) return cached;
 
     const disk = diskView(dataDir, statfs);
-    const memory = memoryView();
+    const memory = memoryView(meminfo);
     const osUpdates = osUpdateState(osUpdate);
 
     const warnings = [];
