@@ -1,7 +1,6 @@
 [Unit]
 Description=PitchTribe kiosk display (Chromium in cage on tty1)
-After=systemd-user-sessions.service plymouth-quit-wait.service network-online.target pitchtribe.service
-Wants=network-online.target
+After=systemd-user-sessions.service plymouth-quit-wait.service pitchtribe.service pitchtribe-wifi-startup.service
 Conflicts=getty@tty1.service
 
 [Service]

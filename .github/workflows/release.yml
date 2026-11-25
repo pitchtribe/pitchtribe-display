@@ -14,6 +14,14 @@ name: Release
 #
 # The tag is pushed with the workflow's own token, which doesn't trigger the
 # tag-push build in image.yml, so this workflow runs that build itself.
+#
+# It publishes second. The release is created as a PRERELEASE, the image build
+# attaches the assets over the next 10–15 minutes, and only then does a final job
+# flip it to the latest release. /releases/latest — the download button on the
+# site, the asset docs/setup.html names, the Imager repository in
+# docs/troubleshooting.html — therefore never answers this version until there is
+# something behind it, and a build that fails leaves a prerelease nobody is
+# pointed at rather than an empty public download.
 on:
   workflow_dispatch:
     inputs:
@@ -34,7 +42,7 @@ concurrency:
 
 jobs:
   tag:
-    name: Tag main and create the release
+    name: Tag main and stage the release
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -74,7 +82,7 @@ jobs:
             echo "Removed the old $VERSION"
           fi
 
-      - name: Tag main and create the release
+      - name: Tag main and stage the release
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -84,8 +92,12 @@ jobs:
           git tag -d "$VERSION" >/dev/null 2>&1 || true
           git tag -a "$VERSION" -m "PitchTribe $VERSION" "$(git rev-parse HEAD)"
           git push origin "refs/tags/$VERSION"
-          gh release create "$VERSION" --verify-tag --title "PitchTribe $VERSION" --generate-notes
-          echo "Tagged $(git rev-parse --short HEAD) as $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          # --prerelease, so creating it does not move /releases/latest onto a
+          # release with no image on it. The publish job below takes that off once
+          # the image is attached; until then the site's download button still
+          # answers the last version that has one.
+          gh release create "$VERSION" --verify-tag --prerelease --title "PitchTribe $VERSION" --generate-notes
+          echo "Tagged $(git rev-parse --short HEAD) as $VERSION — staged as a prerelease" >> "$GITHUB_STEP_SUMMARY"
 
   image:
     name: SD card image
@@ -102,3 +114,47 @@ jobs:
     uses: ./.github/workflows/image.yml
     with:
       release_tag: ${{ inputs.version }}
+
+  publish:
+    name: Publish the release
+    # Only reached when the image job succeeded, which means the attach step ran
+    # and the attestation after it passed. Anything short of that leaves the
+    # prerelease exactly as it is: the assets that did upload are still on it, and
+    # /releases/latest is still the last version that has a whole image.
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+      REPO: ${{ github.repository }}
+    steps:
+      # The attach step in image.yml uploads these, but asking the release itself
+      # is what proves the download works: an asset is only fetchable once GitHub
+      # reports it "uploaded".
+      - name: Check the download is there
+        run: |
+          set -euo pipefail
+          uploaded="$(gh release view "$VERSION" --repo "$REPO" \
+            --json assets --jq '.assets[] | select(.state == "uploaded") | .name')"
+          missing=()
+          # What the public pages point at: the asset docs/setup.html tells people
+          # to click, and the Imager repository docs/troubleshooting.html publishes
+          # as /releases/latest/download/pitchtribe-imager.json.
+          for want in pitchtribe-rpi-arm64.img.xz pitchtribe-imager.json; do
+            grep -qxF "$want" <<<"$uploaded" || missing+=("$want")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::$VERSION has no ${missing[*]} to download, so it stays a prerelease"
+            exit 1
+          fi
+
+      - name: Make it the latest release
+        # Unconditional: this workflow has already refused any version that is not
+        # vX.Y.Z, so everything that gets here is a finished version. The rule for
+        # which tags are finished versions lives once, in image.yml.
+        run: |
+          set -euo pipefail
+          gh release edit "$VERSION" --repo "$REPO" --prerelease=false --latest
+          echo "Published $VERSION — /releases/latest now answers it" >> "$GITHUB_STEP_SUMMARY"
