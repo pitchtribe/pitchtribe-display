@@ -76,6 +76,8 @@ html, body {
 }
 .slide.media .fit-contain { object-fit: contain; }
 .slide.media .fit-cover { object-fit: cover; }
+.slide.media .fit-blur, .slide.media .fit-color { object-fit: contain; position: relative; z-index: 1; }
+.slide.media .media-background { position: absolute; inset: -4%; width: 108%; height: 108%; object-fit: cover; filter: blur(36px) brightness(.55); }
 .slide.web { background: #fff; }
 
 /* Text slides ---------------------------------------------------------- */
@@ -121,6 +123,17 @@ html, body {
   min-height: 0;
   overflow: hidden;
 }
+/* A panel whose content is taller than the screen on purpose: player.js walks
+   the track down through this box, and adds `scrolling` once it knows there is
+   further to go than one screen. The bottom fade says "more below" instead of
+   leaving a row looking sliced off; the track's matching bottom padding is what
+   is under the fade at the end of the run, so the last row lands in the clear. */
+.fit.scroller .scroll-track { will-change: transform; }
+.fit.scrolling {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5em), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5em), transparent);
+}
+.fit.scrolling .scroll-track { padding-bottom: 2.5em; }
 
 /* Notice */
 .notice { justify-content: center; }
@@ -155,6 +168,18 @@ html, body {
 .menu-item .price { font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
 .menu-item .notes { display: block; font-size: 0.62em; color: var(--muted); font-weight: 400; margin-top: 0.1em; }
 .menu-item.sold-out .name, .menu-item.sold-out .price { text-decoration: line-through; opacity: 0.45; }
+
+/* Bar menu (branded drinks list) */
+.bar-col-header, .bar-drink-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.8em; padding: 0.4em 0; border-bottom: 1px solid var(--line); }
+.bar-col-header { font-size: 0.65em; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); border-bottom-color: var(--line); }
+.bar-col-drink { display: flex; align-items: center; gap: 0.55em; }
+.bar-col-price { font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.bar-col-mp { font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; min-width: 4em; }
+.brand-badge { width: 1.9em; height: 1.9em; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.6em; font-weight: 900; letter-spacing: 0.03em; color: #fff; flex-shrink: 0; }
+.brand-logo { width: auto; height: 1.9em; max-width: 4em; object-fit: contain; flex-shrink: 0; display: block; }
+.brand-name { font-weight: 600; }
+.bar-footer { font-size: 0.6em; color: var(--muted); text-align: right; margin-top: 0.6em; opacity: 0.7; }
+
 .badge {
   display: inline-block;
   font-size: 0.55em;
@@ -169,6 +194,21 @@ html, body {
   margin-left: 0.4em;
   text-decoration: none;
 }
+
+/* Sponsors */
+.sponsor .fit { display: flex; flex-direction: column; justify-content: center; }
+.sponsor-grid { display: flex; flex-wrap: wrap; gap: 1.4cqmin; justify-content: center; align-items: center; padding: 0.6em 0; }
+.layout-row .sponsor-grid { flex-wrap: nowrap; overflow: hidden; }
+.sponsor-card { display: flex; align-items: center; gap: 0.7em; background: rgb(14 30 48 / 0.6); border: 1px solid var(--line); border-radius: 0.6em; padding: 0.6em 1em; }
+.sponsor-logo { height: 2.4em; width: auto; max-width: 6em; object-fit: contain; display: block; }
+.sponsor-info { display: flex; flex-direction: column; gap: 0.15em; }
+.sponsor-name { font-weight: 700; font-size: 0.85em; }
+.sponsor-tagline { font-size: 0.65em; color: var(--muted); }
+.tier-badge { font-size: 0.55em; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; padding: 0.2em 0.5em; border-radius: 0.3em; display: inline-block; margin-top: 0.1em; }
+.tier-gold { background: #c9a000; color: #000; }
+.tier-silver { background: #909090; color: #fff; }
+.tier-bronze { background: #a0522d; color: #fff; }
+.tier-partner { background: #2a6a9a; color: #fff; }
 
 /* Fixtures */
 .fixtures-list { list-style: none; display: flex; flex-direction: column; gap: 0.5em; }
@@ -233,6 +273,31 @@ html, body {
 .tag.pp { background: rgb(247 201 75 / 0.15); color: var(--amber); }
 
 .empty-note { color: var(--muted); font-size: 1.1em; }
+
+/* League (FA Full-Time) ------------------------------------------------ */
+/* Each column frames one Full-Time panel. The frame fills its column and the
+   document inside it scales the FA's 350px-wide insert to fit, so the table
+   is legible from the bar rather than a stamp in the middle of the screen. */
+.league .fit { display: flex; }
+.league-panels { display: flex; flex: 1; min-height: 0; gap: 2.4cqmin; width: 100%; }
+.league-panel { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.league-panel h2 {
+  font-size: 0.78em;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.5em;
+}
+.league-panel iframe {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  display: block;
+  border-radius: 1.2cqmin;
+  background: #fff;
+}
 
 /* Chrome --------------------------------------------------------------- */
 #clock {

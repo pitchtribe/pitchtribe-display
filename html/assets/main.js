@@ -138,6 +138,47 @@
     });
   });
 
+  /* ---- Quick-buy baskets (/buy) ----
+     Rebuilds each shop's basket link from whatever is ticked in its own list.
+     The href in the HTML already covers that shop's default rows, so with JS
+     off every button still sends a complete basket — this only makes the lists
+     adjustable. data-price feeds the running total only; the link carries the
+     shop's own item code from data-item. */
+  const basketUrl = {
+    // Amazon numbers the pairs from 1, and a skipped index drops every item
+    // after the gap, so the pairs are renumbered on every rebuild.
+    amazon: (picked) =>
+      `https://www.amazon.co.uk/gp/aws/cart/add.html?${picked
+        .flatMap((t, i) => [`ASIN.${i + 1}=${t.dataset.item}`, `Quantity.${i + 1}=1`])
+        .join("&")}`,
+    // The Pi Hut is Shopify. storefront=true is load-bearing: without it the
+    // shopper is dropped straight into checkout instead of the basket page.
+    pihut: (picked) =>
+      `https://thepihut.com/cart/${picked.map((t) => `${t.dataset.item}:1`).join(",")}?storefront=true`,
+  };
+  document.querySelectorAll("[data-basket]").forEach((basket) => {
+    const link = basket.querySelector("[data-basket-link]");
+    const build = basketUrl[basket.dataset.basket];
+    if (!link || !build) return;
+    const ticks = Array.from(basket.querySelectorAll(".basket-tick[data-item]"));
+    const totalEl = basket.querySelector("[data-basket-total]");
+    const countEl = basket.querySelector("[data-basket-count]");
+    const update = () => {
+      const picked = ticks.filter((t) => t.checked);
+      const total = picked.reduce((sum, t) => sum + Number(t.dataset.price || 0), 0);
+      if (countEl) countEl.textContent = String(picked.length);
+      if (totalEl) totalEl.textContent = `£${total.toFixed(2)}`;
+      if (picked.length) link.href = build(picked);
+      link.setAttribute("aria-disabled", String(picked.length === 0));
+    };
+    ticks.forEach((t) => t.addEventListener("change", update));
+    // An empty basket link would land on an error page, so block the click.
+    link.addEventListener("click", (e) => {
+      if (!ticks.some((t) => t.checked)) e.preventDefault();
+    });
+    update();
+  });
+
   /* ---- Scroll reveal ---- */
   const revealEls = document.querySelectorAll(".reveal");
   if ("IntersectionObserver" in window && !reduceMotion) {

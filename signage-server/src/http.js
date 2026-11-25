@@ -1,6 +1,9 @@
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { renderDisplay } from './render.js';
+import { buildClubhouse } from './clubhouse.js';
+import { renderClubhouse } from './clubhouse-render.js';
+import { listPhotos, sendPhoto, sendImage } from './photos.js';
 
 const MAX_BODY = 1_000_000;
 const MAX_STREAM_CLIENTS = 50;
@@ -53,6 +56,9 @@ function authorized(req, token) {
 /**
  * Routes (relative to wherever the handler is mounted — `/` standalone, `/sports` inside the app):
  *   GET  /display            full-screen auto-rotating pamphlet (?leagues=eng.1,ucl&theme=light&rotate=10)
+ *   GET  /clubhouse          one club's wall: single-idea slides, own hours, own photographs (?rotate=12)
+ *   GET  /photos/:name       one photograph from clubhouse.photosDir
+ *   GET  /badge              the club badge (clubhouse.badge)
  *   GET  /api/health         status
  *   GET  /api/leagues        league list + status
  *   GET  /api/events         ?league=&status=live,final,scheduled,postponed&team=&limit=
@@ -92,6 +98,18 @@ export function createRequestHandler({ store, config, push, mcp, widgets, log = 
         return send(res, 401, { error: 'Unauthorized' }, undefined, { 'www-authenticate': 'Bearer' });
       }
 
+      // The club's own photographs. No token: a screen asks for these before it can be
+      // asked for anything, and they are the club's pictures on the club's wall.
+      if (req.method === 'GET') {
+        const photo = /^\/photos\/([^/]+)$/.exec(url.pathname);
+        if (photo) {
+          let name = null;
+          try { name = decodeURIComponent(photo[1]); } catch { name = null; }
+          if (name && await sendPhoto(res, config.clubhouse?.photosDir, name)) return;
+          return send(res, 404, { error: 'No such photograph' });
+        }
+      }
+
       if (widgets && req.method === 'GET') {
         const widget = /^\/api\/widgets\/([a-z]+)\/?$/.exec(url.pathname);
         const geocoding = url.pathname === '/api/geocode';
@@ -111,8 +129,21 @@ export function createRequestHandler({ store, config, push, mcp, widgets, log = 
 
       switch (route) {
         case 'GET /':
-          res.writeHead(302, { location: '/display' }).end();
+          // A card configured for one club's wall goes there; everything else keeps the
+          // multi-league pamphlet it had before.
+          res.writeHead(302, { location: config.clubhouse ? '/clubhouse' : '/display' }).end();
           return;
+        case 'GET /clubhouse': {
+          const photoFiles = await listPhotos(config.clubhouse?.photosDir);
+          const wall = buildClubhouse(store.snapshot(), config, { photoFiles });
+          const html = renderClubhouse(wall, {
+            rotateSeconds: url.searchParams.get('rotate') ?? config.clubhouse?.rotateSeconds ?? config.rotateSeconds,
+          });
+          return send(res, 200, html, 'text/html; charset=utf-8');
+        }
+        case 'GET /badge':
+          if (await sendImage(res, config.clubhouse?.badge)) return;
+          return send(res, 404, { error: 'No badge configured' });
         case 'GET /display': {
           const leagues = url.searchParams.get('leagues')?.split(',').filter(Boolean);
           const html = renderDisplay(store.snapshot(), {
@@ -130,7 +161,9 @@ export function createRequestHandler({ store, config, push, mcp, widgets, log = 
             ok: true, updatedAt: store.updatedAt, live: store.hasLive(), streamClients: clients.size,
           });
         case 'GET /api/leagues':
-          return send(res, 200, store.snapshot().leagues.map(({ events, ...l }) => ({ ...l, events: events.length })));
+          return send(res, 200, store.snapshot().leagues.map(({ events, standings, ...l }) => ({
+            ...l, events: events.length, standings: standings ? standings.rows.length : 0,
+          })));
         case 'GET /api/events':
           return send(res, 200, store.query(Object.fromEntries(url.searchParams)));
         case 'GET /api/snapshot':

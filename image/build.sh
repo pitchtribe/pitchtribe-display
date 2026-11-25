@@ -103,6 +103,19 @@ mkdir -p "$MNT/tmp/pitchtribe"
 cp -a "$ROOT/app" "$ROOT/signage-server" "$ROOT/deploy" "$MNT/tmp/pitchtribe/"
 rm -rf "$MNT/tmp/pitchtribe/app/node_modules" "$MNT/tmp/pitchtribe/signage-server/node_modules"
 
+# A club line — a build for one named building — carries that club's own card
+# content and a .pitchtribe-club file naming it. The content has to go into the
+# chroot with everything else, because a flashed club card must come up as that
+# club rather than as a playlist player with the club's name on the box. There is
+# no such file on main, so this does nothing to the image everybody downloads.
+if [[ -f "$ROOT/.pitchtribe-club" ]]; then
+  CLUB="$(tr -d '[:space:]' <"$ROOT/.pitchtribe-club")"
+  [[ "$CLUB" =~ ^[A-Za-z0-9._-]+$ && "$CLUB" != .* && -d "$ROOT/$CLUB" ]] \
+    || die ".pitchtribe-club names “$CLUB”, which is not a directory in this checkout"
+  cp -a "$ROOT/$CLUB" "$ROOT/.pitchtribe-club" "$MNT/tmp/pitchtribe/"
+  log "Club line: $CLUB — this card will boot into that club's own screen"
+fi
+
 log "Running deploy/install.sh in the image"
 chroot "$MNT" /usr/bin/env -i \
   PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LANG=C.UTF-8 \
@@ -186,8 +199,8 @@ if [[ -f "$CONFIG_TXT" ]] && ! grep -q '^# PitchTribe hardening' "$CONFIG_TXT"; 
 # PitchTribe hardening
 # No rainbow splash before the kiosk takes the screen.
 disable_splash=1
-# No serial console: on a Pi the UART pins are a root shell for anyone who can
-# reach the board, and nothing in PitchTribe uses them.
+# No serial console. Owner key retrieval loads a runtime UART overlay only
+# after the GPIO17 hold and removes it after the bounded local window.
 enable_uart=0
 # Nothing here speaks Bluetooth, so switch the radio off rather than leave it
 # listening. Wi-Fi stays on — the guest portal and club network need it.

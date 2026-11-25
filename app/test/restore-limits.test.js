@@ -106,12 +106,12 @@ test('a real backup still restores, bounds and all', async (t) => {
   await fetch(`${from.base}/api/auth/setup`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-pitchtribe': '1' },
-    body: JSON.stringify({ clubName: 'Riverside FC', password: 'correct horse' }),
+    body: JSON.stringify({ clubName: 'Riverside FC', password: 'correct horseA1!' }),
   });
   const authed = await fetch(`${from.base}/api/auth/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-pitchtribe': '1' },
-    body: JSON.stringify({ password: 'correct horse' }),
+    body: JSON.stringify({ password: 'correct horseA1!' }),
   });
   const session = (authed.headers.get('set-cookie') || '').split(';')[0];
   const file = await fetch(`${from.base}/api/backup/download`, { headers: { 'x-pitchtribe': '1', cookie: session } });

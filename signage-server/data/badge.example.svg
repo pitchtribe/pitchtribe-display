@@ -1,0 +1,13 @@
+<!-- Stand-in badge, so the identity slide has something to draw before the club sends
+     its own. Replace the file (clubhouse.badge) with the club's badge: any SVG, PNG or
+     JPEG. It is drawn 34% of the screen height tall, so a small bitmap will look small. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 140" role="img" aria-label="Club badge">
+  <path d="M60 4 112 20v54c0 30-22 50-52 62C30 124 8 104 8 74V20Z"
+        fill="#ffffff" fill-opacity="0.12" stroke="#ffffff" stroke-width="4"/>
+  <path d="M8 62h104" stroke="#ffffff" stroke-width="3" stroke-opacity="0.5"/>
+  <circle cx="60" cy="62" r="17" fill="none" stroke="#ffffff" stroke-width="3" stroke-opacity="0.5"/>
+  <text x="60" y="48" text-anchor="middle" font-family="system-ui, sans-serif" font-size="30"
+        font-weight="700" fill="#ffffff">FC</text>
+  <text x="60" y="108" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13"
+        letter-spacing="2" fill="#ffffff" fill-opacity="0.8">EST. 1900</text>
+</svg>

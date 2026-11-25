@@ -1,0 +1,21 @@
+[Unit]
+Description=PitchTribe local startup Wi-Fi screen
+After=NetworkManager.service pitchtribe-wifi-privileged.service pitchtribe-wifi-http-firewall.service
+Requires=NetworkManager.service pitchtribe-wifi-privileged.service pitchtribe-wifi-http-firewall.service
+ConditionPathExists=/proc/device-tree/model
+
+[Service]
+Type=simple
+User=pitchtribe-kiosk
+SupplementaryGroups=pitchtribe-wifi
+EnvironmentFile=/etc/default/pitchtribe-kiosk
+ExecStart=/usr/local/lib/pitchtribe/wifi-startup.py
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

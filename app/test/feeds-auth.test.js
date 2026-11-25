@@ -14,9 +14,7 @@ const path = require('node:path');
 const http = require('node:http');
 const { createApp } = require('../lib/app');
 
-const espnFixture = JSON.parse(
-  fs.readFileSync(path.join(__dirname, '..', '..', 'signage-server', 'test', 'fixtures', 'espn-eng1.json'), 'utf8')
-);
+const { espnFixtureAroundNow } = require('./espn-fixture');
 
 /** Stands in for something only the Pi can see — a router admin page. */
 async function secretServer(t) {
@@ -36,7 +34,7 @@ async function start(t) {
   const ctx = createApp({
     dataDir,
     maxUploadMb: 1,
-    sportsFetch: async () => ({ ok: true, status: 200, json: async () => espnFixture }),
+    sportsFetch: async () => ({ ok: true, status: 200, json: async () => espnFixtureAroundNow() }),
     log: () => {},
   });
   const server = await new Promise((resolve) => {
@@ -52,7 +50,7 @@ async function start(t) {
   const setup = await fetch(`${base}/api/auth/setup`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-pitchtribe': '1' },
-    body: JSON.stringify({ clubName: 'Riverside FC', password: 'correct horse' }),
+    body: JSON.stringify({ clubName: 'Riverside FC', password: 'correct horseA1!' }),
   });
   const cookie = (setup.headers.get('set-cookie') || '').split(';')[0];
   return { base, cookie };

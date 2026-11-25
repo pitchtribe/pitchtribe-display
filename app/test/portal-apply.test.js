@@ -84,6 +84,27 @@ test('apply: built-in radio on 2.4 GHz, bridged, with the larger guest range', (
   assert.equal(r.status.wifi, 'wlan0');
 });
 
+test('apply: the input chain ends in a drop, which is what keeps guests off the dashboard', () => {
+  const r = apply({ radio: 'auto' });
+  const chain = r.nft.match(/\n\s*chain input \{\n([\s\S]*?)\n\s*\}\n/);
+  assert.ok(chain, 'portal.nft writes an input chain');
+  const rules = chain[1].split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  // The chain's policy is accept, so this closing drop is the only thing shutting
+  // it: delete the line and every port the Pi listens on — the dashboard, and the
+  // unauthenticated /healthz with its disk, memory and load figures — answers any
+  // guest on the club wifi. It also has to stay *last*, because in front of the
+  // accepts it would take DHCP, DNS and the sign-in sheet down with it.
+  assert.equal(rules.at(-1), 'iifname "br-guest" drop');
+  assert.equal(rules[0], 'type filter hook input priority filter; policy accept;');
+  // What guests are let through on the way to that drop.
+  assert.deepEqual(rules.slice(1, -1), [
+    'iifname "br-guest" udp dport { 53, 67 } accept',
+    'iifname "br-guest" tcp dport { 53, 8082 } accept',
+    'iifname "br-guest" icmp type echo-request accept',
+    'iifname "br-guest" ct state established,related accept',
+  ]);
+});
+
 test('apply: an Alfa USB adapter on 5 GHz takes over from the built-in radio', () => {
   const r = apply({ radio: 'auto', band: '5', channel: 44 }, { alfa: true });
   assert.match(r.hostapd, /^interface=wlan1$/m);
@@ -122,4 +143,36 @@ test('apply: a missing USB adapter is reported, not fatal', () => {
   assert.match(r.err, /No USB Wi-Fi adapter found/);
   assert.match(r.err, /no radio or access-point port/);
   assert.deepEqual(r.status.problems.length, 1);
+});
+
+test('apply: setup window refuses to start the open guest AP', () => {
+  const state = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-state-'));
+  const etc = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-etc-'));
+  const active = path.join(state, 'active');
+  fs.writeFileSync(active, '');
+  fs.writeFileSync(path.join(state, 'portal-network.json'), JSON.stringify({ enabled: true }));
+  const r = spawnSync('bash', [SCRIPT], { encoding: 'utf8', env: {
+    ...process.env, PORTAL_DRY_RUN: '1', PORTAL_ETC: etc, PORTAL_STATE_DIR: state,
+    PORTAL_HW: HW, SYS_ROOT: fakeSys(), PITCHTRIBE_SETUP_ACTIVE: active,
+  } });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /refusing guest Wi-Fi activation/);
+  assert.doesNotMatch(r.stdout, /restart hostapd/);
+  assert.match(r.stdout, /stop pitchtribe-portal\.service hostapd\.service dnsmasq\.service/);
+});
+
+test('apply: disabling guest Wi-Fi releases NetworkManager radio ownership', () => {
+  const state = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-state-'));
+  const etc = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-etc-'));
+  const nmDir = path.join(etc, 'NetworkManager', 'conf.d');
+  fs.mkdirSync(nmDir, { recursive: true });
+  fs.writeFileSync(path.join(nmDir, '99-pitchtribe-portal.conf'), '[keyfile]\nunmanaged-devices=interface-name:wlan0\n');
+  fs.writeFileSync(path.join(state, 'portal-network.json'), JSON.stringify({ enabled: false }));
+  const r = spawnSync('bash', [SCRIPT], { encoding: 'utf8', env: {
+    ...process.env, PORTAL_DRY_RUN: '1', PORTAL_ETC: etc, PORTAL_STATE_DIR: state,
+    PORTAL_HW: HW, SYS_ROOT: fakeSys(),
+  } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /rm -f .*99-pitchtribe-portal\.conf/);
+  assert.match(r.stdout, /reload NetworkManager/);
 });

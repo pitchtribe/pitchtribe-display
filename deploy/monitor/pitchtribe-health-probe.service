@@ -1,0 +1,34 @@
+[Unit]
+Description=PitchTribe: check a club's Pi from outside it
+Documentation=https://github.com/pitchtribe/pitchtribe-website-2026/blob/main/deploy/monitor/README.md
+# Everything else under deploy/ installs on the card. This one must not: a
+# watcher on the same Pi, the same power supply and the same SD card says
+# nothing at all in the one case anybody is watching for.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# host, fingerprint and (optionally) the expected version. See README.md.
+EnvironmentFile=/etc/pitchtribe-monitor.conf
+# ${PROBE_HOST} and ${PROBE_FINGERPRINT} are braced: one argument each, whatever
+# they contain. $PROBE_EXTRA is deliberately not, because that is the form
+# systemd splits at whitespace — braced, "--expect-version 0.4.3" would arrive
+# as a single unknown option, and an empty value would arrive as an empty one.
+ExecStart=/usr/bin/node /opt/pitchtribe-monitor/health-probe.mjs --host ${PROBE_HOST} --fingerprint ${PROBE_FINGERPRINT} $PROBE_EXTRA
+
+# Nothing here needs an identity, a home, or anything of its own on disk.
+DynamicUser=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+CapabilityBoundingSet=
+# Longer than the probe's own 8s timeout, so a hung network is the probe's
+# failure to report and not systemd killing it mid-sentence.
+TimeoutStartSec=60
+
+# A non-zero exit leaves this unit failed, which is what makes `systemctl
+# --failed` and any OnFailure= drop-in useful: 1 is "needs attention", 2 is
+# "down". Add the notifier of your choice as a drop-in rather than editing this.
