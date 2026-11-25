@@ -108,3 +108,32 @@ Once the connector is healthy I finish from here, no further trips to the Pi:
 For reference, this account already contains an unrelated, idle tunnel `pitchtribe-admin-box` (created 2026-11-09, `ssh://localhost:22` → `ssh.pitchtribe.media`, down, no connector). Not part of this work; left untouched.
 
 **Nothing is published today:** no `cpfa` DNS record, no tunnel route, no inbound port, no change on the Pi.
+
+---
+
+## Appendix — three different Cloudflare credentials, do not mix them up
+
+| Credential | What it is for | Needed for this bootstrap? |
+| --- | --- | --- |
+| **Tunnel connector token** (`eyJ...`) | Attaches `cloudflared` on the Pi to the tunnel `pitchtribe-cpfa`. Step 1 above. | **Yes — this one.** |
+| **API token** | Lets a script/agent call the Cloudflare API to build tunnels, routes, DNS and Access policies. | **No.** My existing Cloudflare connection already does this. |
+| **Access service token** | A client ID/secret pair that lets a non-human (an agent) pass the Access gate, e.g. for SSH. | Not yet — only on explicit say-so. |
+
+### If you ever do mint an API token, these are the exact scopes
+
+Scope names below are the permission groups the relevant API endpoints actually accept (verified against the Cloudflare OpenAPI spec, `x-api-token-group`), so a token with these and nothing else can complete this build.
+
+**Account** → resource: *Include → the `pitchtribe` account* (`ad7861717c55f5e2f439ca07d7402f35`) only, never "All accounts":
+
+- `Cloudflare Tunnel` → **Edit** — create the tunnel, read its connector token, write the ingress/route config. (In newer dashboards this group is named `Cloudflare One Connector: cloudflared`.)
+- `Access: Apps and Policies` → **Edit** — create and amend the `cpfa.pitchtribe.co.uk` Access application and its default-deny + allow policy.
+- `Access: Organizations, Identity Providers, and Groups` → **Read** — needed only to reference the IdP (one-time PIN) or an identity group in a policy. Read is enough; do not grant Edit.
+- `Access: Service Tokens` → **Edit** — *only* if the agent-SSH path is approved later. Omit otherwise.
+
+**Zone** → resource: *Include → Specific zone → `pitchtribe.co.uk`* only:
+
+- `DNS` → **Edit** — create the proxied `cpfa` CNAME to `<tunnel-id>.cfargotunnel.com`.
+
+**Do not grant:** `Account Settings`, `Memberships`, `User` anything, `Zone Settings Edit`, `Workers`, `Billing`, or any `All zones`/`All accounts` resource. None are used here, and together they would let a leaked token reshape the account rather than just this one hostname.
+
+**Hygiene:** set a TTL / expiry on the token, restrict it by client IP if the caller has a stable address, store it only as a secret (never in this repo), and delete it the moment the build is finished — an API token is strictly more powerful than the connector token, because it can rewrite the Access gate that protects the Pi.
