@@ -10,13 +10,22 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createApp } = require('../lib/app');
-const { createHealth, DISK_WARN_PERCENT } = require('../lib/health');
+const { createHealth, DISK_WARN_PERCENT, MEMORY_WARN_PERCENT } = require('../lib/health');
 
 /** A statfs that reports a card of `totalGb` with `usedPercent` of it gone. */
 const fakeStatfs = (totalGb, usedPercent) => () => {
   const bsize = 4096;
   const blocks = Math.round((totalGb * 1024 ** 3) / bsize);
   return { bsize, blocks, bavail: Math.round(blocks * (1 - usedPercent / 100)), bfree: 0 };
+};
+
+/* Memory is injected for the same reason statfs is. Reading the real host's
+   free memory here would make every assertion about `warnings` an assertion
+   about the machine the suite runs on: empty on an idle CI runner, holding
+   `memory-low` on a busy laptop, with nothing in this repo having changed. */
+const fakeMeminfo = (totalGb, usedPercent) => () => {
+  const totalBytes = totalGb * 1024 ** 3;
+  return { totalBytes, availableBytes: Math.round(totalBytes * (1 - usedPercent / 100)) };
 };
 
 const base = (over = {}) => ({
@@ -26,13 +35,22 @@ const base = (over = {}) => ({
   osUpdate: () => ({ available: false }),
   cacheMs: 0,
   statfs: fakeStatfs(32, 10),
+  meminfo: fakeMeminfo(4, 40),
+  ...over,
+});
+
+/** createApp options for a card that is healthy in every way this route reads. */
+const healthyCard = (over = {}) => ({
+  log: () => {},
+  statfs: fakeStatfs(32, 10),
+  meminfo: fakeMeminfo(4, 40),
   ...over,
 });
 
 test('healthz: the liveness contract the kiosk depends on', async (t) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pitchtribe-health-'));
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const ctx = createApp({ dataDir, log: () => {} });
+  const ctx = createApp(healthyCard({ dataDir }));
   t.after(ctx.close);
   const server = await new Promise((resolve) => {
     const s = ctx.app.listen(0, '127.0.0.1', () => resolve(s));
@@ -67,7 +85,7 @@ test('healthz: the liveness contract the kiosk depends on', async (t) => {
 test('healthz: counts screens with the same rule as the dashboard', async (t) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pitchtribe-health-'));
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const ctx = createApp({ dataDir, log: () => {} });
+  const ctx = createApp(healthyCard({ dataDir }));
   t.after(ctx.close);
 
   ctx.store.mutate((d) => {
@@ -111,7 +129,7 @@ test('a nearly full card warns without failing the route', () => {
 test('healthz: the route itself keeps its 200 on a card that is nearly full', async (t) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pitchtribe-health-'));
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const ctx = createApp({ dataDir, log: () => {}, statfs: fakeStatfs(32, DISK_WARN_PERCENT + 5) });
+  const ctx = createApp(healthyCard({ dataDir, statfs: fakeStatfs(32, DISK_WARN_PERCENT + 5) }));
   t.after(ctx.close);
   const server = await new Promise((resolve) => {
     const s = ctx.app.listen(0, '127.0.0.1', () => resolve(s));
@@ -138,6 +156,31 @@ test('a card with no statfs reports no disk rather than guessing', () => {
   const view = createHealth(base({ statfs: () => { throw new Error('ENOSYS'); } }))();
   assert.equal(view.disk, null);
   assert.equal(view.status, 'ok'); // unknown is not a fault
+  assert.equal(view.ok, true);
+});
+
+/* `memory-low` had no test of its own, which is how the ambient read above
+   survived: every other test asserted `warnings` was empty, so on a roomy
+   runner the warning simply never appeared and nothing noticed it could not be
+   exercised. A leak over six days is the failure the soak exists to catch, so
+   the threshold it fires at is worth pinning in both directions. */
+test('memory: warns when a card can no longer allocate, and not before', () => {
+  const roomy = createHealth(base({ meminfo: fakeMeminfo(4, MEMORY_WARN_PERCENT - 5) }))();
+  assert.equal(roomy.status, 'ok');
+  assert.deepEqual(roomy.warnings, []);
+
+  const tight = createHealth(base({ meminfo: fakeMeminfo(4, MEMORY_WARN_PERCENT + 5) }))();
+  assert.equal(tight.status, 'warn');
+  assert.deepEqual(tight.warnings, ['memory-low']);
+  // Degraded, never down: the kiosk gates the browser on this route.
+  assert.equal(tight.ok, true);
+  assert.equal(tight.memory.usedPercent, MEMORY_WARN_PERCENT + 5);
+});
+
+test('a card that cannot report its memory says nothing rather than guessing', () => {
+  const view = createHealth(base({ meminfo: () => ({ totalBytes: 0, availableBytes: 0 }) }))();
+  assert.equal(view.memory, null);
+  assert.equal(view.status, 'ok'); // unknown is not a fault, as with disk
   assert.equal(view.ok, true);
 });
 
