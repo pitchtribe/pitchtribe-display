@@ -17,6 +17,7 @@ const { mountUserRoutes } = require('./user-routes');
 const um = require('./user-model');
 const setup = require('./setup');
 const { AuditLogger } = require('./audit-log');
+
 const { osUpdateView } = require('./os-update');
 const { createHealth } = require('./health');
 const { Feeds, LEAGUE_KEY_RE, SHOW_OPTIONS } = require('./feeds');
@@ -42,8 +43,8 @@ const MEDIA_TYPES = {
   'audio/mpeg': ['audio', '.mp3'],
 };
 
-const ASSET_TYPES = ['image', 'video', 'url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget'];
-const TEXT_TYPES = ['url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget'];
+const ASSET_TYPES = ['image', 'video', 'url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget', 'sponsor'];
+const TEXT_TYPES = ['url', 'notice', 'menu', 'fixtures', 'scores', 'league', 'widget', 'sponsor'];
 const WIDGET_KINDS = ['clock', 'worldclock', 'weather', 'joke', 'phrase', 'trivia', 'quiz', 'history', 'emoji', 'geoquiz', 'country', 'spotball',
   'transport', 'bankholiday', 'floods', 'carbon', 'quakes', 'currency', 'potd', 'births', 'sky', 'headlines', 'events'];
 const CURRENCIES = ['AUD', 'BGN', 'BRL', 'CAD', 'CHF', 'CNY', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD', 'HUF', 'IDR', 'ILS', 'INR', 'ISK', 'JPY', 'KRW', 'MXN', 'MYR', 'NOK', 'NZD', 'PHP', 'PLN', 'RON', 'SEK', 'SGD', 'THB', 'TRY', 'USD', 'ZAR'];
@@ -52,7 +53,7 @@ const WIDGET_DURATION = { clock: 15, worldclock: 15, weather: 15, joke: 14, phra
   transport: 20, bankholiday: 12, floods: 12, carbon: 14, quakes: 14, currency: 12, potd: 15, births: 15, sky: 12, headlines: 18, events: 18 };
 const DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const GRID = { cols: 10, rows: 8 };
-const DEFAULT_DURATION = { image: 10, video: 0, url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, league: 25, widget: 15 };
+const DEFAULT_DURATION = { image: 10, video: 0, url: 30, notice: 12, menu: 20, fixtures: 15, scores: 15, league: 25, widget: 15, sponsor: 20 };
 const NOTICE_STYLES = ['default', 'accent', 'amber', 'alert', 'light'];
 const ROTATIONS = [0, 90, 180, 270];
 const MAX_SCREENS = 200;
@@ -316,7 +317,12 @@ function createApp(opts = {}) {
       }),
     };
     if (type === 'image' || type === 'video') {
-      a.fit = v.oneOf(body.fit ?? existing.fit, ['contain', 'cover'], 'contain');
+      a.fit = v.oneOf(body.fit ?? existing.fit, type === 'image' ? ['contain', 'cover', 'blur', 'color'] : ['contain', 'cover'], 'contain');
+      if (type === 'image') {
+        const color = body.backgroundColor ?? existing.backgroundColor ?? '#162943';
+        if (!/^#[0-9a-fA-F]{6}$/.test(color)) throw v.bad('Background colour must be a six-digit hex colour');
+        a.backgroundColor = color;
+      }
     }
     if (type === 'video') a.muted = v.bool(body.muted, existing.muted ?? true);
     if (type === 'url') a.url = v.httpUrl(body.url ?? existing.url);
@@ -377,7 +383,30 @@ function createApp(opts = {}) {
         show: v.oneOf(c.show, SHOW_OPTIONS, 'all'),
         // Room for a full weekend across several leagues: the slide scrolls what
         // it cannot fit, so the cap is about the size of the feed, not the screen.
-        limit: v.int(c.limit, { min: 1, max: 30, fallback: 10 }),
+        limit: v.int(c.limit, { min: 1, max: 100, fallback: 10 }),
+      };
+    }
+    if (type === 'sponsor') {
+      const SPONSOR_TIERS = ['gold', 'silver', 'bronze', 'partner'];
+      const raw = Array.isArray(c.sponsors) ? c.sponsors.slice(0, 50) : [];
+      a.content = {
+        title: v.str(c.title, { max: 200, field: 'Title' }),
+        layout: v.oneOf(c.layout, ['grid', 'row'], 'grid'),
+        sponsors: raw
+          .map((s) => {
+            const logoAssetId = s?.logoAssetId || null;
+            const logoAsset = logoAssetId ? data().assets.find((x) => x.id === logoAssetId && x.type === 'image') : null;
+            const logoUrl = !logoAsset && typeof s?.logoUrl === 'string' ? s.logoUrl.trim().slice(0, 2048) : '';
+            return {
+              name: v.str(s?.name, { max: 100, field: 'Sponsor name' }),
+              tagline: v.str(s?.tagline, { max: 200, field: 'Tagline' }),
+              tier: v.oneOf(s?.tier, SPONSOR_TIERS, null) || '',
+              ...(logoAsset ? { logoAssetId: logoAsset.id } : {}),
+              ...(logoUrl ? { logoUrl } : {}),
+            };
+          })
+          .filter((s) => s.name),
+
       };
     }
     return a;
@@ -555,7 +584,7 @@ function createApp(opts = {}) {
   }
 
   function sanitizePlaylist(body, existing) {
-    const assets = new Set(data().assets.map((a) => a.id));
+    const assets = new Map(data().assets.map((a) => [a.id, a]));
     const items = Array.isArray(body.items) ? body.items : existing.items;
     if (items.length > 500) throw v.bad('Too many items in one playlist');
     return {
@@ -563,7 +592,7 @@ function createApp(opts = {}) {
       showClock: v.bool(body.showClock, existing.showClock ?? true),
       ticker: v.str(body.ticker ?? existing.ticker, { max: 2000, field: 'Ticker' }),
       items: items
-        .filter((it) => it && assets.has(it.assetId))
+        .filter((it) => it && assets.has(it.assetId) && assets.get(it.assetId).type !== 'audio')
         .map((it) => ({
           id: typeof it.id === 'string' && /^[\w-]{1,32}$/.test(it.id) ? it.id : newId(),
           assetId: it.assetId,
@@ -574,21 +603,48 @@ function createApp(opts = {}) {
     };
   }
 
+  function sanitizeMusicList(body, existing = {}) {
+    const audioIds = new Set(data().assets.filter((asset) => asset.type === 'audio' && asset.file).map((asset) => asset.id));
+    const tracks = body.tracks === undefined ? (existing.tracks || []) : body.tracks;
+    if (!Array.isArray(tracks) || tracks.length > 500) throw v.bad('Music list must have at most 500 tracks');
+    if (tracks.some((id) => !audioIds.has(id))) throw v.bad('Music list contains an unavailable MP3 track');
+    return {
+      name: v.str(body.name ?? existing.name, { max: 80, required: true, field: 'Music list name' }),
+      tracks: tracks.slice(),
+      shuffle: v.bool(body.shuffle, existing.shuffle || false),
+      repeat: v.oneOf(body.repeat ?? existing.repeat, ['all', 'one', 'off'], 'all'),
+    };
+  }
+
   function mediaUrl(asset) {
     return asset.file ? `/media/${asset.file.filename}` : undefined;
   }
 
   function resolveContent(content, assets) {
-    if (!content || content.mode !== 'bar') return content;
-    return {
-      ...content,
-      drinks: (content.drinks || []).map((d) => {
-        if (!d.logoAssetId) return d;
-        const a = assets.get(d.logoAssetId);
-        const src = a ? mediaUrl(a) : undefined;
-        return src ? { ...d, logoSrc: src } : d;
-      }),
-    };
+    if (!content) return content;
+    if (content.mode === 'bar') {
+      return {
+        ...content,
+        drinks: (content.drinks || []).map((d) => {
+          if (!d.logoAssetId) return d;
+          const a = assets.get(d.logoAssetId);
+          const src = a ? mediaUrl(a) : undefined;
+          return src ? { ...d, logoSrc: src } : d;
+        }),
+      };
+    }
+    if (Array.isArray(content.sponsors)) {
+      return {
+        ...content,
+        sponsors: content.sponsors.map((s) => {
+          if (!s.logoAssetId) return s;
+          const a = assets.get(s.logoAssetId);
+          const src = a ? mediaUrl(a) : undefined;
+          return src ? { ...s, logoSrc: src } : s;
+        }),
+      };
+    }
+    return content;
   }
 
   function buildManifest(playlist, screen) {
@@ -608,14 +664,25 @@ function createApp(opts = {}) {
         src: mediaUrl(a),
         url: a.url,
         fit: a.fit,
+        backgroundColor: a.backgroundColor,
         muted: a.muted,
         content: resolveContent(a.content, assets),
         data: slideData(a, assets),
         updatedAt: a.updatedAt,
       });
     }
+    const musicList = d.musicLists.find((list) => list.id === (screen ? screen.musicListId : d.musicLists[0]?.id));
+    const music = musicList ? {
+      id: musicList.id, name: musicList.name, shuffle: musicList.shuffle, repeat: musicList.repeat,
+      tracks: musicList.tracks.map((id) => assets.get(id)).filter((asset) => asset?.type === 'audio' && mediaUrl(asset))
+        .map((asset) => ({ id: asset.id, name: asset.name, src: mediaUrl(asset) })),
+      enabled: screen ? screen.musicEnabled !== false : true,
+      volume: screen ? (screen.musicVolume ?? 70) : 70,
+      schedule: screen?.musicSchedule || {},
+    } : null;
     return {
       revision: d.revision,
+      music,
       generatedAt: new Date().toISOString(),
       clubName: d.settings.clubName || 'PitchTribe',
       language: (screen && screen.language) || d.settings.language || 'en',
@@ -719,6 +786,7 @@ function createApp(opts = {}) {
       stage: state.stage,
       migrationRequired: state.migrationRequired,
       sharedPassword: state.sharedPassword,
+
       // A freshly flashed card: offer to restore a backup instead of starting again.
       ...(setupRequired ? { restore: backups.setupInfo() } : {}),
     });
@@ -780,6 +848,7 @@ function createApp(opts = {}) {
     '/api/auth/login',
     route((req, res) => {
       if (limiter.blocked(req.ip)) { audit.logLoginLocked(req.ip); throw new v.HttpError(429, 'Too many attempts — wait 15 minutes and try again'); }
+
       const password = String(req.body.password || '');
       const username = req.body.username === undefined ? '' : um.normalizeUsername(req.body.username);
 
@@ -795,6 +864,7 @@ function createApp(opts = {}) {
       if (!ok) {
         limiter.fail(req.ip);
         audit.logLoginFailure(req.ip, 'Invalid credentials');
+
         /* A username nobody has, a suspended account and a wrong password all
            get the same answer: which of the three it was is not something to
            tell a stranger on the clubhouse wifi. */
@@ -802,6 +872,7 @@ function createApp(opts = {}) {
       }
       limiter.reset(req.ip);
       audit.logLoginSuccess(req.ip, { userId: user?.id || null });
+
 
       if (!user) {
         return res.set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret), req)).json({ ok: true });
@@ -899,6 +970,7 @@ function createApp(opts = {}) {
       settings: publicSettings(),
       assets: d.assets.map((a) => ({ ...a, src: mediaUrl(a) })),
       playlists: d.playlists,
+      musicLists: d.musicLists,
       screens: d.screens.map(screenView),
       dashboardUrls: lanUrls(port),
       maxUploadMb: Math.round(maxUploadBytes / 1024 / 1024),
@@ -940,12 +1012,14 @@ function createApp(opts = {}) {
       if (limiter.blocked(req.ip)) throw new v.HttpError(429, 'Too many attempts');
       if (next === req.body.current) throw v.bad('Choose a different password');
 
+
       /* A volunteer signed in as themselves changes their own password here —
          the club's shared one is not theirs to change. Their other cookies stop
          working (um.setPassword stamps the account) and this one is replaced, so
          nobody else is signed out and the screens carry on. */
       if (me) {
         if (!um.verifyUserPassword(me, req.body.current)) { limiter.fail(req.ip); audit.logPasswordChange(req.ip, false); throw v.bad('Current password is wrong'); }
+
         um.password(next, { username: me.username }); // throws before anything is written
         store.touch(
           (d) => {
@@ -955,6 +1029,7 @@ function createApp(opts = {}) {
         );
         limiter.reset(req.ip);
         audit.logPasswordChange(req.ip, true, { userId: me.id });
+
         return res
           .set('Set-Cookie', auth.sessionCookie(auth.issueToken(data().settings.sessionSecret, me.id), req))
           .json({ ok: true });
@@ -964,6 +1039,7 @@ function createApp(opts = {}) {
       // shared session out, which is the point: they were all the same login.
       if (!auth.verifyPassword(req.body.current, data().settings.adminHash)) { limiter.fail(req.ip); audit.logPasswordChange(req.ip, false); throw v.bad('Current password is wrong'); }
       um.password(next);
+
       store.touch(
         (d) => {
           d.settings.adminHash = auth.hashPassword(next);
@@ -1269,7 +1345,7 @@ function createApp(opts = {}) {
       const playlist = playlistId ? findOr404(data().playlists, playlistId, 'Playlist') : null;
       store.mutate((d) => {
         d.assets.push(asset);
-        if (playlist) playlist.items.push({ id: newId(), assetId: asset.id, enabled: true, duration: null, schedule: v.schedule({}) });
+        if (playlist && asset.type !== 'audio') playlist.items.push({ id: newId(), assetId: asset.id, enabled: true, duration: null, schedule: v.schedule({}) });
       });
       res.status(201).json(asset);
     })
@@ -1292,6 +1368,7 @@ function createApp(opts = {}) {
       store.mutate((d) => {
         d.assets = d.assets.filter((a) => a.id !== asset.id);
         for (const p of d.playlists) p.items = p.items.filter((it) => it.assetId !== asset.id);
+        for (const list of d.musicLists) list.tracks = list.tracks.filter((id) => id !== asset.id);
       });
       if (asset.file) fs.rmSync(path.join(mediaDir, path.basename(asset.file.filename)), { force: true });
       res.json({ ok: true });
@@ -1341,6 +1418,28 @@ function createApp(opts = {}) {
     })
   );
 
+  // Music lists --------------------------------------------------------------
+  api.post('/music-lists', route((req, res) => {
+    const now = new Date().toISOString();
+    const list = { id: newId(), ...sanitizeMusicList({ ...req.body, tracks: req.body.tracks || [] }), createdAt: now, updatedAt: now };
+    store.mutate((d) => d.musicLists.push(list));
+    res.status(201).json(list);
+  }));
+  api.put('/music-lists/:id', route((req, res) => {
+    const list = findOr404(data().musicLists, req.params.id, 'Music list');
+    const next = sanitizeMusicList(req.body, list);
+    store.mutate(() => Object.assign(list, next, { updatedAt: new Date().toISOString() }));
+    res.json(list);
+  }));
+  api.delete('/music-lists/:id', route((req, res) => {
+    findOr404(data().musicLists, req.params.id, 'Music list');
+    store.mutate((d) => {
+      d.musicLists = d.musicLists.filter((list) => list.id !== req.params.id);
+      for (const screen of d.screens) if (screen.musicListId === req.params.id) screen.musicListId = null;
+    });
+    res.json({ ok: true });
+  }));
+
   // Screens -----------------------------------------------------------------
   api.patch(
     '/screens/:id',
@@ -1352,6 +1451,13 @@ function createApp(opts = {}) {
         update.playlistId = req.body.playlistId || null;
         if (update.playlistId) findOr404(data().playlists, update.playlistId, 'Playlist');
       }
+      if (req.body.musicListId !== undefined) {
+        update.musicListId = req.body.musicListId || null;
+        if (update.musicListId) findOr404(data().musicLists, update.musicListId, 'Music list');
+      }
+      if (req.body.musicEnabled !== undefined) update.musicEnabled = v.bool(req.body.musicEnabled);
+      if (req.body.musicVolume !== undefined) update.musicVolume = v.int(req.body.musicVolume, { min: 0, max: 100 });
+      if (req.body.musicSchedule !== undefined) update.musicSchedule = v.schedule(req.body.musicSchedule);
       if (req.body.rotation !== undefined) update.rotation = v.oneOf(Number(req.body.rotation), ROTATIONS, 0);
       if (req.body.language !== undefined) update.language = v.oneOf(req.body.language, i18n.codes, '');
       store.mutate(() => Object.assign(screen, update));
@@ -1374,9 +1480,13 @@ function createApp(opts = {}) {
     '/screens/:id/command',
     route((req, res) => {
       const screen = findOr404(data().screens, req.params.id, 'Screen');
-      const command = v.oneOf(req.body.command, ['identify', 'reload'], null);
+      const command = v.oneOf(req.body.command, ['identify', 'reload', 'music'], null);
       if (!command) throw v.bad('Unknown command');
-      const delivered = hub.send(screen.id, command, { name: screen.name, id: screen.id });
+      const actions = ['play', 'pause', 'stop', 'previous', 'next', 'seek'];
+      const action = command === 'music' ? v.oneOf(req.body.action, actions, null) : null;
+      if (command === 'music' && !action) throw v.bad('Unknown music action');
+      const seconds = action === 'seek' ? v.int(req.body.seconds, { min: 0, max: 86400 }) : undefined;
+      const delivered = hub.send(screen.id, command, command === 'music' ? { action, seconds } : { name: screen.name, id: screen.id });
       res.json({ delivered });
     })
   );

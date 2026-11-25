@@ -105,6 +105,7 @@ function generateSecurePassword() {
     [chars[i], chars[j]] = [chars[j], chars[i]];
   }
   return chars.join('');
+
 }
 
 /**

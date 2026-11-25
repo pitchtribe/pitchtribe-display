@@ -51,12 +51,19 @@ const tables = Object.fromEntries(LANGS.map(({ code }) => {
 }));
 
 if (mode === '--check') {
+  const minCoverageArg = process.argv.find((arg) => arg.startsWith('--min-coverage='));
+  const minCoverage = minCoverageArg ? Number(minCoverageArg.split('=')[1]) : 0;
+  if (!Number.isFinite(minCoverage) || minCoverage < 0 || minCoverage > 100) throw new Error('--min-coverage must be a percentage from 0 to 100');
   if (unknown.length) console.log(`New English strings not in source.json (run --update):\n  ${unknown.join('\n  ')}\n`);
+  let belowMinimum = false;
   for (const { code } of LANGS) {
-    const missing = current.filter((s) => index.has(s) && !SAME.test(s) && tables[code][index.get(s)] === undefined);
-    console.log(`${code}: ${current.length - missing.length}/${current.length} strings${missing.length ? `, missing:\n  ${missing.join('\n  ')}` : ' ✓'}`);
+    const missing = current.filter((s) => !SAME.test(s) && (!index.has(s) || tables[code][index.get(s)] === undefined));
+    const coverage = 100 * (current.length - missing.length) / current.length;
+    if (coverage < minCoverage) belowMinimum = true;
+    console.log(`${code}: ${current.length - missing.length}/${current.length} strings (${coverage.toFixed(1)}%)${missing.length ? `, missing:\n  ${missing.join('\n  ')}` : ' ✓'}`);
   }
-  process.exit(0);
+  if (belowMinimum) console.error(`i18n: at least one locale is below ${minCoverage}% coverage`);
+  process.exit(belowMinimum ? 1 : 0);
 }
 
 // ---------------------------------------------------------------- build

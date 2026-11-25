@@ -1,0 +1,20 @@
+[Unit]
+Description=PitchTribe privileged startup Wi-Fi broker
+After=NetworkManager.service
+Requires=NetworkManager.service
+ConditionPathExists=/proc/device-tree/model
+
+[Service]
+Type=simple
+User=root
+Group=pitchtribe-wifi
+ExecStart=/usr/local/lib/pitchtribe/wifi-privileged.py
+Restart=on-failure
+RestartSec=3
+UMask=0007
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
