@@ -152,6 +152,8 @@ one case that matters:
 node scripts/health-probe.mjs --host pitchtribe --fingerprint <sha256> --expect-version 0.4.3
 ```
 
-It exits `0` up, `1` needs attention, `2` down, forces IPv4, and pins the card's
+It exits `0` up, `1` needs attention, `2` down, and `3` unobservable — the name
+did not resolve or there is no route, so the watcher saw nothing and the card's
+state is **unknown** rather than bad. It forces IPv4 and pins the card's
 self-signed certificate by fingerprint (from Settings → Secure connection)
 rather than disabling verification. `deploy/monitor/` installs it on a timer.
