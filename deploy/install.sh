@@ -20,6 +20,9 @@
 #   - avahi so the dashboard is reachable at http://<hostname>.local
 #   - USB stick backups: pitchtribe-backup.{path,timer} and pitchtribe-backup@.service
 #   - remote access (SSH on/off from the dashboard): pitchtribe-remote-access.path
+#   - cloudflared, for the Cloudflare Tunnel the commissioning page can switch on.
+#     The binary and Cloudflare's apt source, and nothing else: no tunnel, no token
+#     and no cloudflared.service until a club commissions one on the device.
 #   - Raspberry Pi OS updates: installed now, then every night in front of the
 #     backup (pitchtribe-os-update.service, deploy/update/os-update.sh)
 #
@@ -242,6 +245,74 @@ If that is deliberate, re-run with PITCHTRIBE_ALLOW_MIRROR_GROUP_MEMBERS=\"$(ech
   install -m 0644 "$SRC_DIR/deploy/remote-access/pitchtribe-remote-access@.service" \
     "$SRC_DIR/deploy/remote-access/pitchtribe-remote-access.path" \
     "$SRC_DIR/deploy/remote-access/pitchtribe-support-expire.timer" /etc/systemd/system/
+  # Cloudflare Tunnel (the dashboard from outside the building, when a club asks
+  # for it). Only the binary goes on here, and deliberately: a tunnel exists once
+  # somebody pastes a connector token into the commissioning page on the device,
+  # and until then there is no tunnel, no token and no service. Having cloudflared
+  # already on the card is what lets that be a text box on a page rather than a
+  # volunteer being talked through apt over the phone — the one thing it needs is
+  # a shell, which this product does not hand out.
+  #
+  # From Cloudflare's own apt repo rather than a downloaded .deb, so the nightly
+  # OS update patches it along with everything else. A tunnel daemon frozen at
+  # whatever version the image shipped with is the package on this card that can
+  # least afford to rot: it is the part facing the internet.
+  log "Installing cloudflared (inert — no tunnel until a token is commissioned)"
+  # Not fatal under `set -e`, deliberately: if curl cannot be installed then the
+  # fetches below fail too, and that runs into the failure policy at the end of
+  # this block — fatal in an image build, a warning on a Pi that already works.
+  # Aborting the whole installer here would take the rest of PitchTribe with it.
+  command -v curl >/dev/null || apt-get install -y -q ca-certificates curl \
+    || log "couldn't install curl — the cloudflared fetches below will fail"
+  install -d -m 0755 /usr/share/keyrings
+  cloudflared_installed=0
+  # The key lands first and the source line only goes in once it is really there.
+  # A `signed-by=` pointing at a missing or truncated keyring makes every later
+  # `apt-get update` on the card fail, which would take the nightly OS update
+  # down with it — the exact opposite of what using the repo is for.
+  if curl -fsSL --retry 3 -o /usr/share/keyrings/cloudflare-main.gpg.new https://pkg.cloudflare.com/cloudflare-main.gpg \
+    && [[ -s /usr/share/keyrings/cloudflare-main.gpg.new ]]; then
+    mv /usr/share/keyrings/cloudflare-main.gpg.new /usr/share/keyrings/cloudflare-main.gpg
+    chmod 0644 /usr/share/keyrings/cloudflare-main.gpg
+    echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' >/etc/apt/sources.list.d/cloudflared.list
+    # Not fatal on its own: another source failing to refresh is none of our
+    # business, and the install below is the thing that actually has to work.
+    apt-get update -q || log "apt-get update didn't finish — trying the Cloudflare package anyway"
+    if apt-get install -y -q cloudflared; then cloudflared_installed=1; fi
+  else
+    rm -f /usr/share/keyrings/cloudflare-main.gpg.new
+    log "couldn't fetch Cloudflare's signing key, so the apt source was left off — nothing will upgrade cloudflared until this installer runs again"
+  fi
+  if [[ "$cloudflared_installed" == 0 ]]; then
+    # Only when the repo didn't answer. Same binary, published by Cloudflare for
+    # a 64-bit Pi, but outside apt — so it stays at this version until the repo
+    # is reachable and a later run picks the upgrade up. The apt source stays
+    # where it is for exactly that. The package has no dependencies, so dpkg is
+    # enough here.
+    log "Cloudflare's apt repo didn't answer — installing the arm64 package from the release instead"
+    if curl -fsSL --retry 3 -o /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.deb \
+      && dpkg -i /tmp/cloudflared.deb; then
+      cloudflared_installed=1
+    fi
+    rm -f /tmp/cloudflared.deb
+  fi
+  if [[ "$cloudflared_installed" == 1 ]]; then
+    # Nothing is run or enabled: `cloudflared service install <token>` is what
+    # creates cloudflared.service, and it belongs on the device at commissioning,
+    # with a token a club pasted in. image/build.sh asserts that none of it
+    # happened here.
+    log "cloudflared $(dpkg-query -W -f '${Version}' cloudflared 2>/dev/null || echo '(unpackaged)') installed — no tunnel, no token, no service"
+  elif [[ "$IMAGE_BUILD" == 1 ]]; then
+    die "could not install cloudflared, from Cloudflare's apt repo or from the release package.
+This is fatal in an image build on purpose: a card whose commissioning page
+offers a connector-token box that cannot work is worse than a build that stopped."
+  else
+    # A Pi that is already commissioned keeps working — the dashboard reads this
+    # off the device and says remote access is unavailable rather than offering a
+    # button with nothing behind it, the same way it does for Raspberry Pi Connect.
+    log "couldn't install cloudflared — remote access will show as unavailable. Re-run this installer once the Pi can reach pkg.cloudflare.com."
+  fi
+
   # The nightly OS update runs in front of the nightly backup, as one job: the
   # backup timer is the schedule for both. See deploy/update/10-os-update.conf.
   install -d -m 0755 /etc/systemd/system/pitchtribe-backup@nightly.service.d
