@@ -116,10 +116,20 @@ If the ref did not contain the commit, it will be gone.
 
 ## 4. Command card — the owner, at a shell on the Pi
 
-Needs a shell on `192.168.1.55`; no agent has a route to it. Getting one is Section A2 of
-`deliverables/pit-227/PI-CLOUDFLARED-RUNBOOK.md` (the HDMI console will not give you one — the
-installer disables `getty@tty1`). Every command below is run on the Pi. Five minutes, and the
-dashboard is down for about three seconds in step 3.
+Needs a shell on `192.168.1.55`; no agent has a route to it. The owner already has a working login,
+created through Settings → Remote access:
+
+```bash
+ssh daniel@192.168.1.55
+```
+
+If that account has since gone, or the connection is refused before a password prompt, Section A2 of
+`deliverables/pit-227/PI-CLOUDFLARED-RUNBOOK.md` has the routes back in — including the key-offer
+storm (`MaxAuthTries 3`, so `ssh -o IdentitiesOnly=yes -o PubkeyAuthentication=no …`) and the fact
+that the HDMI console will not give you a shell at all, because the installer disables `getty@tty1`.
+
+Every command below is run on the Pi. Five minutes, and the dashboard is down for about three
+seconds in step 3.
 
 ### Step 1 — read what is live now (do not skip)
 
