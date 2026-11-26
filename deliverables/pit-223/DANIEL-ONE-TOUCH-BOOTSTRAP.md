@@ -1,5 +1,7 @@
 # One-touch Pi bootstrap — `daniel` (PIT-223 / PIT-227)
 
+> **DONE 2026-11-26 — do not re-run.** The connector is installed and `pitchtribe-cpfa` is healthy with 4 connections; `cpfa.pitchtribe.co.uk` is published behind Access. Kept for reference (the SSH fix, the token distinction, and the API-token scopes in the appendix are still accurate). Outcome and verified state: `REMOTE-ACCESS-DECISION.md`.
+
 Chosen path (board decision, 2026-11-25): **Daniel runs this once on the Pi; an agent takes over through the tunnel afterwards.** Pi login user: `daniel`. Pi: `pitchtribe.local` = `192.168.1.55`.
 
 This card is the short path. Full detail, hazards and rollback: `deliverables/pit-227/PI-CLOUDFLARED-RUNBOOK.md` (sections A–G).
