@@ -252,14 +252,27 @@ CFD_CREDS="$(find "$MNT/etc" "$MNT/root" "$MNT/home" -maxdepth 4 -path '*cloudfl
 [[ -z "$CFD_CREDS" ]] || die "the image has cloudflared state baked in, which would ship one tunnel to every card:
 $CFD_CREDS"
 # And by content, not just by filename: TunnelSecret is the credentials file a
-# tunnel is created with, and a connector token is one long base64 blob that
-# `service install` writes straight into ExecStart. Matched on the shape, so a
-# credential someone renamed is still caught.
-CFD_TOKENS="$(grep -rlsIE 'TunnelSecret|cloudflared.*--token[[:space:]]+ey[A-Za-z0-9_-]{20,}' \
+# tunnel is created with, a connector token is one long base64 blob that
+# `service install` writes straight into ExecStart, and TUNNEL_TOKEN= is how
+# our own unit receives one. Matched on the shape, so a credential someone
+# renamed, or one written to a path nobody thought to list, is still caught.
+CFD_TOKENS="$(grep -rlsIE 'TunnelSecret|cloudflared.*--token[[:space:]]+ey[A-Za-z0-9_-]{20,}|TUNNEL_TOKEN=ey[A-Za-z0-9+/=_-]{20,}' \
   "$MNT/etc" "$MNT/root" "$MNT/home" 2>/dev/null || true)"
 [[ -z "$CFD_TOKENS" ]] || die "the image has what looks like a tunnel credential or connector token in it:
 $CFD_TOKENS"
+# Our own unit is the other half of this, and its expected state is different:
+# the token box on the commissioning page is useless without it, so it must be
+# present — but present, not enabled, and with no credential beside it. The two
+# names are asserted separately so neither assertion has to be weakened to let
+# the other pass.
+[[ -f "$MNT/etc/systemd/system/pitchtribe-tunnel.service" ]] \
+  || die "pitchtribe-tunnel.service is not in the image, so a club could paste a token into a card with nothing to run it — deploy/install.sh should have installed it"
+! chroot "$MNT" systemctl is-enabled pitchtribe-tunnel.service >/dev/null 2>&1 \
+  || die "pitchtribe-tunnel.service is enabled in the image; it is only enabled on a device when a club commissions a token"
+[[ ! -e "$MNT/etc/pitchtribe/tunnel.env" ]] \
+  || die "the image has a connector token in /etc/pitchtribe/tunnel.env, which would ship one club's tunnel to every card"
 log "cloudflared: binary and apt source only — no unit, no credentials, no tunnel until a club commissions one"
+log "pitchtribe-tunnel.service: installed, not enabled, no credential — the commissioning page has something to switch on"
 
 # ----------------------------------------------------------- boot hardening
 # A club screen has no keyboard and no serial cable plugged into it, so the

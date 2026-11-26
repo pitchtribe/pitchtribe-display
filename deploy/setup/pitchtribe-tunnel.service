@@ -1,0 +1,53 @@
+# Remote access for one club, over Cloudflare Tunnel.
+#
+# Not named cloudflared.service on purpose. `cloudflared service install
+# <TOKEN>` writes the token into that unit's ExecStart, which is
+# world-readable, and into a process command line any local user can read out
+# of /proc. image/build.sh asserts cloudflared.service does not exist on a
+# flashed card precisely to prove that command was never run. This unit is the
+# alternative: the token lives in an EnvironmentFile at 0600 root:root and
+# cloudflared reads it from its environment, where cloudflared also redacts it
+# in its own startup log line.
+#
+# Installed by deploy/install.sh and left disabled. A tunnel exists once a club
+# pastes a token into the commissioning page, and not before.
+[Unit]
+Description=PitchTribe remote access (Cloudflare Tunnel)
+Documentation=https://github.com/pitchtribe/pitchtribe-website-2026/blob/main/deploy/setup/COMMISSIONING.md
+# Inert on an unprovisioned card: with no credential, even an explicit
+# `systemctl start` is a no-op rather than a crash loop with a journal that
+# looks like a fault.
+ConditionPathExists=/etc/pitchtribe/tunnel.env
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/pitchtribe/tunnel.env
+# --no-autoupdate precedes `tunnel`, because that is where the flag is
+# registered (cloudflared cmd.go: tunnelFlags, not buildRunCommand); after
+# `run` it is an unknown flag and the service would not start. The token is
+# not on this line and never will be: TUNNEL_TOKEN comes from the
+# EnvironmentFile above. --metrics pins cloudflared's readiness endpoint to a
+# known address so the commissioning page can report whether a connector
+# actually registered, instead of trusting an exit status. That endpoint also
+# serves pprof, so pitchtribe-wifi-http-firewall.service restricts the port to
+# root.
+ExecStart=/usr/bin/cloudflared --no-autoupdate --metrics 127.0.0.1:20241 tunnel run
+# Load-bearing, not boilerplate. A club can paste a token before the venue
+# Wi-Fi works, so the connector's own retry is what establishes the link
+# later; this is what keeps that true across a connector that gives up or a
+# reboot during setup.
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# A revoked token must never take the player or the LAN dashboard down with
+# it, so nothing here is ordered before or wanted by pitchtribe.service.
+
+[Install]
+WantedBy=multi-user.target

@@ -5,6 +5,15 @@ physical commissioning before release.
 Pi 4 commissioning is required for the release gate. Pi 5 commissioning is an
 optional compatibility check and is not a mandatory runbook requirement.
 
+## Accepted security evidence and model waiver
+
+PIT-188 accepted the supplied Pi 4 authorization evidence for the reviewed
+startup Wi-Fi credential flow. The Security reviewer formally waived Pi 5
+commissioning as a release requirement. Pi 5 remains untested; the waiver does
+not represent Pi 5 compatibility or runtime evidence. The approval is limited
+to the reviewed Pi 4 evidence and the waived Pi 5 gate. Keep any optional Pi 5
+compatibility results separate from the required Pi 4 evidence.
+
 ## Wiring and owner retrieval
 
 - Fit a normally-open momentary switch between BCM GPIO17 (header pin 11) and
@@ -22,6 +31,99 @@ optional compatibility check and is not a mandatory runbook requirement.
   upgrade preserves it. After a deliberate local rotation, retrieve the new
   label and key over UART; rotation is rejected during an active setup window.
 
+## Remote access (optional)
+
+The commissioning page has a **Remote access (optional)** section with one
+field. It is optional in the full sense: it never gates Connect, it never gates
+Continue without Wi-Fi, and a card with nothing typed into it is a finished,
+supported card. Everything on the TV works without it.
+
+**Where the code comes from.** PitchTribe mints one Cloudflare Tunnel per club
+in our own Zero Trust account and hands the club exactly one string — their
+connector token, a long code starting `eyJ`. The club never signs in to
+Cloudflare, never creates a tunnel and never sees an API token. The procedure
+that produces it is `deliverables/pit-229/CLUB-TUNNEL-PROVISIONING.md`. The
+field accepts that token and nothing else: a `cert.pem`, a Cloudflare API
+token or an account-wide credential is refused with a message saying what was
+expected.
+
+**What entering it does.** It lets PitchTribe reach this club's dashboard from
+outside the building to help them. It publishes nothing by itself: the tunnel
+is remotely managed, so there is no `config.yml` on the card, and what the
+tunnel serves — hostname, ingress, Access policy — lives in our account and is
+already configured before the club is handed a token.
+
+**Where to type it.** Either front door; they write the same file through the
+same root broker.
+
+- On the TV at commissioning: the section on `http://127.0.0.1:8090/`, or
+  `/remote` on the same listener. `/remote` exists because `/` is only served
+  while `wlan0` is down — once Wi-Fi is up it redirects to the player — and a
+  connector needs the internet, so the token box has to stay reachable after
+  the network works.
+- In the dashboard: Settings → Remote access (PIT-236).
+
+**A code can be entered before the Wi-Fi works.** That is the normal order on
+a bench. The page says *"Code saved. Remote access will connect once the venue
+Wi-Fi is working"* and means it — the connector retries on its own and the link
+comes up later with nothing more to do.
+
+**Re-entering a code replaces the old one.** There is no "change" flow and no
+need to turn it off first. A replacement is written to a temporary file in the
+same directory and renamed over the live one, so there is no moment at which
+the connector can read half a credential. If the new code turns out to be
+invalid, the card is put back exactly as it was, including a previously working
+code.
+
+**Turning remote access back off.** Press **Turn remote access off** in the
+same section, on the page or in the dashboard. That disables and stops
+`pitchtribe-tunnel.service` and deletes the credential; nothing is left behind
+and the club can re-enter a code later. On a card with a shell, the equivalent
+is:
+
+```sh
+sudo systemctl disable --now pitchtribe-tunnel.service
+sudo rm -f /etc/pitchtribe/tunnel.env
+```
+
+In that order: the unit has `ConditionPathExists` on the credential, so
+stopping it after the file is gone reads as a condition failure instead of a
+clean stop. Taking a club's access away centrally is separate and does not
+need the card at all — we rotate the tunnel secret or delete the tunnel, and
+the code on the card stops working. A revoked code cannot affect the player or
+the LAN dashboard, and the page reports it as *"no longer valid"* rather than
+as a fault.
+
+### The storage contract
+
+Both front doors write this, and nothing else may invent a second scheme. This
+table is the interface; `deliverables/pit-231/TUNNEL-TOKEN-STORAGE-CONTRACT.md`
+is the evidence behind each line of it.
+
+| | |
+| --- | --- |
+| Credential | `/etc/pitchtribe/tunnel.env`, one line, `TUNNEL_TOKEN=<token>` |
+| Mode / owner | `0600 root:root` in `/etc/pitchtribe` (`0755 root:root`) |
+| Unit | `pitchtribe-tunnel.service`, installed on every card and left disabled |
+| Written by | `deploy/setup/wifi-privileged.py` as root, over its Unix socket — never a web process, never the dashboard directly |
+| Broker actions | `tunnel-status`, `tunnel-enable` (`token`), `tunnel-disable` |
+| Enable | validate, atomic replace, `systemctl enable` + `restart`, then wait on real health |
+| Disable | `systemctl disable --now`, then delete the credential |
+| Health | `GET http://127.0.0.1:20241/ready` — `200` means a connector actually registered. `systemctl start` returning 0 proves nothing |
+
+The token is **never** passed on a command line. `cloudflared service install
+<token>` writes it into a world-readable `ExecStart` and into a process command
+line any local user can read from `/proc`; a club card has a kiosk UID and
+other local identities by design, so that is not acceptable here even though it
+was acceptable on a single-admin Pi. `cloudflared` reads `TUNNEL_TOKEN` from
+the unit's environment instead, and redacts it in its own startup log.
+
+Validation happens twice, with the same rules in both places — at the web
+boundary in `wifi-startup.py` and again at the privileged boundary in
+`wifi-privileged.py`, because the web process has no authority. Both copies are
+covered by `app/test/tunnel-token.test.js`, which fails if they ever drift
+apart.
+
 ## Required Pi 4 commissioning checklist
 
 Perform each row on a Pi 4 with a newly flashed image and a wired button.
@@ -38,7 +140,11 @@ Before the hardware checklist, validate the privilege boundary without using
 real credentials:
 
 1. Run `python3 -m py_compile deploy/setup/wifi-startup.py deploy/setup/wifi-privileged.py`
-   and `bash -n deploy/install.sh`.
+   and `bash -n deploy/install.sh`. Then
+   `node --test app/test/tunnel-token.test.js app/test/remote-access-route.test.js`,
+   which covers the connector-token validator at both boundaries and drives the
+   remote-access routes over HTTP against a stubbed broker. No Pi and no real
+   token are needed for either.
 2. On an installed Pi, confirm the startup HTTP process runs as
   `pitchtribe-kiosk` and the broker runs as root. Check
   `stat -c '%U:%G %a' /run/pitchtribe-wifi-privileged.sock`; expected is
@@ -105,6 +211,71 @@ still works. Check the kiosk starts if the local helper restarts during boot.
    setup AP starts. Switch Guest Wi-Fi off and confirm NetworkManager regains
    `wlan0`; then repeat setup. Check that the setup address never serves the
    guest portal or dashboard.
+
+### Remote access token (required before remote access ships)
+
+Needs a real connector token for a test tunnel in our Zero Trust account. Do
+not use a club's token, and do not paste any token into a bench record, an
+issue thread or a shared log.
+
+1. On a freshly flashed card, before typing anything: confirm the unit is
+   there, disabled, and cannot start.
+
+   ```sh
+   systemctl is-enabled pitchtribe-tunnel.service
+   test -e /etc/pitchtribe/tunnel.env && echo UNEXPECTED || echo "no credential"
+   sudo systemctl start pitchtribe-tunnel.service
+   systemctl is-active pitchtribe-tunnel.service
+   sudo journalctl -u pitchtribe-tunnel.service -n 20 --no-pager
+   ```
+
+   Expect `disabled`, `no credential`, and an explicit start that is an inert
+   no-op — `inactive` with a condition-failed note, not a crash loop.
+
+2. Enter the token on the TV page's Remote access section. Expect a plain
+   outcome within about half a minute, then confirm what actually happened:
+
+   ```sh
+   stat -c '%U:%G %a' /etc/pitchtribe/tunnel.env
+   systemctl is-enabled pitchtribe-tunnel.service
+   curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:20241/ready
+   ```
+
+   Expect `root:root 600`, `enabled`, and `200`. A `503` with the page saying
+   the code is saved and will connect later is a pass only if the card has no
+   working internet; record which case it was.
+
+3. **The redaction evidence set.** With `T` set to the token in a shell
+   variable (never in a file, and clear it afterwards), every one of these must
+   produce no output:
+
+   ```sh
+   systemctl cat pitchtribe-tunnel.service | grep -F "$T"
+   systemctl show pitchtribe-tunnel.service -p Environment | grep -F "$T"
+   ps aux | grep -F "$T"
+   sudo cat /proc/$(systemctl show -p MainPID --value pitchtribe-tunnel.service)/cmdline | tr '\0' ' ' | grep -F "$T"
+   sudo journalctl -u pitchtribe-tunnel.service --no-pager | grep -F "$T"
+   sudo journalctl -u pitchtribe-wifi-startup.service -u pitchtribe-wifi-privileged.service --no-pager | grep -F "$T"
+   ```
+
+   Also confirm the HTTP response body never contains it, and that the token
+   does not appear in the page after a reload. Record the set as pass/fail
+   without quoting the token. A hit on any line fails the check and the
+   credential path does not ship.
+
+4. Re-enter a different valid token and confirm the replacement is clean:
+   `/etc/pitchtribe/tunnel.env` is still `0600 root:root`, there is no
+   `tunnel.env.*` left in `/etc/pitchtribe`, and `/ready` returns `200` again.
+   Then enter a deliberately invalid code and confirm the previous working one
+   still works — the page should refuse the bad code and change nothing.
+
+5. Ask PitchTribe to revoke the tunnel's secret centrally. Confirm the page
+   reports the code as no longer valid rather than as a fault, and that the
+   player and the LAN dashboard are unaffected throughout.
+
+6. Press **Turn remote access off**. Confirm the unit is `disabled` and
+   `inactive`, `/etc/pitchtribe/tunnel.env` is gone, and the dashboard and
+   player are still working. Reboot and confirm no connector starts.
 
 For each required Pi 4 row, capture UTC timestamp, model, image SHA256,
 `systemctl status pitchtribe-setup-network.service`, `nmcli device status`,

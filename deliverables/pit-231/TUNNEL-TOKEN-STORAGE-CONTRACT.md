@@ -1,11 +1,13 @@
 # PIT-231 — the connector-token storage contract, and what is verified behind it
 
-**Status:** verification record + the storage contract PIT-231 and PIT-236 both build against.
-No code in `deploy/` has been changed by this document. The implementation stays blocked on
-PIT-230 (the unit cannot be installed before cloudflared is on the card).
+**Status:** verification record and rationale. Written while PIT-231 was blocked on PIT-230,
+then implemented once PIT-230 landed — the code described here is in the tree, and
+`deploy/setup/COMMISSIONING.md` is the authoritative copy of the storage contract that PIT-236
+targets. This document is the evidence behind each line of it.
 
 This answers the three constraints the parent put on requirement 5, in order, and corrects
 three things that were assumed rather than checked — including one of my own earlier notes.
+Everything below was verified before any of it was built.
 
 ---
 
@@ -307,7 +309,26 @@ and of a revoked token on a card; `ConditionPathExists` making an explicit `syst
 inert in practice; and the bounded-wait timing that makes the on-screen outcome honest on a real
 venue network.
 
-The requirement 7 evidence set stays as recorded on the issue: after a successful provision,
-grep for the token and show empty results in `systemctl cat`, `systemctl show -p Environment`,
-`ps aux`, `/proc/<pid>/cmdline`, `journalctl -u` for the connector **and both setup units**, and
-the HTTP response body.
+The requirement 7 evidence set is now a numbered bench step in
+`deploy/setup/COMMISSIONING.md` ("Remote access token"), with the six greps written out as
+runnable commands: after a successful provision, the token must produce no output from
+`systemctl cat`, `systemctl show -p Environment`, `ps aux`, `/proc/<pid>/cmdline`,
+`journalctl -u` for the connector **and both setup units**, and it must not appear in an HTTP
+response body. A hit on any line fails the check and the credential path does not ship.
+
+---
+
+## 9. What landed
+
+| File | Change |
+| --- | --- |
+| `deploy/setup/wifi-startup.py` | `validate_token`, the secondary **Remote access (optional)** section on `/`, the same section on an ungated `/remote`, `GET /remote-status`, `POST /remote-access`, `POST /remote-access/off`. `/connect` untouched, including its 512-byte cap |
+| `deploy/setup/wifi-privileged.py` | `tunnel-status` / `tunnel-enable` / `tunnel-disable`, the same `validate_token` repeated at the privileged boundary, atomic replace, rollback to the previous credential, `/ready` health with a bounded wait, `Unauthorized` classification |
+| `deploy/setup/pitchtribe-tunnel.service` | new unit, per §3 |
+| `deploy/install.sh` | installs the unit and `/etc/pitchtribe`, leaves both disabled and empty |
+| `deploy/setup/wifi-http-firewall.sh` | root-only reject rule for the readiness/pprof port |
+| `image/build.sh` | asserts the unit is present, not enabled, with no credential; the content sweep now also catches a baked `TUNNEL_TOKEN=ey…` |
+| `app/test/tunnel-token.test.js` | 19 cases through both copies of the validator, and a drift check between them |
+| `app/test/remote-access-route.test.js` | the routes over real HTTP against a stubbed broker, including the no-echo evidence |
+| `deploy/setup/COMMISSIONING.md` | where the code comes from, that it is optional and re-enterable, how to turn it off, the storage contract table, and the bench steps |
+| `deploy/setup/STARTUP-HTTP-AUTHORIZATION.md` | non-kiosk denial for the new routes, and the root-only readiness port |

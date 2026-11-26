@@ -443,6 +443,15 @@ if [[ "$IMAGE_BUILD" == 1 || -f /proc/device-tree/model ]]; then
   install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-wifi-privileged.service" /etc/systemd/system/
   install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-wifi-startup.service" /etc/systemd/system/
   install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-wifi-http-firewall.service" /etc/systemd/system/
+  # Remote access. The unit goes on every card and is deliberately left
+  # disabled: it has ConditionPathExists on a credential that only exists once
+  # a club pastes a token into the commissioning page, so an unprovisioned
+  # card has a unit that cannot start rather than a unit that fails. The
+  # directory is created here so the broker's atomic replace has somewhere to
+  # stage; the credential itself is never written by this installer, and an
+  # existing one is left exactly as it is on a re-run.
+  install -m 0644 "$SRC_DIR/deploy/setup/pitchtribe-tunnel.service" /etc/systemd/system/
+  install -d -o root -g root -m 0755 /etc/pitchtribe
   systemctl disable --now pitchtribe-setup-serial.service 2>/dev/null || true
   rm -f /etc/systemd/system/pitchtribe-setup-serial.service
   systemctl disable serial-getty@ttyAMA0.service serial-getty@serial0.service 2>/dev/null || true
