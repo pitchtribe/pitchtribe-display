@@ -73,8 +73,23 @@ PORTAL_USER=pitchtribe-portal
 MIRROR_GROUP=pitchtribe-dashboard
 KIOSK_USER=pitchtribe-kiosk
 WIFI_SETUP=0
-PORT="${PITCHTRIBE_PORT:-80}"
-HTTPS_PORT="${PITCHTRIBE_HTTPS_PORT:-443}"
+# A club's ports are recorded nowhere but the unit file this installer renders,
+# so the defaults below are only right on a card nothing has installed yet. On a
+# re-run — an upgrade, or a second pass to pick up a new Environment= line — an
+# unset PITCHTRIBE_PORT used to mean 80, which silently moved a club off its
+# chosen port and took its HTTPS_PORT=0 with it. Read the live value back first;
+# an explicit PITCHTRIBE_PORT still wins, and a port of 0 is a real answer (it
+# turns HTTPS off), which is why this tests for a number rather than emptiness.
+installed_port() { # $1 = Environment= variable name in the installed unit
+  local value
+  value="$(sed -n "s/^Environment=$1=\([0-9]\+\)\$/\1/p" \
+    /etc/systemd/system/pitchtribe.service 2>/dev/null | tail -n 1)"
+  printf '%s' "$value"
+}
+PORT="${PITCHTRIBE_PORT:-$(installed_port PORT)}"
+HTTPS_PORT="${PITCHTRIBE_HTTPS_PORT:-$(installed_port HTTPS_PORT)}"
+PORT="${PORT:-80}"
+HTTPS_PORT="${HTTPS_PORT:-443}"
 SERVER="${PITCHTRIBE_SERVER:-}"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

@@ -18,6 +18,7 @@ shares one allowance of each. **Player screens stay on the club LAN until Sectio
 | Branch | `feat/sponsor-board-pit-152` (**not on `main` yet** — this matters in Section 3b) |
 | File | `deploy/pitchtribe.service:22-31` — one `Environment=` line and the reasoning above it |
 | Tests | `app/test/trust-proxy.test.js` — 5 tests, new coverage (Section 5) |
+| Also | `deploy/install.sh:83-92` — a re-run inherits a club's live ports instead of resetting them to 80/443 (the Section 2 hazard), with `app/test/install-ports.test.js` — 7 tests |
 
 The value is `loopback` and must not be changed. `TRUST_PROXY` reaches the app as a *string* from the
 unit file, read once as the app is built (`app/lib/app.js:106`), so:
@@ -36,35 +37,43 @@ now holds shut.
 
 ## 2. How this file reaches a Pi, and the clobber hazard
 
-The unit file in the repo is a **template**. `deploy/install.sh:239` renders it:
+The unit file in the repo is a **template**. `deploy/install.sh:254` renders it:
 
 ```bash
 sed -e "s|@PORT@|$PORT|g" -e "s|@HTTPS_PORT@|$HTTPS_PORT|g" \
   "$SRC_DIR/deploy/pitchtribe.service" >/etc/systemd/system/pitchtribe.service
 ```
 
-and those two values come only from the environment, with hard-coded fallbacks
-(`deploy/install.sh:76-77`):
+**The hazard, as the Pi has it today.** That `>` is an unconditional overwrite, and in the installer
+the Pi is running, those two values came only from the environment with hard-coded fallbacks:
 
 ```bash
 PORT="${PITCHTRIBE_PORT:-80}"
 HTTPS_PORT="${PITCHTRIBE_HTTPS_PORT:-443}"
 ```
 
-**The hazard.** That `>` is an unconditional overwrite, and *nothing on the Pi records what the ports
-were* — the rendered unit file is the only copy. A club installed with `PITCHTRIBE_PORT=8080` that
-re-runs the installer without re-exporting it is silently moved back to port 80. Demonstrated on the
-bench:
+*Nothing on the Pi records what the ports were* — the rendered unit file is the only copy. A club
+installed with `PITCHTRIBE_PORT=8080` that re-runs the installer without re-exporting it is silently
+moved back to port 80. Demonstrated on the bench:
 
 ```
 rendered once with PITCHTRIBE_PORT=8080 → Environment=PORT=8080   Environment=HTTPS_PORT=8443
 re-rendered with it unset              → Environment=PORT=80     Environment=HTTPS_PORT=443
 ```
 
-**So the rule for every unit-file change, including this one: read the live values first, and carry
-them back in.** Step 1 of the card below is that read, and it is not optional even though this Pi is
-almost certainly on the defaults — the tunnel origin settled in PIT-227 is `https://localhost:443`,
-which only works if `HTTPS_PORT` is 443.
+**Fixed in this branch** — `deploy/install.sh:83-92` now reads the live value out of the installed
+unit before falling back to 80/443, so an unset `PITCHTRIBE_PORT` means "keep what this club is on"
+rather than "80". An explicit `PITCHTRIBE_PORT` still wins, `HTTPS_PORT=0` (HTTPS deliberately off)
+survives, and a half-rendered unit still holding a literal `@PORT@` falls back to the defaults rather
+than passing the placeholder to systemd. `app/test/install-ports.test.js` runs that block out of the
+real installer against a stub unit file — 7 tests; 4 of them fail if the inheritance is removed.
+
+**That fix is not on the Pi yet**, because the Pi runs the installer from the last release. So the
+rule for this deploy is unchanged: **read the live values first, and carry them back in.** Step 1 of
+the card below is that read, and it is not optional even though this Pi is almost certainly on the
+defaults — the tunnel origin settled in PIT-227 is `https://localhost:443`, which only works if
+`HTTPS_PORT` is 443. From the first Route B run off this branch onward, the read becomes belt and
+braces rather than the only thing standing between a club and port 80.
 
 Two other things that survive, and are worth knowing before touching the unit:
 
@@ -94,7 +103,10 @@ conditions:
    so a plain `curl -sSL https://pitchtribe.media/install.sh | sudo bash` installs the latest release
    and would **remove** the line again. Until the branch is merged and released, Route B needs
    `PITCHTRIBE_REF=feat/sponsor-board-pit-152` (`deploy/bootstrap.sh:26-31`).
-2. **The live ports have to be passed back in**, per Section 2:
+2. **The live ports.** A Route B run off this branch carries the installer fix with it, so it reads
+   the club's ports out of the installed unit by itself and an unset `PITCHTRIBE_PORT` no longer
+   means 80. Pass them anyway for this first run — the inheritance is being exercised on a real card
+   for the first time, and naming them costs nothing:
 
 ```bash
 # Read them first (Section 4, step 1), then:
