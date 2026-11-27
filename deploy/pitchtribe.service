@@ -19,6 +19,16 @@ Environment=PORT=@PORT@
 # start (app/lib/tls.js). HTTPS_PORT=0 switches it off.
 Environment=HTTPS_PORT=@HTTPS_PORT@
 Environment=DATA_DIR=/var/lib/pitchtribe
+# Behind the Cloudflare Tunnel, cloudflared runs on this Pi and reaches the
+# dashboard over loopback, so X-Forwarded-For arriving from a loopback peer is
+# the real client and from anywhere else it is a claim. `loopback` is the point
+# of the value: the login limiter (app/lib/auth.js) and the cap of 12 event
+# streams (app/lib/hub.js) are counted per req.ip, and trusting every hop would
+# let any machine on the club's network forge an address and so hand itself a
+# fresh allowance of both. It must not be a hop count — this is an environment
+# variable, so express is handed the string "1", which proxy-addr reads as the
+# address 0.0.0.1 and quietly trusts nothing, and "true" throws on start.
+Environment=TRUST_PROXY=loopback
 ExecStart=/usr/bin/env node /opt/pitchtribe/app/server.js
 Restart=always
 RestartSec=3

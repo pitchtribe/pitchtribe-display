@@ -53,11 +53,50 @@ uses no Wi-Fi credentials.
    line. If an HTTP status is returned, fail the check and do not use the
    startup credential flow.
 
+5. From a different local identity, try the remote-access routes. The rule in
+   step 2 matches on `tcp dport` and `meta skuid` only — nftables cannot see an
+   HTTP path — so these routes inherit the same kiosk-only restriction as
+   `/connect` with no rule of their own. Confirm it rather than assume it:
+
+   ```sh
+   sudo -u nobody curl --max-time 3 -i http://127.0.0.1:8090/remote
+   sudo -u nobody curl --max-time 3 -i -X POST -H 'Content-Type: application/json' \
+     -d '{"token":""}' http://127.0.0.1:8090/remote-access
+   ```
+
+   Pass means curl exits with a connection error on both and prints no HTTP
+   status line. Then as the kiosk identity, confirm the form itself is served:
+
+   ```sh
+   sudo -u pitchtribe-kiosk curl --max-time 3 -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8090/remote
+   ```
+
+   Expect `200`. Send no real token in either check.
+
+6. Confirm cloudflared's readiness endpoint is root-only. The connector's
+   metrics listener also serves `/debug/pprof/`, and a heap profile of a
+   process holding a connector token is a way to read that token without
+   root — so the firewall table restricts the port to UID 0, and the broker is
+   the only thing that polls it:
+
+   ```sh
+   nft list table inet pitchtribe_wifi_http | grep 20241
+   sudo -u nobody curl --max-time 3 -i http://127.0.0.1:20241/debug/pprof/heap
+   sudo curl --max-time 3 -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:20241/ready
+   ```
+
+   Pass means the rule is present, the non-root request fails before an HTTP
+   status, and the root request returns a status (`200` once a connector has
+   registered, `503` before that — both are passes for this check). On a card
+   with no token commissioned there is no listener at all, and the non-root
+   check still has to fail; record that case as such.
+
 ## Record and report
 
 Record the model, image SHA-256, UTC time, and pass/fail for service state,
-firewall rule, kiosk request, non-kiosk denial, and portal coexistence (where
-applicable). Return only those sanitized results. Do not include credentials,
+firewall rule, kiosk request, non-kiosk denial, non-kiosk denial on the
+remote-access routes, the root-only readiness port, and portal coexistence
+(where applicable). Return only those sanitized results. Do not include credentials,
 UART output, or full environment files.
 
 These checks verify the installed-image behavior; source syntax checks alone

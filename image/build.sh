@@ -178,6 +178,114 @@ else
   log "No Raspberry Pi Connect client in this base image — support access will show as unavailable"
 fi
 
+# ------------------------------------------- support access (Cloudflare Tunnel)
+# cloudflared is on every card for the same reason Connect is: a club that later
+# wants its dashboard from outside the building should not need a shell on the
+# Pi. deploy/install.sh puts on the binary and Cloudflare's apt source and
+# nothing else — a tunnel exists only once somebody pastes a connector token
+# into the commissioning page, on the device.
+#
+# So the clean state asserted here is stronger than Connect's. Connect ships
+# installed and signed out; cloudflared ships never configured. `cloudflared
+# service install <token>` is what creates cloudflared.service and writes the
+# token into it, so on a card nobody has commissioned that unit must not exist
+# at all. A present-but-disabled one would mean a token was used during the
+# build, and that token would then be on every card flashed from this image —
+# one club's tunnel, shared by the whole fleet.
+#
+# None of this may lean on the policy-rc.d above. That stops a daemon being
+# *started* during the build and nothing more: it would wave through an enabled
+# unit and a baked credential, both of which come alive on first boot.
+log "Checking cloudflared ships inert"
+# install.sh fails the build outright when neither install route works, so a
+# missing binary here means that check was bypassed, not that the card is fine.
+chroot "$MNT" sh -c 'command -v cloudflared' >/dev/null 2>&1 \
+  || die "cloudflared is not in the image — deploy/install.sh should have stopped the build before here"
+CFD_VER="$(chroot "$MNT" dpkg-query -W -f '${Version}' cloudflared 2>/dev/null || true)"
+[[ -n "$CFD_VER" ]] || die "cloudflared is in the image but not as a package, so nothing will ever upgrade it"
+# Measured against the headroom this script adds, because that is the space
+# cloudflared has to fit inside: EXTRA_MB was sized for PitchTribe and Chromium,
+# and cloudflared went onto the card after that number was chosen. The verdict is
+# said out loud on every build so whoever next makes this package much bigger —
+# or trims EXTRA_MB — finds out here, rather than on a card that filled up in a
+# clubhouse. A tenth of the headroom is the line: cloudflared is a single static
+# binary, so anything near that is a change in kind, not a version bump.
+CFD_KB="$(chroot "$MNT" dpkg-query -W -f '${Installed-Size}' cloudflared 2>/dev/null || echo 0)"
+CFD_MB=$((CFD_KB / 1024))
+if [[ "$CFD_MB" -le $((EXTRA_MB / 10)) ]]; then
+  log "cloudflared $CFD_VER installed: ${CFD_MB} MB of the ${EXTRA_MB} MB added to the root filesystem — headroom holds"
+else
+  log "WARNING: cloudflared $CFD_VER takes ${CFD_MB} MB of the ${EXTRA_MB} MB added to the root filesystem — raise EXTRA_MB before this squeezes a card"
+fi
+# Not fatal — install.sh already said so, and it only reaches the fallback when
+# pkg.cloudflare.com was unreachable — but loud, because without the source this
+# is the one package on the card the nightly OS update cannot patch.
+[[ -f "$MNT/etc/apt/sources.list.d/cloudflared.list" ]] \
+  || log "WARNING: no Cloudflare apt source in the image — cloudflared $CFD_VER will not be upgraded on any card flashed from it"
+# The unit first, because `cloudflared service install <token>` is the way this
+# goes wrong in practice and it deserves to be named rather than caught by the
+# broader sweep below. It must be absent, not merely off: `systemctl is-enabled`
+# answers "no" for a unit that does not exist, so testing only that would pass a
+# card with a commissioned tunnel sitting there one `systemctl enable` from live.
+# The two /lib paths are checked here and nowhere else — the credential sweep
+# below only walks /etc, /root and /home.
+for d in etc/systemd/system lib/systemd/system usr/lib/systemd/system; do
+  CFD_UNIT="$(ls -A "$MNT/$d" 2>/dev/null | grep '^cloudflared' || true)"
+  [[ -z "$CFD_UNIT" ]] || die "the image has a cloudflared unit in /$d ($CFD_UNIT), so a tunnel was installed during the build"
+done
+! chroot "$MNT" systemctl is-enabled cloudflared.service >/dev/null 2>&1 \
+  || die "cloudflared.service is enabled in the image"
+# A tunnel's credentials are files too. `tunnel login`/`tunnel create` leave
+# cert.pem and a <tunnel-id>.json under /etc/cloudflared or ~/.cloudflared. Any
+# of them in the image hands one tunnel's identity to every club that flashes it.
+[[ ! -e "$MNT/etc/cloudflared" ]] \
+  || die "the image has /etc/cloudflared, so a tunnel was configured during the build:
+$(ls -A "$MNT/etc/cloudflared" 2>/dev/null)"
+# The package's postinst makes /usr/local/etc/cloudflared and touches
+# .installedFromPackageManager in it. That marker is expected; a config.yml or a
+# credentials file beside it is not.
+CFD_LOCAL="$(ls -A "$MNT/usr/local/etc/cloudflared" 2>/dev/null | grep -v '^\.installedFromPackageManager$' || true)"
+[[ -z "$CFD_LOCAL" ]] || die "the image has cloudflared state in /usr/local/etc/cloudflared: $CFD_LOCAL"
+# The apt source is the one file here that is meant to have that name in it.
+CFD_CREDS="$(find "$MNT/etc" "$MNT/root" "$MNT/home" -maxdepth 4 -path '*cloudflared*' -type f \
+  ! -path "$MNT/etc/apt/sources.list.d/cloudflared.list" 2>/dev/null || true)"
+[[ -z "$CFD_CREDS" ]] || die "the image has cloudflared state baked in, which would ship one tunnel to every card:
+$CFD_CREDS"
+# And by content, not just by filename: TunnelSecret is the credentials file a
+# tunnel is created with, a connector token is one long base64 blob that
+# `service install` writes straight into ExecStart, TUNNEL_TOKEN= is how
+# our own unit receives one, and "token":"ey..." is the JSON shape written by
+# the dashboard door's staged-request path (remote-access-routes.js). Matched
+# on the shape, so a credential someone renamed, staged under a tmp suffix, or
+# written to a path nobody thought to list, is still caught.
+CFD_TOKENS="$(grep -rlsIE 'TunnelSecret|cloudflared.*--token[[:space:]]+ey[A-Za-z0-9_-]{20,}|TUNNEL_TOKEN=ey[A-Za-z0-9+/=_-]{20,}|"token"[[:space:]]*:[[:space:]]*"ey[A-Za-z0-9+/=_-]{20,}"' \
+  "$MNT/etc" "$MNT/root" "$MNT/home" \
+  "$MNT/var/lib/pitchtribe" "$MNT/var/lib/pitchtribe-remote-access" 2>/dev/null || true)"
+[[ -z "$CFD_TOKENS" ]] || die "the image has what looks like a tunnel credential or connector token in it:
+$CFD_TOKENS"
+# The dashboard door stages its request here before the root helper reads it.
+# A flashed image must never carry an in-flight request.
+[[ ! -e "$MNT/var/lib/pitchtribe/remote-access-request.json" ]] \
+  || die "the image has a remote-access-request.json in /var/lib/pitchtribe, so a tunnel token was staged during the build"
+# Our own unit is the other half of this, and its expected state is different:
+# the token box on the commissioning page is useless without it, so it must be
+# present — but present, not enabled, and with no credential beside it. The two
+# names are asserted separately so neither assertion has to be weakened to let
+# the other pass.
+[[ -f "$MNT/etc/systemd/system/pitchtribe-tunnel.service" ]] \
+  || die "pitchtribe-tunnel.service is not in the image, so a club could paste a token into a card with nothing to run it — deploy/install.sh should have installed it"
+! chroot "$MNT" systemctl is-enabled pitchtribe-tunnel.service >/dev/null 2>&1 \
+  || die "pitchtribe-tunnel.service is enabled in the image; it is only enabled on a device when a club commissions a token"
+# The systemctl check above passes for any non-zero exit, including an unrelated
+# chroot failure. This direct check cannot be fooled by an unrelated error.
+[[ ! -e "$MNT/etc/systemd/system/multi-user.target.wants/pitchtribe-tunnel.service" ]] \
+  || die "pitchtribe-tunnel.service enablement symlink is present in the image; it is only enabled on a device when a club commissions a token"
+[[ ! -e "$MNT/etc/pitchtribe/tunnel.env" ]] \
+  || die "the image has a connector token in /etc/pitchtribe/tunnel.env, which would ship one club's tunnel to every card"
+# Ownership (cloudflared:cloudflared 0600) is set at commissioning, not asserted here — file is absent in an unprovisioned image.
+log "cloudflared: binary and apt source only — no unit, no credentials, no tunnel until a club commissions one"
+log "pitchtribe-tunnel.service: installed, not enabled, no credential — the commissioning page has something to switch on"
+
 # ----------------------------------------------------------- boot hardening
 # A club screen has no keyboard and no serial cable plugged into it, so the
 # boot-time consoles are only a way in, and kernel chatter on a bar TV is both

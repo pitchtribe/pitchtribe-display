@@ -1,0 +1,141 @@
+# One-touch Pi bootstrap — `daniel` (PIT-223 / PIT-227)
+
+> **DONE 2026-11-26 — do not re-run.** The connector is installed and `pitchtribe-cpfa` is healthy with 4 connections; `cpfa.pitchtribe.co.uk` is published behind Access. Kept for reference (the SSH fix, the token distinction, and the API-token scopes in the appendix are still accurate). Outcome and verified state: `REMOTE-ACCESS-DECISION.md`.
+
+Chosen path (board decision, 2026-11-25): **Daniel runs this once on the Pi; an agent takes over through the tunnel afterwards.** Pi login user: `daniel`. Pi: `pitchtribe.local` = `192.168.1.55`.
+
+This card is the short path. Full detail, hazards and rollback: `deliverables/pit-227/PI-CLOUDFLARED-RUNBOOK.md` (sections A–G).
+
+---
+
+## 0. Get in over SSH
+
+`Too many authentication failures` is the client offering more keys than the Pi's `MaxAuthTries` (6) accepts before it hangs up — it never reached a credential that would work. Force one credential:
+
+Password login (simplest):
+
+```
+ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password -l daniel 192.168.1.55
+```
+
+Or one specific key:
+
+```
+ssh -o IdentitiesOnly=yes -i ~/.ssh/<the-right-key> daniel@192.168.1.55
+```
+
+The `SSH may not work until a valid user has been set up` line is the stock Raspberry Pi OS pre-auth banner, not a verdict on the account.
+
+---
+
+## 1. Copy the connector token (do not paste it anywhere but the Pi)
+
+**It is not an API token — do not create one.** What `cloudflared` needs is the *tunnel connector token*: a long `eyJ...` string that Cloudflare already generated when the tunnel `pitchtribe-cpfa` was created. It identifies this one tunnel and nothing else in the account.
+
+Where to copy it: [one.dash.cloudflare.com](https://one.dash.cloudflare.com) → **Networks → Tunnels** (older UI: *Access → Tunnels*) → `pitchtribe-cpfa` → **Configure / Install and run a connector** → Debian tab. The displayed command ends in `sudo cloudflared service install eyJhIjoi…` — the token is everything after `install`.
+
+Tunnel for cross-check: `pitchtribe-cpfa`, ID `ca5e80f9-a318-4c73-a607-ceacad3a3fb3`, account `ad7861717c55f5e2f439ca07d7402f35`.
+
+The token can attach any machine to the tunnel. Never put it in the Paperclip thread, a commit, a chat message or a screenshot. If it is exposed, rotate it (runbook B4).
+
+## 2. Install the connector
+
+First check the architecture — the Cloudflare apt repo carries `amd64` and `arm64` only, so a 32-bit Raspberry Pi OS will fail the apt path:
+
+```
+dpkg --print-architecture
+```
+
+**If `arm64`** (64-bit Raspberry Pi OS — expected):
+
+```
+sudo mkdir -p --mode=0755 /usr/share/keyrings
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
+sudo apt-get update && sudo apt-get install -y cloudflared
+```
+
+**If `armhf`** (32-bit), skip the repo and install the release package directly:
+
+```
+curl -fsSL -o /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm.deb
+sudo dpkg -i /tmp/cloudflared.deb
+```
+
+Then, either way, register the connector as a boot service:
+
+```
+sudo cloudflared service install <PASTE_TOKEN_HERE>
+```
+
+That one command writes the token to `/etc/cloudflared/`, creates the `cloudflared` systemd unit, enables it at boot and starts it. No local `config.yml` is created or wanted — this tunnel is remotely managed, so routing lives in Cloudflare.
+
+## 3. Prove it is healthy and report the origin
+
+```
+cloudflared --version
+sudo systemctl is-active cloudflared; sudo systemctl is-enabled cloudflared
+sudo journalctl -u cloudflared -n 30 --no-pager | grep -c 'Registered tunnel connection'
+sudo systemctl show -p Environment pitchtribe.service
+sudo ss -tlnp | grep -E ':80|:443|:8080'
+curl -ksS -o /dev/null -w '%{http_code}\n' https://localhost:443/healthz
+```
+
+Expected: `active` + `enabled`, about **4** registered connections, `HTTPS_PORT=443` in the environment, a `node` process listening on `:443`, and `200` from `/healthz`.
+
+If `HTTPS_PORT` is not 443, or `/healthz` is not 200 — **stop and paste the output**. The route gets built against the port this Pi really uses; publishing `https://localhost:443` with nothing listening there returns 502 on every request.
+
+Paste back (no token, ever):
+
+```
+cloudflared active/enabled:
+registered connection count:
+HTTPS_PORT:
+listening on :443?  yes / no
+/healthz:
+```
+
+---
+
+## 4. Then it is hands-off
+
+Once the connector is healthy I finish from here, no further trips to the Pi:
+
+1. Publish the route `cpfa.pitchtribe.co.uk` → `https://localhost:443` with `noTLSVerify` and `access.required` (exact JSON in runbook F).
+2. Create the proxied CNAME `cpfa` → `ca5e80f9-a318-4c73-a607-ceacad3a3fb3.cfargotunnel.com`.
+3. Validate: one-time-PIN sign-in, public TLS chain, `/admin`, authenticated `/api/*`, SSE heartbeat, and a **denied-access test** from a signed-out session and a non-owner address.
+
+**Agent takeover — verified feasible, not yet built.** The agent runner has outbound internet and `cloudflared 2026.11.2` runs there from a plain downloaded binary (no sudo), so `cloudflared access ssh` as a `ProxyCommand` works. It still needs an SSH route on the tunnel plus a scoped Access **service token**, which I will only create on your say-so — it is a credential that grants an agent a shell on the Pi. Say the word after step 3 and I will build and scope it.
+
+For reference, this account already contains an unrelated, idle tunnel `pitchtribe-admin-box` (created 2026-11-09, `ssh://localhost:22` → `ssh.pitchtribe.media`, down, no connector). Not part of this work; left untouched.
+
+**Nothing is published today:** no `cpfa` DNS record, no tunnel route, no inbound port, no change on the Pi.
+
+---
+
+## Appendix — three different Cloudflare credentials, do not mix them up
+
+| Credential | What it is for | Needed for this bootstrap? |
+| --- | --- | --- |
+| **Tunnel connector token** (`eyJ...`) | Attaches `cloudflared` on the Pi to the tunnel `pitchtribe-cpfa`. Step 1 above. | **Yes — this one.** |
+| **API token** | Lets a script/agent call the Cloudflare API to build tunnels, routes, DNS and Access policies. | **No.** My existing Cloudflare connection already does this. |
+| **Access service token** | A client ID/secret pair that lets a non-human (an agent) pass the Access gate, e.g. for SSH. | Not yet — only on explicit say-so. |
+
+### If you ever do mint an API token, these are the exact scopes
+
+Scope names below are the permission groups the relevant API endpoints actually accept (verified against the Cloudflare OpenAPI spec, `x-api-token-group`), so a token with these and nothing else can complete this build.
+
+**Account** → resource: *Include → the `pitchtribe` account* (`ad7861717c55f5e2f439ca07d7402f35`) only, never "All accounts":
+
+- `Cloudflare Tunnel` → **Edit** — create the tunnel, read its connector token, write the ingress/route config. (In newer dashboards this group is named `Cloudflare One Connector: cloudflared`.)
+- `Access: Apps and Policies` → **Edit** — create and amend the `cpfa.pitchtribe.co.uk` Access application and its default-deny + allow policy.
+- `Access: Organizations, Identity Providers, and Groups` → **Read** — needed only to reference the IdP (one-time PIN) or an identity group in a policy. Read is enough; do not grant Edit.
+- `Access: Service Tokens` → **Edit** — *only* if the agent-SSH path is approved later. Omit otherwise.
+
+**Zone** → resource: *Include → Specific zone → `pitchtribe.co.uk`* only:
+
+- `DNS` → **Edit** — create the proxied `cpfa` CNAME to `<tunnel-id>.cfargotunnel.com`.
+
+**Do not grant:** `Account Settings`, `Memberships`, `User` anything, `Zone Settings Edit`, `Workers`, `Billing`, or any `All zones`/`All accounts` resource. None are used here, and together they would let a leaked token reshape the account rather than just this one hostname.
+
+**Hygiene:** set a TTL / expiry on the token, restrict it by client IP if the caller has a stable address, store it only as a secret (never in this repo), and delete it the moment the build is finished — an API token is strictly more powerful than the connector token, because it can rewrite the Access gate that protects the Pi.

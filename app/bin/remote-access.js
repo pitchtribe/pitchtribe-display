@@ -69,6 +69,7 @@
    is not a regular file, which is one answer to the symlink, the FIFO, the
    directory and the device node alike. */
 const childProcess = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -78,6 +79,52 @@ const RESERVED = new Set(['root', 'daemon', 'bin', 'sys', 'sync', 'games', 'man'
   'www-data', 'backup', 'list', 'irc', 'nobody', 'systemd-network', 'systemd-timesync', 'messagebus', 'sshd', 'avahi',
   'pitchtribe', 'pitchtribe-kiosk', 'admin', 'administrator', 'sudo', 'adm', 'ssh', 'user']);
 const HASH_RE = /^\$6\$[./A-Za-z0-9]{1,16}\$[./A-Za-z0-9]{86}$/;
+
+/* Cloudflare connector token: standard base64 of JSON with a/t/s fields
+   (cloudflared 2026.11.2, connection/connection.go:81-86). Real tokens are
+   180-252 chars; because they encode all-ASCII JSON they never contain + or /,
+   so the strict alphabet below is safe. See TUNNEL-TOKEN-STORAGE-CONTRACT.md.
+
+   app/lib/remote-access-routes.js imports this validator for the HTTP boundary
+   — the broker never trusts the web process, so both check. */
+const TUNNEL_TOKEN_MIN = 120;
+const TUNNEL_TOKEN_MAX = 512;
+const TUNNEL_TOKEN_CHARS = /^[A-Za-z0-9]+={0,2}$/;
+const TUNNEL_TOKEN_HELP = 'That is not a PitchTribe remote access token. It is one long code starting eyJ, sent to you by PitchTribe.';
+/* Only tokens from our own Zero Trust account are accepted.
+   Source: deliverables/pit-229/CLUB-TUNNEL-PROVISIONING.md */
+const PITCHTRIBE_ACCOUNT = 'ad7861717c55f5e2f439ca07d7402f35';
+const TUNNEL_UNIT = 'pitchtribe-tunnel.service';
+const TUNNEL_READY_PATH = 'http://127.0.0.1:20241/ready';
+/* How long to wait for the connector to register after enable. */
+const TUNNEL_READY_WAIT_MS = 30_000;
+const TUNNEL_READY_POLL_MS = 1_000;
+
+/** Check a connector token at the privileged boundary. Returns { token } or { error }.
+    Never puts the token, or any part of it, in the returned error message. */
+function validateTunnelToken(raw) {
+  if (typeof raw !== 'string') return { error: TUNNEL_TOKEN_HELP };
+  const token = raw.trim();
+  if (!token) return { error: 'Paste the remote access token PitchTribe sent you.' };
+  if (!token.startsWith('eyJ') || !TUNNEL_TOKEN_CHARS.test(token) || token.length % 4 !== 0)
+    return { error: TUNNEL_TOKEN_HELP };
+  if (token.length < TUNNEL_TOKEN_MIN || token.length > TUNNEL_TOKEN_MAX)
+    return { error: 'That code is the wrong length for a remote access token. Check the whole code was copied.' };
+  try {
+    const claims = JSON.parse(Buffer.from(token, 'base64').toString('utf8'));
+    if (!claims || typeof claims !== 'object' || Array.isArray(claims)) return { error: TUNNEL_TOKEN_HELP };
+    const { a: account, t: tunnel, s: secret } = claims;
+    if (!account || typeof account !== 'string') return { error: TUNNEL_TOKEN_HELP };
+    if (!secret || typeof secret !== 'string') return { error: TUNNEL_TOKEN_HELP };
+    if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(String(tunnel || '')))
+      return { error: TUNNEL_TOKEN_HELP };
+    if (!Buffer.from(secret, 'base64').length) return { error: TUNNEL_TOKEN_HELP };
+    if (account !== PITCHTRIBE_ACCOUNT) return { error: TUNNEL_TOKEN_HELP };
+    return { token };
+  } catch {
+    return { error: TUNNEL_TOKEN_HELP };
+  }
+}
 
 /* How long support access may last. The dashboard offers exactly these, and
    anything else is refused here too — an unbounded support session is the one
@@ -199,6 +246,13 @@ function defaults() {
        which is inherent in delegating to them; they cannot choose which file
        it is. */
     signinDir: process.env.SIGNIN_DIR || '/run/pitchtribe-remote-access',
+    /* Credential file for the Cloudflare tunnel unit. Configurable so tests can
+       point it at a temp directory without needing root or the real Pi path. */
+    tunnelEnvPath: process.env.TUNNEL_ENV_PATH || '/etc/pitchtribe/tunnel.env',
+    /* Shared lock file for tunnel operations. Both the commissioning page
+       (wifi-privileged.py) and the dashboard path use this file; each takes an
+       exclusive flock(2) so the two doors serialise their credential writes. */
+    tunnelLockPath: process.env.TUNNEL_LOCK_PATH || '/run/pitchtribe-tunnel.lock',
     /* Whether the clock can be used to decide that time has moved *backwards*
        — see CLOCK_SLACK_MS and sessionBounds(). */
     clockSynced: () => fs.existsSync(TIMESYNC_MARKER),
@@ -474,6 +528,184 @@ function sshState(o) {
   return { sshEnabled: q(['is-enabled', 'ssh.service']) === 'enabled', sshActive: q(['is-active', 'ssh.service']) === 'active' };
 }
 
+/* ---------------------------------------------------------- tunnel access */
+
+/** True if the installed cloudflared can receive its token from the environment.
+    deploy/install.sh installs cloudflared unpinned from Cloudflare's apt repo,
+    so the capability check is not theoretical — a future build that drops
+    --token would otherwise fall back to argv, which any local user can read
+    out of /proc. Refuse to write a credential rather than let that happen. */
+function cloudflaredEnvRoute(o) {
+  let out = '';
+  try { out = o.exec('cloudflared', ['tunnel', 'run', '--help']); } catch (err) {
+    out = String(err.stdout || '') + String(err.stderr || '');
+  }
+  return out.includes('--token');
+}
+
+/** Acquire the shared tunnel lock using an exclusive flock(2) on o.tunnelLockPath.
+    The lock is on the open-file-description; it persists as long as the returned
+    fd is held open and is released when the caller calls the returned function.
+    This is cross-compatible with Python's fcntl.flock on the same path.
+    Returns a release function, or null when the lock is held by another process. */
+function takeTunnelLock(o) {
+  const lockPath = o.tunnelLockPath;
+  if (!lockPath) return () => {};
+  let fd;
+  try {
+    fd = fs.openSync(lockPath, fs.constants.O_RDWR | fs.constants.O_CREAT, 0o600);
+    /* Pass our fd to the child as its fd 3; flock calls flock(3, LOCK_EX|LOCK_NB).
+       The lock is on the open-file-description, which the parent still holds after
+       the child exits — the flock persists until we close fd. */
+    const result = childProcess.spawnSync('flock', ['--exclusive', '--nonblock', '3'], {
+      stdio: ['ignore', 'ignore', 'ignore', fd],
+      timeout: 2000,
+    });
+    if (result.status !== 0 || result.error) {
+      fs.closeSync(fd);
+      return null;
+    }
+    return () => { try { fs.closeSync(fd); } catch { /* ignore */ } };
+  } catch {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* ignore */ } }
+    return null;
+  }
+}
+
+/** Atomically restore the credential to `previous`, or remove it when previous
+    is null. Uses the same staged-rename pattern as the forward write so a
+    power cut during rollback cannot leave a half-credential. */
+function tunnelRestore(envPath, previous) {
+  if (previous === null) {
+    try { fs.rmSync(envPath, { force: true }); } catch { /* ignore */ }
+    return;
+  }
+  const tmpPath = `${envPath}.${crypto.randomBytes(8).toString('hex')}`;
+  let fd;
+  try {
+    fd = fs.openSync(tmpPath, 'wx', 0o600);
+    fs.fchmodSync(fd, 0o600);
+    fs.writeSync(fd, previous);
+    try { fs.fdatasyncSync(fd); } catch { /* best effort */ }
+    fs.closeSync(fd); fd = undefined;
+    fs.renameSync(tmpPath, envPath);
+  } catch {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* ignore */ } }
+    try { fs.rmSync(tmpPath, { force: true }); } catch { /* ignore */ }
+  }
+}
+
+/** Read current tunnel state from the system. Quick single-shot check: no
+    polling, 1-second curl timeout. Called on every status run, so the mirror
+    stays honest across revocation events without an action to trigger a refresh.
+    Returns { enabled, connected } — never the credential. */
+function tunnelState(o) {
+  const q = (args) => { try { return o.exec('systemctl', args).trim(); } catch (err) { return String(err.stdout || '').trim(); } };
+  if (q(['is-enabled', TUNNEL_UNIT]) !== 'enabled') return { enabled: false, connected: false };
+  if (q(['is-active', TUNNEL_UNIT]) !== 'active') return { enabled: true, connected: false };
+  try {
+    const code = o.exec('curl', ['-s', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '1', TUNNEL_READY_PATH]).trim();
+    return { enabled: true, connected: code === '200' };
+  } catch { return { enabled: true, connected: false }; }
+}
+
+/** Write the credential atomically and enable the unit. Returns the extra{}
+    for status() — { last, tunnel } — with fixed messages (never raw stderr). */
+function tunnelEnable(o, token) {
+  const at = o.now().toISOString();
+  const envPath = o.tunnelEnvPath;
+  /* Serialise with the commissioning-page path (wifi-privileged.py) so the two
+     doors cannot race over the credential file or each other's rollback. */
+  const releaseLock = takeTunnelLock(o);
+  if (!releaseLock) {
+    return { last: { action: 'tunnel-enable', at, ok: false, message: 'Remote access is already being set up. Try again shortly.' }, tunnel: { enabled: false, connected: false } };
+  }
+  try {
+    /* Guard: refuse to write a credential if the installed cloudflared cannot
+       read its token from the environment. If a future cloudflared drops
+       --token support and falls back to argv, any local user can read the
+       credential out of /proc — writing nothing is safer than that. */
+    if (!cloudflaredEnvRoute(o)) {
+      return { last: { action: 'tunnel-enable', at, ok: false, message: 'Remote access is not available on this device. Ask PitchTribe for help.' }, tunnel: { enabled: false, connected: false } };
+    }
+    /* Remember the previous credential for rollback on revocation. */
+    let previous = null;
+    try { previous = fs.readFileSync(envPath, 'utf8'); } catch { /* none */ }
+    /* Atomic write: create under a random name in the same directory, then
+       rename. The directory is 0755 root:root so there is no symlink risk here,
+       but atomic rename is still correct for power-cut safety. */
+    const tmpPath = `${envPath}.${crypto.randomBytes(8).toString('hex')}`;
+    let fd;
+    try {
+      fd = fs.openSync(tmpPath, 'wx', 0o600);
+      fs.fchmodSync(fd, 0o600);
+      fs.writeSync(fd, `TUNNEL_TOKEN=${token}\n`);
+      try { fs.fdatasyncSync(fd); } catch { /* best effort */ }
+      fs.closeSync(fd); fd = undefined;
+      fs.renameSync(tmpPath, envPath);
+      try {
+        const cfUid = Number(childProcess.execFileSync('id', ['-u', 'cloudflared'], { encoding: 'utf8' }).trim());
+        const cfGid = Number(childProcess.execFileSync('id', ['-g', 'cloudflared'], { encoding: 'utf8' }).trim());
+        fs.chownSync(envPath, cfUid, cfGid);
+      } catch { /* off-Pi or cloudflared user absent — no-op */ }
+    } catch {
+      if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* ignore */ } }
+      try { fs.rmSync(tmpPath, { force: true }); } catch { /* ignore */ }
+      return { last: { action: 'tunnel-enable', at, ok: false, message: 'Remote access could not be set up. Try again or ask PitchTribe for help.' }, tunnel: { enabled: false, connected: false } };
+    }
+    try {
+      o.exec('systemctl', ['enable', '--now', TUNNEL_UNIT]);
+    } catch {
+      /* Credential written but unit failed to start: roll back atomically. */
+      tunnelRestore(envPath, previous);
+      return { last: { action: 'tunnel-enable', at, ok: false, message: 'Remote access could not be started. Try again or ask PitchTribe for help.' }, tunnel: { enabled: false, connected: false } };
+    }
+    /* Wait up to TUNNEL_READY_WAIT_MS for the connector to register. */
+    const deadline = Date.now() + (o.tunnelReadyWaitMs !== undefined ? o.tunnelReadyWaitMs : TUNNEL_READY_WAIT_MS);
+    const poll = o.tunnelPollMs !== undefined ? o.tunnelPollMs : TUNNEL_READY_POLL_MS;
+    /* @<epoch> is unambiguous in every time zone; a bare 'YYYY-MM-DD HH:MM:SS'
+       string is read by journalctl as local time, so a UTC ISO slice sets the
+       window in the wrong place for any card west of UTC (window starts in the
+       future → Unauthorized never seen → rejected credential reported as good). */
+    const since = `@${Math.floor(new Date(at).getTime() / 1000)}`;
+    do {
+      try {
+        const code = o.exec('curl', ['-s', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '2', TUNNEL_READY_PATH]).trim();
+        if (code === '200')
+          return { last: { action: 'tunnel-enable', at, ok: true, message: 'Remote access is on.' }, tunnel: { enabled: true, connected: true } };
+      } catch { /* curl unavailable or connection refused */ }
+      try {
+        const journal = o.exec('journalctl', ['-u', TUNNEL_UNIT, '--since', since, '--no-pager', '-q']);
+        if (journal.includes('Unauthorized')) {
+          /* Revoked token: restore previous and disable. */
+          try { o.exec('systemctl', ['disable', '--now', TUNNEL_UNIT]); } catch { /* ignore */ }
+          tunnelRestore(envPath, previous);
+          const restored = previous !== null;
+          if (restored) { try { o.exec('systemctl', ['enable', '--now', TUNNEL_UNIT]); } catch { /* ignore */ } }
+          return { last: { action: 'tunnel-enable', at, ok: false, message: 'That token is no longer valid — ask PitchTribe for a new one.' }, tunnel: { enabled: restored, connected: false } };
+        }
+      } catch { /* journalctl unavailable */ }
+      if (Date.now() < deadline) o.sleep(poll);
+    } while (Date.now() < deadline);
+    return { last: { action: 'tunnel-enable', at, ok: true, message: 'Remote access is set up. It will connect when the venue network is on.' }, tunnel: { enabled: true, connected: false } };
+  } finally {
+    releaseLock();
+  }
+}
+
+/** Stop and disable the tunnel unit and remove the credential. Returns the
+    extra{} for status() with a fixed message — never raw stderr. */
+function tunnelDisable(o) {
+  const at = o.now().toISOString();
+  /* Stop before the credential goes: ConditionPathExists would treat a stop
+     after the unlink as a condition failure, not a clean stop. */
+  try { o.exec('systemctl', ['disable', '--now', TUNNEL_UNIT]); } catch { /* already stopped */ }
+  try { fs.rmSync(o.tunnelEnvPath, { force: true }); } catch {
+    return { last: { action: 'tunnel-disable', at, ok: false, message: 'Remote access could not be fully turned off. Ask PitchTribe for help.' }, tunnel: { enabled: true, connected: false } };
+  }
+  return { last: { action: 'tunnel-disable', at, ok: true, message: 'Remote access is off.' }, tunnel: { enabled: false, connected: false } };
+}
+
 /** What is allowed to survive a run by sitting in the mirror. Three things
     need to: the SSH login's name, the last thing that happened, and the id of
     the request it happened for. Everything else is rebuilt from the card.
@@ -509,6 +741,10 @@ function status(o, extra = {}) {
     users: people(o).map((u) => u.name),
     updatedAt: o.now().toISOString(),
   };
+  /* Tunnel state: rebuilt from the system on every run so the mirror reflects
+     revocation without an explicit action. Only overridden when the caller
+     already has the definitive result (tunnel-enable / tunnel-disable). */
+  if (!extra.tunnel) next.tunnel = tunnelState(o);
   /* A caller that has just acted on support access has already asked the
      device and already switched off anything it shouldn't find; everything
      else gets the full reconcile. */
@@ -1122,6 +1358,17 @@ function handleRequest(o) {
       },
     });
   }
+  /* Tunnel actions are handled with their own try-catch that returns fixed
+     messages — never raw err.stderr — because a command that fails with the
+     token anywhere in its argv or stderr would otherwise publish the credential
+     into the mirror and the HTTP response body. */
+  if (req.action === 'tunnel-enable') {
+    const { error, token } = validateTunnelToken(req.token);
+    if (error) return status(o, { lastRequestId: req.id, last: { action: 'tunnel-enable', at: o.now().toISOString(), ok: false, message: error } });
+    return status(o, { lastRequestId: req.id, ...tunnelEnable(o, token) });
+  }
+  if (req.action === 'tunnel-disable') return status(o, { lastRequestId: req.id, ...tunnelDisable(o) });
+
   try {
     if (req.action === 'enable') return status(o, { lastRequestId: req.id, ...enable(o, req) });
     if (req.action === 'disable') {
@@ -1162,7 +1409,7 @@ function main(command, o = defaults()) {
   }
 }
 
-module.exports = { main, people, USERNAME_RE, RESERVED, HASH_RE, SUPPORT_HOURS, SUPPORT_HOURS_DEFAULT };
+module.exports = { main, people, USERNAME_RE, RESERVED, HASH_RE, SUPPORT_HOURS, SUPPORT_HOURS_DEFAULT, validateTunnelToken };
 
 if (require.main === module) {
   try {

@@ -1,0 +1,451 @@
+# Shipping `TRUST_PROXY=loopback` to the Pi (PIT-228)
+
+**Status: code and tests are committed; the Pi step is awaiting the owner at a shell on 192.168.1.55.**
+
+Follow-up to PIT-227. `cpfa.pitchtribe.co.uk` is live through the Cloudflare Tunnel, but until this
+is on the Pi and the service has been restarted, the dashboard sees every tunnelled request as
+`127.0.0.1`. The login limiter (`app/lib/auth.js:105-127`) and the cap of 12 event streams per
+address (`app/lib/hub.js:12,33,37-39`) are both counted per `req.ip`, so right now the whole internet
+shares one allowance of each. **Player screens stay on the club LAN until Section 4 has passed.**
+
+**Rev 4** (this revision), answering "what are the commands to check steps 5 and 6": both of those
+steps are now single commands run on the Pi, with the dashboard **Screens** page demoted to an
+optional cross-check, and both were benched before being written down (Section 4b). The owner's note
+that Cloudflare shows the origin as `localhost:443` is taken into account — step 5 now probes
+`https://localhost:443` specifically, because that is the hop whose trust is in question. Rev 3's
+`grep` readback was wrong (`db.json` is pretty-printed) and is replaced.
+
+---
+
+## 1. What is committed
+
+| | |
+|---|---|
+| Commit | `98ca4c8` — `fix(pit-228): trust the loopback proxy hop for req.ip` |
+| Branch | `feat/sponsor-board-pit-152` (**not on `main` yet** — this matters in Section 3b) |
+| File | `deploy/pitchtribe.service:22-31` — one `Environment=` line and the reasoning above it |
+| Tests | `app/test/trust-proxy.test.js` — 5 tests, new coverage (Section 5) |
+| Also | `deploy/install.sh:83-92` — a re-run inherits a club's live ports instead of resetting them to 80/443 (the Section 2 hazard), with `app/test/install-ports.test.js` — 7 tests |
+
+The value is `loopback` and must not be changed. `TRUST_PROXY` reaches the app as a *string* from the
+unit file, read once as the app is built (`app/lib/app.js:106`), so:
+
+| Value | What express does | Result |
+|---|---|---|
+| unset | nothing | `req.ip` is `127.0.0.1` for every tunnelled client — the bug |
+| `1` | proxy-addr reads the string as the **address 0.0.0.1**, not one hop | **silently inert** — looks configured, behaves like unset |
+| `true` | not a real boolean, so it is parsed as an address list | `TypeError: invalid IP address: true` at startup, restart-loop |
+| `loopback` | trusts 127/8 and `::1`, nothing else | `req.ip` is the real client; a forged header from the club LAN is refused |
+
+`1` is the dangerous one, because nothing complains. That is the gap `app/test/trust-proxy.test.js`
+now holds shut.
+
+---
+
+## 2. How this file reaches a Pi, and the clobber hazard
+
+The unit file in the repo is a **template**. `deploy/install.sh:254` renders it:
+
+```bash
+sed -e "s|@PORT@|$PORT|g" -e "s|@HTTPS_PORT@|$HTTPS_PORT|g" \
+  "$SRC_DIR/deploy/pitchtribe.service" >/etc/systemd/system/pitchtribe.service
+```
+
+**The hazard, as the Pi has it today.** That `>` is an unconditional overwrite, and in the installer
+the Pi is running, those two values came only from the environment with hard-coded fallbacks:
+
+```bash
+PORT="${PITCHTRIBE_PORT:-80}"
+HTTPS_PORT="${PITCHTRIBE_HTTPS_PORT:-443}"
+```
+
+*Nothing on the Pi records what the ports were* — the rendered unit file is the only copy. A club
+installed with `PITCHTRIBE_PORT=8080` that re-runs the installer without re-exporting it is silently
+moved back to port 80. Demonstrated on the bench:
+
+```
+rendered once with PITCHTRIBE_PORT=8080 → Environment=PORT=8080   Environment=HTTPS_PORT=8443
+re-rendered with it unset              → Environment=PORT=80     Environment=HTTPS_PORT=443
+```
+
+**Fixed in this branch** — `deploy/install.sh:83-92` now reads the live value out of the installed
+unit before falling back to 80/443, so an unset `PITCHTRIBE_PORT` means "keep what this club is on"
+rather than "80". An explicit `PITCHTRIBE_PORT` still wins, `HTTPS_PORT=0` (HTTPS deliberately off)
+survives, and a half-rendered unit still holding a literal `@PORT@` falls back to the defaults rather
+than passing the placeholder to systemd. `app/test/install-ports.test.js` runs that block out of the
+real installer against a stub unit file — 7 tests; 4 of them fail if the inheritance is removed.
+
+**That fix is not on the Pi yet**, because the Pi runs the installer from the last release. So the
+rule for this deploy is unchanged: **read the live values first, and carry them back in.** Step 1 of
+the card below is that read, and it is not optional even though this Pi is almost certainly on the
+defaults — the tunnel origin settled in PIT-227 is `https://localhost:443`, which only works if
+`HTTPS_PORT` is 443. From the first Route B run off this branch onward, the read becomes belt and
+braces rather than the only thing standing between a club and port 80.
+
+Two other things that survive, and are worth knowing before touching the unit:
+
+- **The dashboard's certificate is not regenerated by a restart.** It lives in the data directory
+  (`app/lib/tls.js:40-42`, `/var/lib/pitchtribe/tls/cert.pem`) and is replaced only when the Pi's
+  names change. The cloudflared origin keeps working and the fingerprint under
+  Settings → Secure connection does not change.
+- **Nothing else in the unit is club-specific.** `@PORT@` and `@HTTPS_PORT@` are the only two
+  substitutions; the hardening block, the capabilities and `DATA_DIR` are the same on every card.
+
+---
+
+## 3. Choosing a route
+
+### 3a. Route A — put the one line onto the live unit (**do this one now**)
+
+Right for this change: it is a single `Environment=` line, it never re-renders the template, so the
+ports cannot be clobbered, and it does not need the commit to be released. Section 4 is the command
+card.
+
+### 3b. Route B — re-render from a checkout (the next full update)
+
+What the next ordinary update does anyway, and what will carry this line to every other card. Two
+conditions:
+
+1. **The commit has to be in the ref being installed.** It is on `feat/sponsor-board-pit-152` today,
+   so a plain `curl -sSL https://pitchtribe.media/install.sh | sudo bash` installs the latest release
+   and would **remove** the line again. Until the branch is merged and released, Route B needs
+   `PITCHTRIBE_REF=feat/sponsor-board-pit-152` (`deploy/bootstrap.sh:26-31`).
+2. **The live ports.** A Route B run off this branch carries the installer fix with it, so it reads
+   the club's ports out of the installed unit by itself and an unset `PITCHTRIBE_PORT` no longer
+   means 80. Pass them anyway for this first run — the inheritance is being exercised on a real card
+   for the first time, and naming them costs nothing:
+
+```bash
+# Read them first (Section 4, step 1), then:
+curl -sSL https://pitchtribe.media/install.sh | sudo \
+  PITCHTRIBE_REF=feat/sponsor-board-pit-152 \
+  PITCHTRIBE_PORT=<the PORT you read> \
+  PITCHTRIBE_HTTPS_PORT=<the HTTPS_PORT you read> \
+  bash
+```
+
+Also re-export whatever else that card was installed with — `PITCHTRIBE_PORTAL=1` for a card running
+the guest Wi-Fi portal is the common one. Route B upgrades the OS, reinstalls `/opt/pitchtribe` and
+restarts the kiosk, so it is a maintenance-window job, not a way to set one variable.
+
+**After any Route B run, re-check that `TRUST_PROXY=loopback` is still there** (step 4 of the card).
+If the ref did not contain the commit, it will be gone.
+
+---
+
+## 4. Command card — the owner, at a shell on the Pi
+
+Needs a shell on `192.168.1.55`; no agent has a route to it. The owner already has a working login,
+created through Settings → Remote access:
+
+```bash
+ssh daniel@192.168.1.55
+```
+
+If that account has since gone, or the connection is refused before a password prompt, Section A2 of
+`deliverables/pit-227/PI-CLOUDFLARED-RUNBOOK.md` has the routes back in — including the key-offer
+storm (`MaxAuthTries 3`, so `ssh -o IdentitiesOnly=yes -o PubkeyAuthentication=no …`) and the fact
+that the HDMI console will not give you a shell at all, because the installer disables `getty@tty1`.
+
+Every command below is run on the Pi. Five minutes, and the dashboard is down for about three
+seconds in step 3.
+
+### Step 1 — read what is live now (do not skip)
+
+```bash
+grep -E '^Environment=' /etc/systemd/system/pitchtribe.service
+```
+
+Expected on this Pi:
+
+```
+Environment=NODE_ENV=production
+Environment=PORT=80
+Environment=HTTPS_PORT=443
+Environment=DATA_DIR=/var/lib/pitchtribe
+```
+
+**Write down the `PORT` and `HTTPS_PORT` values.** If they are not 80 and 443, that is fine — nothing
+below changes them — but they are what Route B would need, and nothing else on the Pi remembers them.
+If `TRUST_PROXY` is already listed, skip to step 4.
+
+### Step 2 — back up, then insert the one line
+
+```bash
+sudo cp -a /etc/systemd/system/pitchtribe.service /root/pitchtribe.service.bak
+
+sudo grep -q '^Environment=TRUST_PROXY=' /etc/systemd/system/pitchtribe.service \
+  || sudo sed -i '/^Environment=DATA_DIR=/a Environment=TRUST_PROXY=loopback' \
+       /etc/systemd/system/pitchtribe.service
+
+grep -E '^Environment=' /etc/systemd/system/pitchtribe.service
+```
+
+The last command must now end with `Environment=TRUST_PROXY=loopback`, and `PORT`/`HTTPS_PORT` must
+be unchanged from step 1. Running step 2 twice is safe — the `grep -q` guard makes it a no-op the
+second time. (Benched: the result is byte-identical, on the `Environment=`/`ExecStart=` lines, to
+what `install.sh` renders from the new template.)
+
+### Step 3 — reload and restart
+
+Three seconds of downtime: the dashboard drops, and the clubhouse screens reconnect by themselves
+(`retry: 3000`, `app/lib/hub.js`). Not during a match.
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart pitchtribe.service
+systemctl is-active pitchtribe.service
+```
+
+Expected: `active`. If it says `activating` or `failed`, go to Section 6 — a bad value makes Node
+throw on start and systemd will loop every 3 seconds.
+
+### Step 4 — confirm the service actually has it
+
+```bash
+systemctl show -p Environment pitchtribe.service
+curl -sS  -o /dev/null -w 'http  %{http_code}\n' http://localhost/healthz
+curl -ksS -o /dev/null -w 'https %{http_code}\n' https://localhost:443/healthz
+```
+
+The first must include `TRUST_PROXY=loopback` (this reads the *running* unit, which is the point of
+doing it after `daemon-reload`). Both `curl`s must print `200`; use the `PORT`/`HTTPS_PORT` from step
+1 if they are not 80 and 443. The HTTPS one is the origin Cloudflare is configured to talk to
+(`https://localhost:443`), so if it is not `200` the hostname is 502 regardless of this change, and
+step 5 has nothing to measure.
+
+### How to read a probe back (used by steps 5, 5b and 6)
+
+Every probe below works the same way: a request to `/api/player/<some-new-id>/manifest` registers a
+screen under that id and records `req.ip` against it (`app/lib/app.js:721-731`). This one command
+prints the recorded address and nothing else:
+
+```bash
+sudo node -e 'for (const s of require("/var/lib/pitchtribe/db.json").screens) if (/-probe$|-flush$/.test(s.id)) console.log(s.id, "=>", s.ip)'
+```
+
+Three things about it, each of which is why it is not a `grep`:
+
+- **`sudo`** — `db.json` is `pitchtribe:pitchtribe` and `0600` (`UMask=0077` in the unit).
+- **`node`, not `grep`** — the file is written pretty-printed (`JSON.stringify(data, null, 2)`,
+  `app/lib/store.js:93`), so each field is on its own line and the single-line `grep -o '"id":"trust-probe"…'`
+  printed in rev 3 of this card matches nothing. **That was wrong; this replaces it.**
+- **Two fields, never the file.** `db.json` also holds the dashboard password hash, the session
+  signing secret and every third-party API key. Do not `cat` it, and paste back only the `=>` lines.
+
+**The 30-second write delay.** The address is a housekeeping write, persisted lazily so screen
+heartbeats don't wear the SD card — up to 30s late (`app/lib/store.js:109-118`). Registering a *new*
+screen id flushes the whole store immediately, so each step below fires a second throwaway id
+(`…-flush`) to force the first one onto disk. That is why the `-flush` probe's own address usually
+reads `undefined` on the first look: it is the one still waiting. Ignore it, or `sleep 31` and look
+again.
+
+### Step 5 — prove the forwarded client is honoured on the hop cloudflared actually uses
+
+**On the Pi. This is the check that proves the line took effect.** Cloudflare's origin for this
+tunnel is `https://localhost:443` (confirmed by the owner; ingress config v2, PIT-227 Section D) —
+so an HTTPS request to `localhost` carrying `X-Forwarded-For` is the exact shape of every request
+cloudflared hands the dashboard, and that is what these two commands make:
+
+```bash
+curl -ksS -o /dev/null -w 'manifest=%{http_code}\n' \
+  -H 'X-Forwarded-For: 203.0.113.7' \
+  https://localhost:443/api/player/trust-probe/manifest
+
+curl -ksS -o /dev/null -w 'flush=%{http_code}\n' \
+  https://localhost:443/api/player/trust-flush/manifest
+
+sudo node -e 'for (const s of require("/var/lib/pitchtribe/db.json").screens) if (/-probe$|-flush$/.test(s.id)) console.log(s.id, "=>", s.ip)'
+```
+
+Expected:
+
+```
+manifest=200
+flush=200
+trust-probe => 203.0.113.7
+trust-flush => undefined
+```
+
+**Pass:** `trust-probe => 203.0.113.7`.
+**Fail:** `trust-probe => 127.0.0.1` (or `::1`) — the forwarded header was ignored, so the line is
+not in the running unit. Re-check step 4; if `TRUST_PROXY` is listed there, the service did not pick
+it up and wants another `daemon-reload` + `restart`.
+
+`-k` is required and expected: the certificate on 443 is the one the Pi makes for itself
+(`app/lib/tls.js`), which is also why the published route carries `noTLSVerify: true`. `203.0.113.7`
+is a documentation address, not a real client — the point is only that the app repeats it back.
+Whether `localhost` resolves to `127.0.0.1` or `::1` makes no difference here, and that is the other
+half of why the value is `loopback`: it expands to `127.0.0.1/8` **and** `::1/128`.
+
+If step 1 showed `HTTPS_PORT` as something other than 443, use that port. If it showed
+`HTTPS_PORT=0`, HTTPS is off: use `http://localhost:<PORT>` instead and the probe still answers the
+`req.ip` question — but then the tunnel is pointed at a port nothing is serving, which is a PIT-227
+problem and the dashboard will be 502 through the hostname regardless.
+
+### Step 5b — the same thing end to end, with a real client (browser)
+
+Optional once step 5 passes; it is what turns "the mechanism works" into "a real tunnelled visitor is
+seen correctly". **A plain `curl` at the public hostname cannot do this step:** the Access app has
+one policy (the owner's email, one-time PIN), no bypass path and no service token, and cloudflared on
+the Pi verifies the Access JWT itself — so an unauthenticated request gets a `302` to the login and
+never reaches the app (PIT-227 Sections E and F).
+
+1. On the device you are testing from, note its public address — open `https://1.1.1.1/cdn-cgi/trace`
+   and read the `ip=` line. Through the tunnel you see the device's **public** address, not its LAN
+   one; on club Wi-Fi that is the club's WAN address.
+2. In a browser signed in to Access, load these two URLs in turn (JSON comes back from each):
+   - `https://cpfa.pitchtribe.co.uk/api/player/tunnel-probe/manifest`
+   - `https://cpfa.pitchtribe.co.uk/api/player/tunnel-flush/manifest`
+3. On the Pi, the readback command — same as above, it prints `tunnel-probe` too.
+
+**Pass:** `tunnel-probe => <the public address from step 1>`.
+**Fail:** `tunnel-probe => 127.0.0.1` — which, if step 5 passed, means cloudflared is not sending
+`X-Forwarded-For`, not that the unit file is wrong.
+
+If you would rather run it as a command, the browser's `CF_Authorization` cookie works with `curl`.
+It is a **live 12-hour session credential**: type it into `read -rs` so it stays out of shell
+history, and do not paste it into this issue, a comment, or a file.
+
+```bash
+read -rsp 'CF_Authorization cookie: ' CF; echo
+curl -sS -o /dev/null -w 'tunnel=%{http_code}\n' -b "CF_Authorization=$CF" \
+  https://cpfa.pitchtribe.co.uk/api/player/tunnel-probe/manifest
+curl -sS -o /dev/null -w 'flush=%{http_code}\n'  -b "CF_Authorization=$CF" \
+  https://cpfa.pitchtribe.co.uk/api/player/tunnel-flush/manifest
+unset CF
+```
+
+`302` means the cookie is absent or expired — sign in again and re-copy it.
+
+### Step 6 — prove a forged header from the club LAN is refused
+
+**Runs on the Pi too**, addressed to the Pi's *own LAN address* rather than to `localhost`. That is
+the whole trick: the socket peer is then `192.168.1.55`, which is not loopback, so the app makes
+exactly the trust decision it would make for a laptop in the clubhouse. No second device needed.
+
+```bash
+curl -sS -o /dev/null -w 'forge=%{http_code}\n' \
+  -H 'X-Forwarded-For: 203.0.113.99' \
+  http://192.168.1.55/api/player/forge-probe/manifest
+
+curl -sS -o /dev/null -w 'flush=%{http_code}\n' \
+  http://192.168.1.55/api/player/forge-flush/manifest
+
+sudo node -e 'for (const s of require("/var/lib/pitchtribe/db.json").screens) if (/-probe$|-flush$/.test(s.id)) console.log(s.id, "=>", s.ip)'
+```
+
+Expected:
+
+```
+forge=200
+flush=200
+forge-probe => 192.168.1.55
+```
+
+**Pass:** `forge-probe => 192.168.1.55` — the forged `203.0.113.99` was discarded, because the club
+LAN is not loopback. (Run from a laptop on the LAN instead and the pass value is that laptop's
+`192.168.1.x`; use its `PORT` from step 1 if it is not 80.)
+**Fail:** `forge-probe => 203.0.113.99`. Stop. Anything on the club network could then hand itself a
+fresh login allowance and a fresh set of 12 event streams. Revert (Section 6) and reopen this issue.
+
+**Benched caveat, worth knowing before you read the result:** this step prints the same thing whether
+or not `TRUST_PROXY` is set — with nothing trusted, a forged header is discarded as well. So step 6
+is the **guardrail** (it proves `loopback` did not widen trust to the LAN) and step 5 is the only one
+that proves the line took effect. Run both; a pass on step 6 alone says nothing.
+
+### Step 7 — tidy up
+
+The probes are ordinary screen records, so removing them is the dashboard: **Screens** → the trash
+button on each of `trust-probe`, `trust-flush`, `forge-probe`, `forge-flush` and (if you did step 5b)
+`tunnel-probe`, `tunnel-flush`. `DELETE /api/screens/:id` needs a dashboard session
+(`app/lib/app.js:1425-1434`), which is why this one is not a `curl`. Leaving them costs nothing but
+clutter — the club is far under the 200-screen cap and nothing prunes them.
+
+Then paste back into PIT-228: the output of step 1, the output of step 4, and the `=>` lines from
+steps 5, 5b and 6. Nothing else out of `db.json`.
+
+---
+
+## 4b. Bench evidence for the step 5 and step 6 commands
+
+Those two commands were run here before being written down, against this branch's code with
+`TRUST_PROXY=loopback`, on a server started the way the unit file starts it (`node server.js`, HTTP
+and HTTPS listeners, `HOST=0.0.0.0`) — on 8080/8443 rather than 80/443, which changes nothing about
+which addresses are trusted. `172.20.0.3` is this container's non-loopback address, standing in for
+the Pi's `192.168.1.55`.
+
+| Command | `screen.ip` recorded | Reads as |
+|---|---|---|
+| `curl -k -H 'X-Forwarded-For: 203.0.113.7' https://localhost:8443/api/player/trust-probe/manifest` | `203.0.113.7` | step 5 **pass** — the forwarded client is honoured on the loopback hop, over HTTPS, which is cloudflared's path |
+| `curl -H 'X-Forwarded-For: 203.0.113.99' http://172.20.0.3:8080/api/player/forge-probe/manifest` | `172.20.0.3` | step 6 **pass** — forged header discarded, real peer recorded |
+| `curl http://localhost:8080/api/player/flush-probe/manifest` (no header) | `127.0.0.1` | a direct request is still the peer |
+
+And the same three commands with `TRUST_PROXY` **unset**, which is the Pi as it stands today — this
+is what a failure looks like, and why step 6 cannot be read on its own:
+
+| Command | `screen.ip` | |
+|---|---|---|
+| step 5 probe | `127.0.0.1` | **fail** — forwarded header ignored. Only this row changes between the two states. |
+| step 6 probe | `172.20.0.3` | identical to the pass above |
+
+Two mechanics were confirmed the same way, because the readback depends on them:
+
+- `db.json` is written pretty-printed, so `grep -c '"id":"trust-probe"'` returns **0**. The rev 3
+  one-liner was wrong; Section 4's `node` readback is the correction.
+- The address write is debounced 30s, and registering a second new screen id flushes it immediately —
+  benched both ways (the `-flush` probe's own address appeared after `sleep 31`).
+
+---
+
+## 5. Test coverage added
+
+`app/test/trust-proxy.test.js`, run with `cd app && npm test` (or
+`node --test test/trust-proxy.test.js`). There was no coverage of `req.ip` anywhere in `app/test/`
+before this, which is how the `"1"` footgun survived. Each test sets `TRUST_PROXY` around the
+`createApp` call only, and reads back the address the app settled on from the screen record a player
+manifest request leaves behind.
+
+| Test | Holds |
+|---|---|
+| without `TRUST_PROXY` the forwarded client is ignored | the bug itself: `127.0.0.1` for a forwarded request |
+| `loopback` reports the real client behind the tunnel | forwarded client wins; two clients are two addresses; a direct request is still the peer |
+| `loopback` does not let a client promote an address it supplied itself | multi-hop `1.2.3.4, 203.0.113.7` → `203.0.113.7`; the compiled trust rule refuses `192.168.1.50`, `10.0.0.5`, `203.0.113.7` and accepts `127.0.0.1`, `::1` |
+| `1` is the footgun | reads as an address, trusts nothing, says nothing — asserted, so nobody "simplifies" the value to `1` again |
+| `true` refuses to start | throws `invalid IP address` as the app is built |
+
+Evidence from this workspace:
+
+```
+$ node --test test/trust-proxy.test.js
+✔ without TRUST_PROXY the forwarded client is ignored and everyone is the proxy
+✔ TRUST_PROXY=loopback reports the real client behind the tunnel
+✔ TRUST_PROXY=loopback does not let a client promote an address it supplied itself
+✔ TRUST_PROXY=1 is the footgun: it reads as an address, trusts nothing, and says nothing
+✔ TRUST_PROXY=true refuses to start rather than start wrong
+ℹ pass 5   ℹ fail 0
+```
+
+Mutation-checked: with `app/lib/app.js:106` commented out, 3 of the 5 fail. Neighbouring suites
+unaffected — `hardening` 26/0 (it reads this unit file), `tls` 8/0, `player-limits`, `os-updates`,
+`club-card`, `bootstrap`, `auth-session` all pass. `health` fails 2 for an unrelated and
+pre-existing reason: `/healthz` reports `status: "warn"`, `warnings: ["disk-low"]`, which is this
+container's disk and not a PitchTribe change.
+
+---
+
+## 6. Rollback
+
+```bash
+sudo cp -a /root/pitchtribe.service.bak /etc/systemd/system/pitchtribe.service
+sudo systemctl daemon-reload
+sudo systemctl restart pitchtribe.service
+systemctl is-active pitchtribe.service
+```
+
+Or, without the backup, delete the `Environment=TRUST_PROXY=loopback` line and reload. If the service
+is restart-looping, `journalctl -u pitchtribe.service -n 40 --no-pager` shows why; `invalid IP
+address` means the value was mistyped (`true`, or anything that is not an address or
+`loopback`/`linklocal`/`uniquelocal`). Rolling back returns the dashboard to seeing every tunnelled
+visitor as `127.0.0.1`, which is a working dashboard with a shared rate limit — so it is a safe
+place to stand while someone looks.
