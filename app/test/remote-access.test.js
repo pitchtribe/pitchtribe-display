@@ -95,6 +95,7 @@ function fakePi({
     if (cmd === 'systemctl' && args.some((a) => a === 'pitchtribe-tunnel.service')) {
       if (args[0] === 'enable') { tunnel.enabled = true; tunnel.active = true; }
       if (args[0] === 'disable') { tunnel.enabled = false; tunnel.active = false; }
+      if (args[0] === 'restart') { tunnel.active = tunnel.enabled; }
       if (args[0] === 'is-enabled') return `${tunnel.enabled ? 'enabled' : 'disabled'}\n`;
       if (args[0] === 'is-active') return `${tunnel.active ? 'active' : 'inactive'}\n`;
       return '';

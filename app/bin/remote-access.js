@@ -654,7 +654,12 @@ function tunnelEnable(o, token) {
       return { last: { action: 'tunnel-enable', at, ok: false, message: 'Remote access could not be set up. Try again or ask PitchTribe for help.' }, tunnel: { enabled: false, connected: false } };
     }
     try {
-      o.exec('systemctl', ['enable', '--now', TUNNEL_UNIT]);
+      /* enable first, then restart: `start` on an already-active service is a
+         no-op and would leave the old token in cloudflared's environment.
+         `restart` stops and restarts, picking up the new EnvironmentFile.
+         Matches what wifi-privileged.py does on the commissioning path. */
+      o.exec('systemctl', ['enable', TUNNEL_UNIT]);
+      o.exec('systemctl', ['restart', TUNNEL_UNIT]);
     } catch {
       /* Credential written but unit failed to start: roll back atomically. */
       tunnelRestore(envPath, previous);

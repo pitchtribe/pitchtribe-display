@@ -51,6 +51,11 @@ ProtectControlGroups=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 # A revoked token must never take the player or the LAN dashboard down with
 # it, so nothing here is ordered before or wanted by pitchtribe.service.
+# Disable systemd's start-rate limit so the service is always restarted, even
+# after repeated fast failures (e.g. network not yet up at first attempt).
+# RestartSec=10 already ensures at most one start per 10 s; this lifts the
+# hard cap that would otherwise put the service in a permanent failed state.
+StartLimitIntervalSec=0
 
 [Install]
 WantedBy=multi-user.target

@@ -2319,10 +2319,20 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
   // Settings → Remote access -----------------------------------------------------------
   let remoteInfo = null; // GET /api/remote-access
   let remoteBusy = false;
+  let tunnelPollTimeout = null;
 
   async function loadRemote() {
+    if (tunnelPollTimeout !== null) { clearTimeout(tunnelPollTimeout); tunnelPollTimeout = null; }
     try { remoteInfo = await api('GET', '/remote-access'); } catch (err) { toast(err.message, 'error'); }
     if (currentView === 'settings') render();
+    /* Keep refreshing while the tunnel is on but not yet connected, so the
+       user sees it flip to connected without having to reload the page. The
+       root helper updates the status file every ~5 min via the support-expire
+       timer; this polls more often during the brief window after enabling. */
+    const tun = remoteInfo?.status?.tunnel;
+    if (tun?.enabled && !tun?.connected && currentView === 'settings') {
+      tunnelPollTimeout = setTimeout(loadRemote, 10000);
+    }
   }
 
   function remoteAccessCard() {
