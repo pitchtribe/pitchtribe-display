@@ -2508,7 +2508,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
   function tunnelCard() {
     const head = [
       h('h2', {}, translate('Remote access from outside the club')),
-      h('p', { class: 'small muted' }, translate('Lets PitchTribe open this club's dashboard from outside the building — to update content, change settings, or help with a problem — without opening any port on the club's router.')),
+      h('p', { class: 'small muted' }, translate("Lets PitchTribe open this club's dashboard from outside the building — to update content, change settings, or help with a problem — without opening any port on the club's router.")),
     ];
     const box = (...kids) => h('div', { class: 'card panel-box stack', style: 'gap:10px' }, ...head, ...kids);
     if (!remoteInfo) return box(h('p', { class: 'small muted' }, translate('Loading…')));
@@ -2547,7 +2547,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
           const r = await api('POST', '/remote-access', body);
           token.value = current.value = '';
           const last = await awaitRemoteRequest(r.requestId);
-          toast(last ? last.message : translate('The Pi hasn't answered yet — check again in a minute'), last && !last.ok ? 'error' : undefined);
+          toast(last ? last.message : translate("The Pi hasn't answered yet — check again in a minute"), last && !last.ok ? 'error' : undefined);
         } catch (err) { toast(err.message, 'error'); }
         tunnelBusy = false;
         await loadRemote();
