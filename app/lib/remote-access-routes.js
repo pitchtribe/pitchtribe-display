@@ -26,7 +26,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const auth = require('./auth');
 const v = require('./validate');
-const { USERNAME_RE, RESERVED, HASH_RE, SUPPORT_HOURS, SUPPORT_HOURS_DEFAULT } = require('../bin/remote-access');
+const { USERNAME_RE, RESERVED, HASH_RE, SUPPORT_HOURS, SUPPORT_HOURS_DEFAULT, validateTunnelToken } = require('../bin/remote-access');
 
 const MIN_PASSWORD = 10;
 
@@ -63,6 +63,7 @@ function mountRemoteAccessRoutes({ api, dataDir, adminHash, limiter, hashPasswor
         last: s.last || null,
         lastRequestId: s.lastRequestId || null,
         support: supportView(s.support),
+        tunnel: tunnelView(s.tunnel),
       },
     });
   });
@@ -95,6 +96,18 @@ function mountRemoteAccessRoutes({ api, dataDir, adminHash, limiter, hashPasswor
           support = { action: 'support-disable' };
         }
         return res.json({ requestId: write(support) });
+      }
+
+      // A tunnel block asks about the Cloudflare connector and nothing else:
+      // the SSH and support fields are left exactly as they were.
+      if (b.tunnel && typeof b.tunnel === 'object') {
+        const want = Boolean(b.tunnel.enabled);
+        if (want) {
+          const { error, token } = validateTunnelToken(b.tunnel.token);
+          if (error) throw v.bad(error);
+          return res.json({ requestId: write({ action: 'tunnel-enable', token }) });
+        }
+        return res.json({ requestId: write({ action: 'tunnel-disable' }) });
       }
 
       let body;
@@ -143,6 +156,13 @@ function supportView(s) {
     lastConnection: d.lastConnection || null,
     signin: d.signin ? { url: d.signin.url, code: d.signin.code, at: d.signin.at || null } : null,
   };
+}
+
+/** The connector state as the dashboard sees it: enabled and healthy, or not.
+    Never contains the token — only state derived from the connector itself. */
+function tunnelView(t) {
+  if (!t || typeof t !== 'object') return { enabled: false, connected: false };
+  return { enabled: Boolean(t.enabled), connected: Boolean(t.connected) };
 }
 
 /** SHA-512 crypt ($6$) hash, as /etc/shadow stores it. */

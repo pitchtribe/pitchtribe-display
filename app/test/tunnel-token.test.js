@@ -4,17 +4,19 @@
    automated coverage for deploy/setup/*.py before this file; the validator is
    a pure function, so it gets some.
 
-   Two things are tested here. First the decisions themselves, against tokens
+   Three things are tested here. First the decisions themselves, against tokens
    built to the real shape (base64 of {"a":account,"t":tunnel id,"s":secret} —
-   cloudflared connection/connection.go:81-86). Second, and the reason this
-   file matters more than it looks: that the copy in wifi-privileged.py agrees
-   with the copy in wifi-startup.py on every case. The broker deliberately
-   repeats the check instead of trusting the web process, and a duplicated
-   check that silently drifts is worse than no second check at all. */
+   cloudflared connection/connection.go:81-86). Second, that the copy in
+   wifi-privileged.py agrees with the copy in wifi-startup.py on every case.
+   Third, that the JS copy in bin/remote-access.js (validateTunnelToken) agrees
+   with both Python copies — the broker deliberately repeats the check instead
+   of trusting the web process, and a duplicated check that silently drifts is
+   worse than no second check at all. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { validateTunnelToken } = require('../bin/remote-access');
 
 const SETUP = path.join(__dirname, '..', '..', 'deploy', 'setup');
 
@@ -49,6 +51,7 @@ for case in cases:
     broker_token, broker_problem = broker.validate_token(raw)
     out.append({
         'name': case['name'],
+        'raw_string': raw,
         'accepted': web_problem is None,
         'message': web_problem,
         'token': web_token,
@@ -123,4 +126,23 @@ test('no rejection message quotes the token back', () => {
     assert.ok(!/ey[A-Za-z0-9]{10}/.test(result.message), `message quotes the token: ${result.message}`);
     assert.ok(!/BEGIN|v1\.0-/.test(result.message), `message quotes the input: ${result.message}`);
   }
+});
+
+test('the JS validator (validateTunnelToken) agrees with both Python copies on every case', () => {
+  /* The broker runs validateTunnelToken at the HTTP boundary AND the privileged
+     boundary. If the JS copy drifts from the Python copies, one boundary
+     accepts what the other rejects. */
+  const drifted = [];
+  for (const result of RESULTS) {
+    const { error, token: jsToken } = validateTunnelToken(result.raw_string);
+    const jsAccepted = error === undefined;
+    if (jsAccepted !== result.accepted) {
+      drifted.push(`${result.name}: Python says accept=${result.accepted}, JS says accept=${jsAccepted}`);
+    }
+    // When both accept, both should return exactly the same (trimmed) token.
+    if (result.accepted && jsAccepted && jsToken !== result.token) {
+      drifted.push(`${result.name}: Python token=${result.token}, JS token=${jsToken}`);
+    }
+  }
+  assert.deepEqual(drifted, [], `JS and Python copies disagree:\n  ${drifted.join('\n  ')}`);
 });

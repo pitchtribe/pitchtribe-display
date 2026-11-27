@@ -167,3 +167,82 @@ test('support access API: needs the dashboard password, and will not run unbound
   assert.equal((await call('GET', '/api/remote-access')).status, 401);
   assert.equal((await call('POST', '/api/remote-access', { support: { enabled: true }, currentPassword: 'correct horse' })).status, 401);
 });
+
+test('tunnel access API: validates token, writes request, never echoes the token', async (t) => {
+  const GOOD_TOKEN = Buffer.from(JSON.stringify({
+    a: 'a'.repeat(32),
+    t: '8f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8',
+    s: Buffer.from('x'.repeat(32)).toString('base64'),
+  })).toString('base64');
+
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-ta-api-'));
+  const ctx = createApp({ dataDir, sportsFetch: offline, feedsFetch: offline, log: () => {} });
+  const server = await new Promise((r) => { const s = ctx.app.listen(0, '127.0.0.1', () => r(s)); });
+  t.after(() => { ctx.close(); server.closeAllConnections(); server.close(); fs.rmSync(dataDir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const call = async (method, url, body) => {
+    const res = await fetch(base + url, { method, headers: { cookie, 'x-pitchtribe': '1', ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    const sc = res.headers.get('set-cookie');
+    if (sc) cookie = sc.split(';')[0];
+    const bodyText = await res.text();
+    return { status: res.status, text: bodyText, body: JSON.parse(bodyText) };
+  };
+  await call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  const reqFile = path.join(dataDir, 'remote-access-request.json');
+  const statusFile = path.join(dataDir, 'remote-access-status.json');
+
+  // GET includes tunnel state from the mirror.
+  fs.writeFileSync(statusFile, JSON.stringify({ sshEnabled: false, sshActive: false, users: ['dan'], tunnel: { enabled: true, connected: true } }));
+  let r = await call('GET', '/api/remote-access');
+  assert.equal(r.body.status.tunnel.enabled, true);
+  assert.equal(r.body.status.tunnel.connected, true);
+  // The token is not in the GET response under any key.
+  assert.ok(!r.text.includes(GOOD_TOKEN), 'GET response never contains a token');
+
+  // A missing status file (not on a Pi) blocks POST.
+  fs.rmSync(statusFile, { force: true });
+  r = await call('POST', '/api/remote-access', { tunnel: { enabled: true, token: GOOD_TOKEN }, currentPassword: 'correct horse' });
+  assert.equal(r.status, 503);
+
+  // Restore the mirror.
+  fs.writeFileSync(statusFile, JSON.stringify({ sshEnabled: false, sshActive: false, users: ['dan'] }));
+
+  // Wrong dashboard password → 403, no request written.
+  r = await call('POST', '/api/remote-access', { tunnel: { enabled: true, token: GOOD_TOKEN }, currentPassword: 'wrong' });
+  assert.equal(r.status, 403);
+  assert.ok(!fs.existsSync(reqFile), 'wrong password asks the Pi for nothing');
+
+  // Malformed token → 400 at the route boundary, no request file written.
+  r = await call('POST', '/api/remote-access', { tunnel: { enabled: true, token: 'not-a-token' }, currentPassword: 'correct horse' });
+  assert.equal(r.status, 400);
+  assert.ok(!r.text.includes('not-a-token'), '400 response does not echo the bad input');
+  assert.ok(!fs.existsSync(reqFile), 'bad token writes nothing to disk');
+
+  // Valid token → tunnel-enable request written, token is in it (the root helper
+  // is the one with authority over the env file, so the route must pass it on).
+  r = await call('POST', '/api/remote-access', { tunnel: { enabled: true, token: GOOD_TOKEN }, currentPassword: 'correct horse' });
+  assert.equal(r.status, 200);
+  const req = JSON.parse(fs.readFileSync(reqFile, 'utf8'));
+  assert.equal(req.action, 'tunnel-enable');
+  assert.equal(req.token, GOOD_TOKEN, 'route passes the validated token to the helper');
+  // The HTTP *response* body must not contain the token (the response is just { requestId }).
+  assert.ok(!r.text.includes(GOOD_TOKEN), 'HTTP response body does not contain the token');
+
+  // Disable → tunnel-disable request, SSH and support fields untouched.
+  r = await call('POST', '/api/remote-access', { tunnel: { enabled: false }, currentPassword: 'correct horse' });
+  assert.equal(r.status, 200);
+  const reqDis = JSON.parse(fs.readFileSync(reqFile, 'utf8'));
+  assert.equal(reqDis.action, 'tunnel-disable');
+  assert.equal(reqDis.username, undefined, 'disable request carries no SSH fields');
+  assert.equal(reqDis.token, undefined, 'disable request carries no token');
+
+  // A tunnel POST does not carry SSH or support fields alongside it.
+  r = await call('POST', '/api/remote-access', {
+    tunnel: { enabled: true, token: GOOD_TOKEN }, enabled: true, username: 'clubadmin', password: 'long-enough-pw', currentPassword: 'correct horse',
+  });
+  const reqMixed = JSON.parse(fs.readFileSync(reqFile, 'utf8'));
+  assert.equal(reqMixed.action, 'tunnel-enable');
+  assert.equal(reqMixed.username, undefined, 'tunnel block leaves SSH out of the request');
+  assert.equal(reqMixed.passwordHash, undefined);
+});

@@ -9,6 +9,14 @@ const helper = require('../bin/remote-access');
 
 const HASH = execFileSync('openssl', ['passwd', '-6', '-stdin'], { input: 'long-enough-password', encoding: 'utf8' }).trim();
 
+/* A connector token shaped exactly like the real ones: base64 of JSON with
+   32-char account, UUID tunnel id, and a base64-encoded secret. */
+const GOOD_TOKEN = Buffer.from(JSON.stringify({
+  a: 'a'.repeat(32),
+  t: '8f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8',
+  s: Buffer.from('x'.repeat(32)).toString('base64'),
+})).toString('base64');
+
 const SIGNIN_URL = 'https://connect.raspberrypi.com/verify/ABCD-1234';
 const SIGNIN_OK = `Complete sign in by visiting ${SIGNIN_URL}\n`;
 
@@ -23,6 +31,10 @@ function fakePi({
      a link and then waits, so false is the real state of a Pi in the moments
      after switching support access on: the link is up, nobody has used it yet. */
   completeSignin = true,
+  /* Tunnel state for the fake Pi. tunnelRevoked means journalctl reports Unauthorized. */
+  tunnelEnabled = false,
+  tunnelConnected = false,
+  tunnelRevoked = false,
   mirrorGroup = 'pitchtribe-dashboard',
   /* Whether systemd-timesyncd has stepped the clock from the network yet. True
      is an ordinary card; false is the fifteen seconds after a cold boot, when
@@ -54,6 +66,9 @@ function fakePi({
   const calls = [];
   const warnings = [];
   let ssh = 'disabled';
+  /* Tunnel state: moved along by calls to the tunnel unit. */
+  const tunnel = { enabled: tunnelEnabled, active: tunnelEnabled, connected: tunnelConnected };
+  const tunnelEnvPath = path.join(dir, 'tunnel.env');
   // What the fake rpi-connect reports, moved along by the calls made to it.
   const pi = { connectOn: false, linger: new Set(), shellSessions: 0, signinUnit: false, signedInAs: new Set(signedInAs) };
   // `signedIn` reads as "anybody on this card", which is what the assertions mean.
@@ -72,6 +87,20 @@ function fakePi({
   const exec = (cmd, args, input) => {
     calls.push({ cmd: [cmd, ...args].join(' '), input });
     if (cmd === 'useradd') fs.appendFileSync(passwd, `${args.at(-1)}:x:1500:1500::/home/${args.at(-1)}:/bin/bash\n`);
+    // Tunnel unit — must come before the generic SSH systemctl handlers.
+    if (cmd === 'systemctl' && args.some((a) => a === 'pitchtribe-tunnel.service')) {
+      if (args[0] === 'enable') { tunnel.enabled = true; tunnel.active = true; }
+      if (args[0] === 'disable') { tunnel.enabled = false; tunnel.active = false; }
+      if (args[0] === 'is-enabled') return `${tunnel.enabled ? 'enabled' : 'disabled'}\n`;
+      if (args[0] === 'is-active') return `${tunnel.active ? 'active' : 'inactive'}\n`;
+      return '';
+    }
+    if (cmd === 'curl' && args.some((a) => String(a).includes('/ready'))) {
+      return `${tunnel.connected ? '200' : '503'}\n`;
+    }
+    if (cmd === 'journalctl' && args.some((a) => a === 'pitchtribe-tunnel.service')) {
+      return tunnelRevoked ? 'Unauthorized: failed to register\n' : '';
+    }
     if (cmd === 'systemctl' && args[0] === 'enable') ssh = 'enabled';
     if (cmd === 'systemctl' && args[0] === 'disable') ssh = 'disabled';
     if (cmd === 'systemctl' && args[0] === 'is-enabled') return `${ssh}\n`;
@@ -134,6 +163,10 @@ function fakePi({
     hasRuntimeDir: () => runtimeDir,
     clockSynced: () => clockSynced,
     pidAlive,
+    tunnelEnvPath,
+    // 0 so the do-while loop runs exactly once — fast tests, no actual sleeping.
+    tunnelReadyWaitMs: 0,
+    tunnelPollMs: 0,
     // The real waits are 10s and 30s; there is nothing to wait for here.
     runtimeWaitMs: 20,
     signinWaitMs: 20,
@@ -173,6 +206,7 @@ function fakePi({
     sessionFile,
     statusFile: path.join(dir, 'remote-access-status.json'),
     requestFile: path.join(dir, 'remote-access-request.json'),
+    tunnelEnvPath,
     at: (iso) => { now = new Date(iso); },
     /* A request written at a given moment and then left unread — `at` as the
        dashboard writes it, and the mtime to match, because the helper takes the
@@ -882,7 +916,7 @@ test('remote access: a symlink in DATA_DIR cannot steer what root writes', () =>
   assert.equal(mirrored.evil, undefined);
   assert.equal(mirrored.expiresAt, undefined, 'the mirror’s own keys are the only ones carried forward');
   assert.equal(mirrored.startedAt, undefined);
-  assert.deepEqual(Object.keys(mirrored).sort(), ['last', 'sshActive', 'sshEnabled', 'support', 'updatedAt', 'users']);
+  assert.deepEqual(Object.keys(mirrored).sort(), ['last', 'sshActive', 'sshEnabled', 'support', 'tunnel', 'updatedAt', 'users']);
 
   // And the device, which was signed in with no record behind it, was signed out.
   assert.equal(s.support.enabled, false);
@@ -1344,4 +1378,82 @@ test('remote access: what a request called itself is bounded before it is writte
   long.strand({ id: 'r1', action: 'y'.repeat(500), username: 'clubadmin', passwordHash: HASH }, '2026-08-14T10:00:00Z');
   const stale = helper.main('request', long.o);
   assert.equal(stale.last.action.length, 32, 'and one that is written down is cut to the length that survives a read');
+});
+
+// ── Tunnel tests ──────────────────────────────────────────────────────────────
+
+test('tunnel-enable: happy path — unit enabled, /ready returns 200, state is connected', () => {
+  const pi = fakePi({ tunnelEnabled: false, tunnelConnected: true });
+  const s = pi.ask({ id: 't1', action: 'tunnel-enable', token: GOOD_TOKEN });
+  assert.equal(s.tunnel.enabled, true);
+  assert.equal(s.tunnel.connected, true);
+  assert.equal(s.last.ok, true);
+  assert.match(s.last.message, /on/i);
+  // The token was written to the env file.
+  const env = fs.readFileSync(pi.tunnelEnvPath, 'utf8');
+  assert.ok(env.includes(`TUNNEL_TOKEN=${GOOD_TOKEN}`), 'token saved to env file');
+});
+
+test('tunnel-enable: no network yet — unit enabled, /ready returns 503, state is set up but not connected', () => {
+  const pi = fakePi({ tunnelEnabled: false, tunnelConnected: false });
+  const s = pi.ask({ id: 't2', action: 'tunnel-enable', token: GOOD_TOKEN });
+  assert.equal(s.tunnel.enabled, true);
+  assert.equal(s.tunnel.connected, false);
+  assert.equal(s.last.ok, true);
+  assert.match(s.last.message, /will connect/i);
+  assert.ok(fs.existsSync(pi.tunnelEnvPath), 'env file still present');
+});
+
+test('tunnel-enable: revoked token — Unauthorized in journal → restore previous, return error', () => {
+  /* Start with no prior token so restore removes the file. */
+  const pi = fakePi({ tunnelEnabled: false, tunnelConnected: false, tunnelRevoked: true });
+  const s = pi.ask({ id: 't3', action: 'tunnel-enable', token: GOOD_TOKEN });
+  assert.equal(s.tunnel.enabled, false);
+  assert.equal(s.last.ok, false);
+  assert.match(s.last.message, /no longer valid/i);
+  assert.ok(!fs.existsSync(pi.tunnelEnvPath), 'env file removed after revoked restore');
+});
+
+test('tunnel-enable: invalid token at broker boundary — validation error, no env file written', () => {
+  const pi = fakePi({ tunnelEnabled: false });
+  const s = pi.ask({ id: 't4', action: 'tunnel-enable', token: 'not-a-token' });
+  assert.equal(s.last.ok, false);
+  assert.ok(s.last.message.length > 0);
+  assert.ok(!fs.existsSync(pi.tunnelEnvPath), 'env file not created for invalid token');
+});
+
+test('tunnel-disable: stops unit, removes credential, state is disabled', () => {
+  /* Start with an existing tunnel credential. */
+  const pi = fakePi({ tunnelEnabled: true, tunnelConnected: false });
+  fs.writeFileSync(pi.tunnelEnvPath, `TUNNEL_TOKEN=${GOOD_TOKEN}\n`, { mode: 0o600 });
+  const s = pi.ask({ id: 't5', action: 'tunnel-disable' });
+  assert.equal(s.tunnel.enabled, false);
+  assert.equal(s.tunnel.connected, false);
+  assert.equal(s.last.ok, true);
+  assert.match(s.last.message, /off/i);
+  assert.ok(!fs.existsSync(pi.tunnelEnvPath), 'credential file removed');
+});
+
+test('tunnel: the token never appears in the status mirror or any response', () => {
+  /* Both success and failure paths must redact the credential. */
+  const piOk = fakePi({ tunnelEnabled: false, tunnelConnected: true });
+  piOk.ask({ id: 'tc1', action: 'tunnel-enable', token: GOOD_TOKEN });
+  const mirrorOk = fs.readFileSync(piOk.statusFile, 'utf8');
+  assert.ok(!mirrorOk.includes(GOOD_TOKEN), 'token absent from status mirror after enable');
+
+  const piErr = fakePi({ tunnelEnabled: false, tunnelConnected: false, tunnelRevoked: true });
+  piErr.ask({ id: 'tc2', action: 'tunnel-enable', token: GOOD_TOKEN });
+  const mirrorErr = fs.readFileSync(piErr.statusFile, 'utf8');
+  assert.ok(!mirrorErr.includes(GOOD_TOKEN), 'token absent from status mirror after revoked enable');
+});
+
+test('tunnel: status() reports tunnel state without a pending request', () => {
+  const off = fakePi({ tunnelEnabled: false });
+  const s1 = helper.main('status', off.o);
+  assert.deepEqual(s1.tunnel, { enabled: false, connected: false });
+
+  const on = fakePi({ tunnelEnabled: true, tunnelConnected: true });
+  const s2 = helper.main('status', on.o);
+  assert.equal(s2.tunnel.enabled, true);
+  assert.equal(s2.tunnel.connected, true);
 });

@@ -2143,6 +2143,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     const backupsBox = backupCard();
     const remoteBox = remoteAccessCard();
     const supportBox = supportAccessCard();
+    const tunnelBox = tunnelCard();
     const secureBox = secureConnectionCard();
 
     const about = h('div', { class: 'card panel-box stack', style: 'gap:10px' },
@@ -2157,7 +2158,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
 
     return shell('settings',
       h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, translate('Settings')))),
-      h('div', { class: 'stack', style: 'max-width:640px' }, general, sports, widgetSettings, backupsBox, remoteBox, supportBox, secureBox, pw, about));
+      h('div', { class: 'stack', style: 'max-width:640px' }, general, sports, widgetSettings, backupsBox, remoteBox, supportBox, tunnelBox, secureBox, pw, about));
   }
 
   /* Settings → About: the nightly Raspberry Pi OS update ------------------------------
@@ -2436,6 +2437,69 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         h('strong', {}, translate('club’s own')), translate(' Raspberry Pi ID — not a PitchTribe account — so the club can see the device and remove it whenever it likes. '),
         translate('Nothing is opened on the club’s router: the Pi connects outwards. SSH, above, is not affected either way.')));
     return form;
+  }
+
+  // Settings → Remote access → Cloudflare Tunnel --------------------------------------
+  let tunnelBusy = false;
+
+  function tunnelCard() {
+    const head = [
+      h('h2', {}, translate('Remote access from outside the club')),
+      h('p', { class: 'small muted' }, translate('Lets PitchTribe open this club's dashboard from outside the building — to update content, change settings, or help with a problem — without opening any port on the club's router.')),
+    ];
+    const box = (...kids) => h('div', { class: 'card panel-box stack', style: 'gap:10px' }, ...head, ...kids);
+    if (!remoteInfo) return box(h('p', { class: 'small muted' }, translate('Loading…')));
+    if (!remoteInfo.available) {
+      return box(h('p', { class: 'small muted' }, remoteInfo.unavailableReason
+        || translate('Remote access is switched on from a Raspberry Pi running PitchTribe.')));
+    }
+    const t = remoteInfo.status.tunnel || {};
+    const on = t.enabled;
+    const enabled = h('input', { type: 'checkbox', checked: on });
+    const token = h('input', {
+      type: 'password', autocomplete: 'off', spellcheck: false,
+      placeholder: on ? translate('Leave empty to keep the current one') : translate('Paste the token PitchTribe sent you'),
+    });
+    const current = h('input', { type: 'password', autocomplete: 'current-password', required: true });
+    const tokenRow = h('label', { class: 'field' }, translate('Remote access token'), token,
+      h('span', { class: 'hint' }, translate('One long code starting eyJ, sent to you by PitchTribe. It is never shown back here.')));
+    const sync = () => { tokenRow.hidden = !enabled.checked; };
+    enabled.addEventListener('change', sync);
+    sync();
+
+    return h('form', {
+      class: 'card panel-box form-grid',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        const turningOn = enabled.checked;
+        if (turningOn && !token.value && !on) { toast(translate('Paste the remote access token PitchTribe sent you'), 'error'); return; }
+        if (!turningOn && !on) { toast(translate('Remote access is already off')); return; }
+        tunnelBusy = true;
+        render();
+        try {
+          const body = turningOn
+            ? { tunnel: { enabled: true, token: token.value.trim() || undefined }, currentPassword: current.value }
+            : { tunnel: { enabled: false }, currentPassword: current.value };
+          const r = await api('POST', '/remote-access', body);
+          token.value = current.value = '';
+          const last = await awaitRemoteRequest(r.requestId);
+          toast(last ? last.message : translate('The Pi hasn't answered yet — check again in a minute'), last && !last.ok ? 'error' : undefined);
+        } catch (err) { toast(err.message, 'error'); }
+        tunnelBusy = false;
+        await loadRemote();
+      },
+    },
+      ...head,
+      on
+        ? h('p', { class: 'small' }, translate('Remote access is '), h('strong', {}, t.connected ? translate('on and connected') : translate('on but not connected yet')), '.')
+        : h('p', { class: 'small' }, translate('Remote access is '), h('strong', {}, translate('off')), '.'),
+      h('label', { class: 'switch' }, enabled, translate('Remote access on')),
+      tokenRow,
+      h('label', { class: 'field' }, translate('Your dashboard password'), current,
+        h('span', { class: 'hint' }, translate('Needed to change remote access, the same as for SSH.'))),
+      remoteInfo.status.last && !remoteInfo.status.last.ok && String(remoteInfo.status.last.action || '').startsWith('tunnel-')
+        ? h('p', { class: 'small', style: 'color:var(--danger)' }, `⚠ ${remoteInfo.status.last.message}`) : null,
+      h('div', {}, h('button', { class: 'btn primary', type: 'submit', disabled: tunnelBusy }, tunnelBusy ? translate('Working…') : translate('Save'))));
   }
 
   // Settings → Backups --------------------------------------------------------------
