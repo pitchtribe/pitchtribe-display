@@ -35,7 +35,7 @@ async function start(t) {
 
 test('backup file: download from one club, restore onto a freshly flashed Pi', async (t) => {
   const a = await start(t);
-  await a.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await a.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
   const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4c50000000049454e44ae426082', 'hex');
   const up = await a.call('POST', '/api/assets/upload', png, { 'content-type': 'image/png', 'x-filename': 'crest.png' });
   assert.equal(up.status, 201);
@@ -83,7 +83,7 @@ test('backup file: download from one club, restore onto a freshly flashed Pi', a
   st = await b.call('GET', '/api/auth/status');
   assert.equal(st.body.setupRequired, false);
   assert.equal(st.body.restore, undefined);
-  assert.equal((await b.call('POST', '/api/auth/login', { password: 'correct horse' })).status, 200, 'the old password works');
+  assert.equal((await b.call('POST', '/api/auth/login', { password: 'correct horseA1!' })).status, 200, 'the old password works');
   const state = (await b.call('GET', '/api/state')).body;
   assert.deepEqual(state.assets.map((x) => x.name).sort(), ['Quiz night', 'Welcome notice', 'crest']);
   assert.ok(fs.existsSync(path.join(b.dataDir, 'media', up.body.file.filename)));
@@ -113,7 +113,7 @@ test('USB backups: status for Settings, requests for the root helper, restore fr
   assert.equal((await a.call('POST', '/api/setup/restore-usb', { uuid: 'AAAA-1111', host: '../x', snapshot: '2026-11-04T03-30-00Z' })).status, 400);
 
   // Once set up, those routes are closed and Settings → Backups takes over.
-  await a.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await a.call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
   st = await a.call('GET', '/api/auth/status');
   assert.equal(st.body.restore, undefined);
   assert.equal((await a.call('POST', '/api/setup/restore-usb', { uuid: 'AAAA-1111', host: 'bar-tv', snapshot: '2026-11-04T03-30-00Z' })).status, 409);
@@ -144,7 +144,7 @@ test('USB backups: status for Settings, requests for the root helper, restore fr
   assert.equal(shown.headers.get('cache-control'), 'no-store');
   a.signOut();
   assert.equal((await a.call('GET', '/api/backup/recovery')).status, 401, 'and only to a signed-in admin');
-  await a.call('POST', '/api/auth/login', { password: 'correct horse' });
+  await a.call('POST', '/api/auth/login', { password: 'correct horseA1!' });
 
   // Without the helper (not on a Pi), USB actions say so.
   fs.rmSync(statusFile);

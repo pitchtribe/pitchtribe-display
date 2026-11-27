@@ -33,7 +33,7 @@ async function start(t) {
     const type = res.headers.get('content-type') || '';
     return { status: res.status, headers: res.headers, body: type.includes('json') ? await res.json() : await res.text() };
   }
-  await call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
   return { ctx, base, call };
 }
 

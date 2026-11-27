@@ -7,14 +7,18 @@
  *
  *   node scripts/health-probe.mjs --host pitchtribe --fingerprint AA:BB:…
  *   node scripts/health-probe.mjs --host pitchtribe --fingerprint "$FP" --expect-version 0.4.3 --json
+ *   node scripts/health-probe.mjs --host pitchtribe --address 192.168.1.194 --fingerprint "$FP"
  *
  * Exit codes, so a timer can tell "wake someone" from "look at it tomorrow":
  *   0  up and nothing to report
  *   1  up, but something needs attention (a warning, version drift, cert expiry)
  *   2  down: unreachable, not a 200, or the wrong certificate
+ *   3  unobservable: this watcher never reached the card, so its state is
+ *      unknown. Not the same as down, and reporting it as down is a lie that
+ *      costs someone a drive to the clubhouse — see UNOBSERVABLE below.
  *
- * Three things here look like fussiness and are each a false alarm already
- * found the hard way against a real card:
+ * Four things here look like fussiness and are each a false alarm, or a missed
+ * alarm, already found the hard way against a real card:
  *
  * - IPv4 is forced. The Pi's name resolves to both an A and an AAAA record, and
  *   the order is not stable between lookups. A watcher on an IPv4-only network
@@ -30,8 +34,20 @@
  *   a new card makes a new key.
  *
  * - The name matters. That certificate's SANs cover the short hostname and
- *   `.local`, but not the `.lan` form or the IP address, so probing by address
- *   cannot ever verify. Use the name the certificate was issued for.
+ *   `.local`, but not the `.lan` form or the IP address. So `--host 192.168.1.194`
+ *   is the wrong move: there is no name to put in SNI or the Host header, and
+ *   the card's own vhost and logs then see an address. `--host` is the name on
+ *   the certificate; `--address` is separately where to send the packets.
+ *
+ * - `--address` exists because the name is the probe's single point of failure.
+ *   A card can be stopped dead on 443 while this probe never gets far enough to
+ *   notice, because the watcher's resolver answers first and the probe exits
+ *   `3` "unobservable" — which happened for nine consecutive firings against a
+ *   card whose service had stopped (PIT-76). Given the address, the probe
+ *   connects to the card, sends `--host` as SNI and in the Host header, and
+ *   verifies the fingerprint exactly as before. Pinning does not consult the
+ *   SANs, so nothing is weakened by not resolving the name: a wrong or reimaged
+ *   card still fails closed at exit 2.
  *
  * No fingerprint is baked in: every card has its own, and a default here would
  * be a default nobody checks. Read the current one from Settings → Secure
@@ -52,11 +68,40 @@ const DEFAULTS = {
   certWarnDays: 30,
 };
 
+/* Failures of the watcher's own network, not of the card.
+ *
+ * A probe that cannot resolve the name or has no route to the subnet has
+ * observed nothing: no TCP connection, no TLS handshake, no certificate, no
+ * body. Reporting that as "down" was how a watcher with no path to the club LAN
+ * came to file a critical "the card is down" report about a card nobody had
+ * looked at (PIT-71). These exit 3 instead, and say the state is unknown.
+ *
+ * ECONNREFUSED and a timeout are deliberately NOT here. On a watcher that
+ * normally reaches the card, a refusal is the service having stopped and a
+ * timeout is the card wedged or firewalled — the two faults this probe exists
+ * to catch. They are only ambiguous on a watcher that was never on the right
+ * network, and a watcher in that state says so through this list first. */
+const UNOBSERVABLE = new Set([
+  'ENOTFOUND',     // no such name
+  'EAI_AGAIN',     // resolver did not answer
+  'ENETUNREACH',   // no route to that network
+  'EHOSTUNREACH',  // no route to that host
+  'ENETDOWN',      // this watcher has no network at all
+  'EADDRNOTAVAIL', // nothing local to send from
+]);
+
+/** The error's own code, or the one the TLS/socket layer wrapped underneath. */
+const errorCode = (err) => err?.code || err?.cause?.code || '';
+
 function usage(message) {
   if (message) process.stderr.write(`health-probe: ${message}\n\n`);
   process.stderr.write(`Usage: node scripts/health-probe.mjs --host <name> --fingerprint <sha256> [options]
 
   --host <name>          name on the certificate (default: ${DEFAULTS.host})
+  --address <ip>         connect here instead of resolving --host; --host is
+                         still sent as SNI and Host, and still pinned. Use this
+                         where the card's name does not resolve, so a stopped
+                         service is reported as down rather than unobservable.
   --fingerprint <hex>    expected SHA-256, with or without colons
   --expect-version <v>   treat any other reported version as drift
   --cert-warn-days <n>   warn this long before the certificate expires (default: ${DEFAULTS.certWarnDays})
@@ -64,6 +109,13 @@ function usage(message) {
   --http                 plain HTTP, for a card with HTTPS switched off
   --insecure             skip the fingerprint check (says so in the output)
   --json                 machine-readable result on stdout
+
+Exit codes:
+  0  up and nothing to report
+  1  up, but something needs attention
+  2  down: unreachable, not a 200, or the wrong certificate
+  3  unobservable: this watcher could not resolve or reach the host, so the
+     card's state is unknown. Fix the watcher's network, not the card.
 
 Environment:
   PITCHTRIBE_FINGERPRINT   used when --fingerprint is not given, and enough on
@@ -76,7 +128,7 @@ Environment:
 }
 
 function parseArgs(argv) {
-  const o = { ...DEFAULTS, fingerprint: process.env.PITCHTRIBE_FINGERPRINT || '', expectVersion: '', http: false, insecure: false, json: false };
+  const o = { ...DEFAULTS, address: '', fingerprint: process.env.PITCHTRIBE_FINGERPRINT || '', expectVersion: '', http: false, insecure: false, json: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     const next = () => {
@@ -86,6 +138,7 @@ function parseArgs(argv) {
       return v;
     };
     if (a === '--host') o.host = next();
+    else if (a === '--address') o.address = next();
     else if (a === '--port') o.port = Number(next());
     else if (a === '--path') o.path = next();
     else if (a === '--fingerprint') o.fingerprint = next();
@@ -116,21 +169,34 @@ const days = (ms) => Math.floor(ms / 86400000);
 function probe(o) {
   return new Promise((resolve, reject) => {
     const started = process.hrtime.bigint();
+    const defaultPort = o.http ? 80 : 443;
+    const port = o.port ?? defaultPort;
     const opts = {
-      host: o.host,
-      port: o.port ?? (o.http ? 80 : 443),
+      /* Where the packets go. With --address that is the address, and the name
+         in --host is carried by the Host header and SNI below — so the card
+         answers as the vhost it thinks it is, and the pin still decides. */
+      host: o.address || o.host,
+      port,
       path: o.path,
       method: 'GET',
       family: 4, // see the note at the top of this file
       timeout: o.timeout,
-      headers: { accept: 'application/json', 'user-agent': 'pitchtribe-health-probe' },
+      headers: {
+        accept: 'application/json',
+        'user-agent': 'pitchtribe-health-probe',
+        /* Set by hand rather than left to Node, which would derive it from the
+           address above. Same value as before when --address is not in use. */
+        host: port === defaultPort ? o.host : `${o.host}:${port}`,
+      },
     };
     if (!o.http) {
       /* The fingerprint check below is the verification, so the built-in chain
          check is turned off rather than failed. Safe here only because this
          sends no credentials — it is a GET of an open route — so the body is
          never trusted before the certificate has been matched. */
-      // SNI only for a name: RFC 6066 forbids an IP there, and Node warns.
+      /* SNI is the name from --host, never the address: RFC 6066 forbids an IP
+         there, and Node warns. This is what lets --address verify — the card
+         picks its certificate by this name, and the pin below checks it. */
       if (!/^[\d.]+$/.test(o.host)) opts.servername = o.host;
       opts.rejectUnauthorized = false;
     }
@@ -175,6 +241,11 @@ function probe(o) {
 function assess(res, o) {
   const notes = [];
   const problems = [];
+
+  /* Not a warning — a pinned probe by address is as verified as one by name.
+     Said out loud anyway, because the resolver this bypasses is a fault of its
+     own and a probe that hides it is how it stays unfixed. */
+  if (o.address) notes.push(`reached ${o.address} by address; ${o.host} was never resolved`);
 
   if (res.status !== 200) problems.push(`HTTP ${res.status} (expected 200)`);
 
@@ -231,10 +302,24 @@ async function main() {
   try {
     res = await probe(o);
   } catch (err) {
-    const out = { at, host: o.host, up: false, code: 2, error: err.message };
+    /* `up: null`, not `false`: an unobservable probe did not find the card
+       down, it failed to look. Anything reading this has to be able to tell
+       those apart, because only one of them is about the card. */
+    const blind = UNOBSERVABLE.has(errorCode(err));
+    /* `address` is where the probe tried, so a failure says that much even
+       though there is no peer to report. Omitted entirely without --address,
+       where the name is the whole story. */
+    const tried = o.address ? { address: o.address } : {};
+    const out = blind
+      ? { at, host: o.host, ...tried, up: null, code: 3, reason: 'unobservable', error: err.message }
+      : { at, host: o.host, ...tried, up: false, code: 2, error: err.message };
+    const where = o.address ? `${o.host} (${o.address})` : o.host;
     if (o.json) process.stdout.write(`${JSON.stringify(out)}\n`);
-    else process.stderr.write(`DOWN  ${o.host}: ${err.message}\n`);
-    process.exit(2);
+    else if (blind) {
+      process.stderr.write(`BLIND ${where}: ${err.message}\n`);
+      process.stderr.write('      this watcher cannot reach the host, so the card\'s state is unknown — not down\n');
+    } else process.stderr.write(`DOWN  ${where}: ${err.message}\n`);
+    process.exit(blind ? 3 : 2);
   }
 
   const v = assess(res, o);

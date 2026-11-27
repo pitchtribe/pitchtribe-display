@@ -31,4 +31,6 @@ TimeoutStartSec=60
 
 # A non-zero exit leaves this unit failed, which is what makes `systemctl
 # --failed` and any OnFailure= drop-in useful: 1 is "needs attention", 2 is
-# "down". Add the notifier of your choice as a drop-in rather than editing this.
+# "down", 3 is "this machine could not see the card, so its state is unknown" —
+# which is a fault here, not on the card. Add the notifier of your choice as a
+# drop-in rather than editing this.

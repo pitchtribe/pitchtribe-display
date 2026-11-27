@@ -74,7 +74,7 @@ function mountRemoteAccessRoutes({ api, dataDir, adminHash, limiter, hashPasswor
       const { s, code } = status();
       if (!s) throw new v.HttpError(503, unavailable(code));
       if (limiter.blocked(req.ip)) throw new v.HttpError(429, 'Too many attempts — wait 15 minutes and try again');
-      if (!auth.verifyPassword(String(b.currentPassword || ''), adminHash())) {
+      if (!auth.verifyPassword(String(b.currentPassword || ''), adminHash(req))) {
         limiter.fail(req.ip);
         throw new v.HttpError(403, 'Your dashboard password isn’t right');
       }

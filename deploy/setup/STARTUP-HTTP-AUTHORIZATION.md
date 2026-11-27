@@ -101,8 +101,9 @@ UART output, or full environment files.
 
 These checks verify the installed-image behavior; source syntax checks alone
 do not prove firewall behavior on other hardware. For this change, Security
-reviewed the supplied Pi 4 results: services active, kiosk UID 1001 received
-HTTP 303, non-kiosk access was rejected before HTTP, the UID-specific output
+reviewed the supplied Pi 4 results (2026-11-23T20:04:10Z; image SHA-256
+`72d1d7b8a36c632d07da3c010907fafd64136e1a11e269da3046800c8bce142e`):
+services active, kiosk UID 1001 received HTTP 303, non-kiosk access was rejected before HTTP, the UID-specific output
 reject rule was present, the startup and Guest Wi-Fi nftables tables coexisted,
 and reboot persistence was reported passed. Security found no remaining Pi 4
 authorization issue. Pi 5 validation is waived for this review by the owning

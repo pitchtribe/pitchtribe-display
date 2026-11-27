@@ -21,14 +21,14 @@ test('remote access API: needs the dashboard password, never stores the SSH pass
     if (sc) cookie = sc.split(';')[0];
     return { status: res.status, body: await res.json() };
   };
-  await call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
   const reqFile = path.join(dataDir, 'remote-access-request.json');
 
   // Not on a Pi (no helper status yet): say so.
   let unavailable = await call('GET', '/api/remote-access');
   assert.equal(unavailable.body.available, false);
   assert.match(unavailable.body.unavailableReason, /only be switched on from a Raspberry Pi/);
-  assert.equal((await call('POST', '/api/remote-access', { enabled: true, username: 'clubadmin', password: 'long-enough-pw', currentPassword: 'correct horse' })).status, 503);
+  assert.equal((await call('POST', '/api/remote-access', { enabled: true, username: 'clubadmin', password: 'long-enough-pw', currentPassword: 'correct horseA1!' })).status, 503);
 
   /* Unreadable is a different thing from missing, and the two want opposite
      things said. The helper keeps the mirror root-only when the group it
@@ -46,7 +46,7 @@ test('remote access API: needs the dashboard password, never stores the SSH pass
     // handler replaces every 5xx body with "Something went wrong" on purpose,
     // and the dashboard does not offer the buttons when available is false —
     // the GET above is where a club reads what is wrong.
-    assert.equal((await call('POST', '/api/remote-access', { enabled: false, currentPassword: 'correct horse' })).status, 503);
+    assert.equal((await call('POST', '/api/remote-access', { enabled: false, currentPassword: 'correct horseA1!' })).status, 503);
   }
   fs.rmSync(mirror, { force: true });
 
@@ -58,11 +58,11 @@ test('remote access API: needs the dashboard password, never stores the SSH pass
   r = await call('POST', '/api/remote-access', { enabled: true, username: 'clubadmin', password: 'long-enough-pw', currentPassword: 'wrong' });
   assert.equal(r.status, 403);
   assert.match(r.body.error, /dashboard password/);
-  assert.equal((await call('POST', '/api/remote-access', { enabled: true, username: 'root', password: 'long-enough-pw', currentPassword: 'correct horse' })).status, 400);
-  assert.equal((await call('POST', '/api/remote-access', { enabled: true, username: 'clubadmin', password: 'short', currentPassword: 'correct horse' })).status, 400);
+  assert.equal((await call('POST', '/api/remote-access', { enabled: true, username: 'root', password: 'long-enough-pw', currentPassword: 'correct horseA1!' })).status, 400);
+  assert.equal((await call('POST', '/api/remote-access', { enabled: true, username: 'clubadmin', password: 'short', currentPassword: 'correct horseA1!' })).status, 400);
   assert.ok(!fs.existsSync(reqFile));
 
-  r = await call('POST', '/api/remote-access', { enabled: true, username: 'clubadmin', password: 'long-enough-pw', currentPassword: 'correct horse' });
+  r = await call('POST', '/api/remote-access', { enabled: true, username: 'clubadmin', password: 'long-enough-pw', currentPassword: 'correct horseA1!' });
   assert.equal(r.status, 200);
   const raw = fs.readFileSync(reqFile, 'utf8');
   const req = JSON.parse(raw);
@@ -71,7 +71,7 @@ test('remote access API: needs the dashboard password, never stores the SSH pass
   assert.ok(!raw.includes('long-enough-pw'), 'the plain password is never written');
   assert.equal(fs.statSync(reqFile).mode & 0o077, 0, 'readable by the server and root only');
 
-  r = await call('POST', '/api/remote-access', { enabled: false, currentPassword: 'correct horse' });
+  r = await call('POST', '/api/remote-access', { enabled: false, currentPassword: 'correct horseA1!' });
   assert.equal(JSON.parse(fs.readFileSync(reqFile, 'utf8')).action, 'disable');
 
   cookie = '';
@@ -91,7 +91,7 @@ test('support access API: needs the dashboard password, and will not run unbound
     if (sc) cookie = sc.split(';')[0];
     return { status: res.status, body: await res.json() };
   };
-  await call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horse' });
+  await call('POST', '/api/auth/setup', { clubName: 'Riverside FC', password: 'correct horseA1!' });
   const reqFile = path.join(dataDir, 'remote-access-request.json');
   const statusFile = path.join(dataDir, 'remote-access-status.json');
   const write = (s) => fs.writeFileSync(statusFile, JSON.stringify(s));
@@ -114,31 +114,31 @@ test('support access API: needs the dashboard password, and will not run unbound
   // Only the lengths on the list. Anything else is refused here as well as in
   // the helper, so an unbounded session cannot be asked for at all.
   for (const hours of [0, 7, 999, -1, 'forever', null]) {
-    r = await call('POST', '/api/remote-access', { support: { enabled: true, hours }, currentPassword: 'correct horse' });
+    r = await call('POST', '/api/remote-access', { support: { enabled: true, hours }, currentPassword: 'correct horseA1!' });
     assert.equal(r.status, 400, `hours=${hours}`);
     assert.match(r.body.error, /how long support access should last/);
   }
   assert.ok(!fs.existsSync(reqFile));
 
-  r = await call('POST', '/api/remote-access', { support: { enabled: true, hours: 6 }, currentPassword: 'correct horse' });
+  r = await call('POST', '/api/remote-access', { support: { enabled: true, hours: 6 }, currentPassword: 'correct horseA1!' });
   assert.equal(r.status, 200);
   let req = JSON.parse(fs.readFileSync(reqFile, 'utf8'));
   assert.deepEqual([req.id, req.action, req.hours], [r.body.requestId, 'support-enable', 6]);
   assert.equal(fs.statSync(reqFile).mode & 0o077, 0, 'readable by the server and root only');
 
   // No length given means the default, not "no limit".
-  r = await call('POST', '/api/remote-access', { support: { enabled: true }, currentPassword: 'correct horse' });
+  r = await call('POST', '/api/remote-access', { support: { enabled: true }, currentPassword: 'correct horseA1!' });
   assert.equal(JSON.parse(fs.readFileSync(reqFile, 'utf8')).hours, 6);
 
   // Ending it needs the password too — it is not a free action.
   assert.equal((await call('POST', '/api/remote-access', { support: { enabled: false } })).status, 403);
-  r = await call('POST', '/api/remote-access', { support: { enabled: false }, currentPassword: 'correct horse' });
+  r = await call('POST', '/api/remote-access', { support: { enabled: false }, currentPassword: 'correct horseA1!' });
   assert.equal(JSON.parse(fs.readFileSync(reqFile, 'utf8')).action, 'support-disable');
 
   // A support request never carries SSH fields along with it, however much the
   // caller puts in the body: one is not a way of quietly doing the other.
   r = await call('POST', '/api/remote-access', {
-    support: { enabled: true, hours: 1 }, enabled: true, username: 'clubadmin', password: 'long-enough-pw', currentPassword: 'correct horse',
+    support: { enabled: true, hours: 1 }, enabled: true, username: 'clubadmin', password: 'long-enough-pw', currentPassword: 'correct horseA1!',
   });
   req = JSON.parse(fs.readFileSync(reqFile, 'utf8'));
   assert.equal(req.action, 'support-enable');
@@ -165,7 +165,7 @@ test('support access API: needs the dashboard password, and will not run unbound
 
   cookie = '';
   assert.equal((await call('GET', '/api/remote-access')).status, 401);
-  assert.equal((await call('POST', '/api/remote-access', { support: { enabled: true }, currentPassword: 'correct horse' })).status, 401);
+  assert.equal((await call('POST', '/api/remote-access', { support: { enabled: true }, currentPassword: 'correct horseA1!' })).status, 401);
 });
 
 test('tunnel access API: validates token, writes request, never echoes the token', async (t) => {
