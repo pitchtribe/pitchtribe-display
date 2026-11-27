@@ -2473,6 +2473,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         e.preventDefault();
         const turningOn = enabled.checked;
         if (turningOn && !token.value && !on) { toast(translate('Paste the remote access token PitchTribe sent you'), 'error'); return; }
+        if (turningOn && !token.value && on) { toast(translate('Remote access is already on')); return; }
         if (!turningOn && !on) { toast(translate('Remote access is already off')); return; }
         tunnelBusy = true;
         render();

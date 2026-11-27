@@ -257,9 +257,14 @@ $CFD_CREDS"
 # our own unit receives one. Matched on the shape, so a credential someone
 # renamed, or one written to a path nobody thought to list, is still caught.
 CFD_TOKENS="$(grep -rlsIE 'TunnelSecret|cloudflared.*--token[[:space:]]+ey[A-Za-z0-9_-]{20,}|TUNNEL_TOKEN=ey[A-Za-z0-9+/=_-]{20,}' \
-  "$MNT/etc" "$MNT/root" "$MNT/home" 2>/dev/null || true)"
+  "$MNT/etc" "$MNT/root" "$MNT/home" \
+  "$MNT/var/lib/pitchtribe" "$MNT/var/lib/pitchtribe-remote-access" 2>/dev/null || true)"
 [[ -z "$CFD_TOKENS" ]] || die "the image has what looks like a tunnel credential or connector token in it:
 $CFD_TOKENS"
+# The dashboard door stages its request here before the root helper reads it.
+# A flashed image must never carry an in-flight request.
+[[ ! -e "$MNT/var/lib/pitchtribe/remote-access-request.json" ]] \
+  || die "the image has a remote-access-request.json in /var/lib/pitchtribe, so a tunnel token was staged during the build"
 # Our own unit is the other half of this, and its expected state is different:
 # the token box on the commissioning page is useless without it, so it must be
 # present — but present, not enabled, and with no credential beside it. The two
@@ -269,6 +274,10 @@ $CFD_TOKENS"
   || die "pitchtribe-tunnel.service is not in the image, so a club could paste a token into a card with nothing to run it — deploy/install.sh should have installed it"
 ! chroot "$MNT" systemctl is-enabled pitchtribe-tunnel.service >/dev/null 2>&1 \
   || die "pitchtribe-tunnel.service is enabled in the image; it is only enabled on a device when a club commissions a token"
+# The systemctl check above passes for any non-zero exit, including an unrelated
+# chroot failure. This direct check cannot be fooled by an unrelated error.
+[[ ! -e "$MNT/etc/systemd/system/multi-user.target.wants/pitchtribe-tunnel.service" ]] \
+  || die "pitchtribe-tunnel.service enablement symlink is present in the image; it is only enabled on a device when a club commissions a token"
 [[ ! -e "$MNT/etc/pitchtribe/tunnel.env" ]] \
   || die "the image has a connector token in /etc/pitchtribe/tunnel.env, which would ship one club's tunnel to every card"
 log "cloudflared: binary and apt source only — no unit, no credentials, no tunnel until a club commissions one"
