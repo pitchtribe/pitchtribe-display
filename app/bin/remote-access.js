@@ -85,8 +85,8 @@ const HASH_RE = /^\$6\$[./A-Za-z0-9]{1,16}\$[./A-Za-z0-9]{86}$/;
    180-252 chars; because they encode all-ASCII JSON they never contain + or /,
    so the strict alphabet below is safe. See TUNNEL-TOKEN-STORAGE-CONTRACT.md.
 
-   Duplicated verbatim (logic-wise) in app/lib/remote-access-routes.js for the
-   HTTP boundary — the broker never trusts the web process, so both check. */
+   app/lib/remote-access-routes.js imports this validator for the HTTP boundary
+   — the broker never trusts the web process, so both check. */
 const TUNNEL_TOKEN_MIN = 120;
 const TUNNEL_TOKEN_MAX = 512;
 const TUNNEL_TOKEN_CHARS = /^[A-Za-z0-9]+={0,2}$/;
@@ -249,6 +249,10 @@ function defaults() {
     /* Credential file for the Cloudflare tunnel unit. Configurable so tests can
        point it at a temp directory without needing root or the real Pi path. */
     tunnelEnvPath: process.env.TUNNEL_ENV_PATH || '/etc/pitchtribe/tunnel.env',
+    /* Shared lock file for tunnel operations. Both the commissioning page
+       (wifi-privileged.py) and the dashboard path use this file; each takes an
+       exclusive flock(2) so the two doors serialise their credential writes. */
+    tunnelLockPath: process.env.TUNNEL_LOCK_PATH || '/run/pitchtribe-tunnel.lock',
     /* Whether the clock can be used to decide that time has moved *backwards*
        — see CLOCK_SLACK_MS and sessionBounds(). */
     clockSynced: () => fs.existsSync(TIMESYNC_MARKER),
@@ -526,6 +530,71 @@ function sshState(o) {
 
 /* ---------------------------------------------------------- tunnel access */
 
+/** True if the installed cloudflared can receive its token from the environment.
+    deploy/install.sh installs cloudflared unpinned from Cloudflare's apt repo,
+    so the capability check is not theoretical — a future build that drops
+    --token would otherwise fall back to argv, which any local user can read
+    out of /proc. Refuse to write a credential rather than let that happen. */
+function cloudflaredEnvRoute(o) {
+  let out = '';
+  try { out = o.exec('cloudflared', ['tunnel', 'run', '--help']); } catch (err) {
+    out = String(err.stdout || '') + String(err.stderr || '');
+  }
+  return out.includes('--token');
+}
+
+/** Acquire the shared tunnel lock using an exclusive flock(2) on o.tunnelLockPath.
+    The lock is on the open-file-description; it persists as long as the returned
+    fd is held open and is released when the caller calls the returned function.
+    This is cross-compatible with Python's fcntl.flock on the same path.
+    Returns a release function, or null when the lock is held by another process. */
+function takeTunnelLock(o) {
+  const lockPath = o.tunnelLockPath;
+  if (!lockPath) return () => {};
+  let fd;
+  try {
+    fd = fs.openSync(lockPath, fs.constants.O_RDWR | fs.constants.O_CREAT, 0o600);
+    /* Pass our fd to the child as its fd 3; flock calls flock(3, LOCK_EX|LOCK_NB).
+       The lock is on the open-file-description, which the parent still holds after
+       the child exits — the flock persists until we close fd. */
+    const result = childProcess.spawnSync('flock', ['--exclusive', '--nonblock', '3'], {
+      stdio: ['ignore', 'ignore', 'ignore', fd],
+      timeout: 2000,
+    });
+    if (result.status !== 0 || result.error) {
+      fs.closeSync(fd);
+      return null;
+    }
+    return () => { try { fs.closeSync(fd); } catch { /* ignore */ } };
+  } catch {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* ignore */ } }
+    return null;
+  }
+}
+
+/** Atomically restore the credential to `previous`, or remove it when previous
+    is null. Uses the same staged-rename pattern as the forward write so a
+    power cut during rollback cannot leave a half-credential. */
+function tunnelRestore(envPath, previous) {
+  if (previous === null) {
+    try { fs.rmSync(envPath, { force: true }); } catch { /* ignore */ }
+    return;
+  }
+  const tmpPath = `${envPath}.${crypto.randomBytes(8).toString('hex')}`;
+  let fd;
+  try {
+    fd = fs.openSync(tmpPath, 'wx', 0o600);
+    fs.fchmodSync(fd, 0o600);
+    fs.writeSync(fd, previous);
+    try { fs.fdatasyncSync(fd); } catch { /* best effort */ }
+    fs.closeSync(fd); fd = undefined;
+    fs.renameSync(tmpPath, envPath);
+  } catch {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* ignore */ } }
+    try { fs.rmSync(tmpPath, { force: true }); } catch { /* ignore */ }
+  }
+}
+
 /** Read current tunnel state from the system. Quick single-shot check: no
     polling, 1-second curl timeout. Called on every status run, so the mirror
     stays honest across revocation events without an action to trigger a refresh.
@@ -545,68 +614,83 @@ function tunnelState(o) {
 function tunnelEnable(o, token) {
   const at = o.now().toISOString();
   const envPath = o.tunnelEnvPath;
-  /* Remember the previous credential for rollback on revocation. */
-  let previous = null;
-  try { previous = fs.readFileSync(envPath, 'utf8'); } catch { /* none */ }
-  /* Atomic write: create under a random name in the same directory, then
-     rename. The directory is 0755 root:root so there is no symlink risk here,
-     but atomic rename is still correct for power-cut safety. */
-  const tmpPath = `${envPath}.${crypto.randomBytes(8).toString('hex')}`;
-  let fd;
-  try {
-    fd = fs.openSync(tmpPath, 'wx', 0o600);
-    fs.fchmodSync(fd, 0o600);
-    fs.writeSync(fd, `TUNNEL_TOKEN=${token}\n`);
-    try { fs.fdatasyncSync(fd); } catch { /* best effort */ }
-    fs.closeSync(fd); fd = undefined;
-    fs.renameSync(tmpPath, envPath);
-    try {
-      const cfUid = Number(childProcess.execFileSync('id', ['-u', 'cloudflared'], { encoding: 'utf8' }).trim());
-      const cfGid = Number(childProcess.execFileSync('id', ['-g', 'cloudflared'], { encoding: 'utf8' }).trim());
-      fs.chownSync(envPath, cfUid, cfGid);
-    } catch { /* off-Pi or cloudflared user absent — no-op */ }
-  } catch {
-    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* ignore */ } }
-    try { fs.rmSync(tmpPath, { force: true }); } catch { /* ignore */ }
-    return { last: { action: 'tunnel-enable', at, ok: false, message: 'Remote access could not be set up. Try again or ask PitchTribe for help.' }, tunnel: { enabled: false, connected: false } };
+  /* Serialise with the commissioning-page path (wifi-privileged.py) so the two
+     doors cannot race over the credential file or each other's rollback. */
+  const releaseLock = takeTunnelLock(o);
+  if (!releaseLock) {
+    return { last: { action: 'tunnel-enable', at, ok: false, message: 'Remote access is already being set up. Try again shortly.' }, tunnel: { enabled: false, connected: false } };
   }
   try {
-    o.exec('systemctl', ['enable', '--now', TUNNEL_UNIT]);
-  } catch {
-    /* Credential written but unit failed to start: roll back. */
-    try { if (previous !== null) fs.writeFileSync(envPath, previous, { mode: 0o600 }); else fs.rmSync(envPath, { force: true }); } catch { /* ignore */ }
-    return { last: { action: 'tunnel-enable', at, ok: false, message: 'Remote access could not be started. Try again or ask PitchTribe for help.' }, tunnel: { enabled: false, connected: false } };
+    /* Guard: refuse to write a credential if the installed cloudflared cannot
+       read its token from the environment. If a future cloudflared drops
+       --token support and falls back to argv, any local user can read the
+       credential out of /proc — writing nothing is safer than that. */
+    if (!cloudflaredEnvRoute(o)) {
+      return { last: { action: 'tunnel-enable', at, ok: false, message: 'Remote access is not available on this device. Ask PitchTribe for help.' }, tunnel: { enabled: false, connected: false } };
+    }
+    /* Remember the previous credential for rollback on revocation. */
+    let previous = null;
+    try { previous = fs.readFileSync(envPath, 'utf8'); } catch { /* none */ }
+    /* Atomic write: create under a random name in the same directory, then
+       rename. The directory is 0755 root:root so there is no symlink risk here,
+       but atomic rename is still correct for power-cut safety. */
+    const tmpPath = `${envPath}.${crypto.randomBytes(8).toString('hex')}`;
+    let fd;
+    try {
+      fd = fs.openSync(tmpPath, 'wx', 0o600);
+      fs.fchmodSync(fd, 0o600);
+      fs.writeSync(fd, `TUNNEL_TOKEN=${token}\n`);
+      try { fs.fdatasyncSync(fd); } catch { /* best effort */ }
+      fs.closeSync(fd); fd = undefined;
+      fs.renameSync(tmpPath, envPath);
+      try {
+        const cfUid = Number(childProcess.execFileSync('id', ['-u', 'cloudflared'], { encoding: 'utf8' }).trim());
+        const cfGid = Number(childProcess.execFileSync('id', ['-g', 'cloudflared'], { encoding: 'utf8' }).trim());
+        fs.chownSync(envPath, cfUid, cfGid);
+      } catch { /* off-Pi or cloudflared user absent — no-op */ }
+    } catch {
+      if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* ignore */ } }
+      try { fs.rmSync(tmpPath, { force: true }); } catch { /* ignore */ }
+      return { last: { action: 'tunnel-enable', at, ok: false, message: 'Remote access could not be set up. Try again or ask PitchTribe for help.' }, tunnel: { enabled: false, connected: false } };
+    }
+    try {
+      o.exec('systemctl', ['enable', '--now', TUNNEL_UNIT]);
+    } catch {
+      /* Credential written but unit failed to start: roll back atomically. */
+      tunnelRestore(envPath, previous);
+      return { last: { action: 'tunnel-enable', at, ok: false, message: 'Remote access could not be started. Try again or ask PitchTribe for help.' }, tunnel: { enabled: false, connected: false } };
+    }
+    /* Wait up to TUNNEL_READY_WAIT_MS for the connector to register. */
+    const deadline = Date.now() + (o.tunnelReadyWaitMs !== undefined ? o.tunnelReadyWaitMs : TUNNEL_READY_WAIT_MS);
+    const poll = o.tunnelPollMs !== undefined ? o.tunnelPollMs : TUNNEL_READY_POLL_MS;
+    /* @<epoch> is unambiguous in every time zone; a bare 'YYYY-MM-DD HH:MM:SS'
+       string is read by journalctl as local time, so a UTC ISO slice sets the
+       window in the wrong place for any card west of UTC (window starts in the
+       future → Unauthorized never seen → rejected credential reported as good). */
+    const since = `@${Math.floor(new Date(at).getTime() / 1000)}`;
+    do {
+      try {
+        const code = o.exec('curl', ['-s', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '2', TUNNEL_READY_PATH]).trim();
+        if (code === '200')
+          return { last: { action: 'tunnel-enable', at, ok: true, message: 'Remote access is on.' }, tunnel: { enabled: true, connected: true } };
+      } catch { /* curl unavailable or connection refused */ }
+      try {
+        const journal = o.exec('journalctl', ['-u', TUNNEL_UNIT, '--since', since, '--no-pager', '-q']);
+        if (journal.includes('Unauthorized')) {
+          /* Revoked token: restore previous and disable. */
+          try { o.exec('systemctl', ['disable', '--now', TUNNEL_UNIT]); } catch { /* ignore */ }
+          tunnelRestore(envPath, previous);
+          const restored = previous !== null;
+          if (restored) { try { o.exec('systemctl', ['enable', '--now', TUNNEL_UNIT]); } catch { /* ignore */ } }
+          return { last: { action: 'tunnel-enable', at, ok: false, message: 'That token is no longer valid — ask PitchTribe for a new one.' }, tunnel: { enabled: restored, connected: false } };
+        }
+      } catch { /* journalctl unavailable */ }
+      if (Date.now() < deadline) o.sleep(poll);
+    } while (Date.now() < deadline);
+    return { last: { action: 'tunnel-enable', at, ok: true, message: 'Remote access is set up. It will connect when the venue network is on.' }, tunnel: { enabled: true, connected: false } };
+  } finally {
+    releaseLock();
   }
-  /* Wait up to TUNNEL_READY_WAIT_MS for the connector to register. */
-  const deadline = Date.now() + (o.tunnelReadyWaitMs !== undefined ? o.tunnelReadyWaitMs : TUNNEL_READY_WAIT_MS);
-  const poll = o.tunnelPollMs !== undefined ? o.tunnelPollMs : TUNNEL_READY_POLL_MS;
-  /* Systemd --since format: 'YYYY-MM-DD HH:MM:SS' in local time. We only need
-     a rough bound so the journal search is not unbounded; slicing the ISO
-     timestamp and replacing T is close enough for a just-started unit. */
-  const since = at.slice(0, 19).replace('T', ' ');
-  do {
-    try {
-      const code = o.exec('curl', ['-s', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '2', TUNNEL_READY_PATH]).trim();
-      if (code === '200')
-        return { last: { action: 'tunnel-enable', at, ok: true, message: 'Remote access is on.' }, tunnel: { enabled: true, connected: true } };
-    } catch { /* curl unavailable or connection refused */ }
-    try {
-      const journal = o.exec('journalctl', ['-u', TUNNEL_UNIT, '--since', since, '--no-pager', '-q']);
-      if (journal.includes('Unauthorized')) {
-        /* Revoked token: restore previous and disable. */
-        try { o.exec('systemctl', ['disable', '--now', TUNNEL_UNIT]); } catch { /* ignore */ }
-        try {
-          if (previous !== null) fs.writeFileSync(envPath, previous, { mode: 0o600 });
-          else fs.rmSync(envPath, { force: true });
-        } catch { /* ignore */ }
-        const restored = previous !== null;
-        if (restored) { try { o.exec('systemctl', ['enable', '--now', TUNNEL_UNIT]); } catch { /* ignore */ } }
-        return { last: { action: 'tunnel-enable', at, ok: false, message: 'That token is no longer valid — ask PitchTribe for a new one.' }, tunnel: { enabled: restored, connected: false } };
-      }
-    } catch { /* journalctl unavailable */ }
-    if (Date.now() < deadline) o.sleep(poll);
-  } while (Date.now() < deadline);
-  return { last: { action: 'tunnel-enable', at, ok: true, message: 'Remote access is set up. It will connect when the venue network is on.' }, tunnel: { enabled: true, connected: false } };
 }
 
 /** Stop and disable the tunnel unit and remove the credential. Returns the

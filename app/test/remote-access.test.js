@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -35,6 +35,8 @@ function fakePi({
   tunnelEnabled = false,
   tunnelConnected = false,
   tunnelRevoked = false,
+  /* Whether the installed cloudflared supports --token (env-based credential route). */
+  cloudflaredHasEnvRoute = true,
   mirrorGroup = 'pitchtribe-dashboard',
   /* Whether systemd-timesyncd has stepped the clock from the network yet. True
      is an ordinary card; false is the fifteen seconds after a cold boot, when
@@ -51,6 +53,8 @@ function fakePi({
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-ra-state-'));
   // /run/pitchtribe: root's, with the sign-in log inside it handed to the club user.
   const signinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-ra-run-'));
+  // Shared tunnel lock (normally /run/pitchtribe-tunnel.lock): redirected to temp dir.
+  const tunnelLockPath = path.join(dir, 'tunnel.lock');
   const passwd = path.join(dir, 'passwd');
   const group = path.join(dir, 'group');
   const lines = [
@@ -100,6 +104,13 @@ function fakePi({
     }
     if (cmd === 'journalctl' && args.some((a) => a === 'pitchtribe-tunnel.service')) {
       return tunnelRevoked ? 'Unauthorized: failed to register\n' : '';
+    }
+    if (cmd === 'cloudflared' && args[0] === 'tunnel') {
+      if (!cloudflaredHasEnvRoute) {
+        const err = Object.assign(new Error('cloudflared: unrecognized flag'), { stdout: 'cloudflared help text\n', stderr: '' });
+        throw err;
+      }
+      return 'Run a tunnel via flag:\n  --token TOKEN\n';
     }
     if (cmd === 'systemctl' && args[0] === 'enable') ssh = 'enabled';
     if (cmd === 'systemctl' && args[0] === 'disable') ssh = 'disabled';
@@ -164,6 +175,7 @@ function fakePi({
     clockSynced: () => clockSynced,
     pidAlive,
     tunnelEnvPath,
+    tunnelLockPath,
     // 0 so the do-while loop runs exactly once — fast tests, no actual sleeping.
     tunnelReadyWaitMs: 0,
     tunnelPollMs: 0,
@@ -207,6 +219,7 @@ function fakePi({
     statusFile: path.join(dir, 'remote-access-status.json'),
     requestFile: path.join(dir, 'remote-access-request.json'),
     tunnelEnvPath,
+    tunnelLockPath,
     at: (iso) => { now = new Date(iso); },
     /* A request written at a given moment and then left unread — `at` as the
        dashboard writes it, and the mtime to match, because the helper takes the
@@ -1456,4 +1469,54 @@ test('tunnel: status() reports tunnel state without a pending request', () => {
   const s2 = helper.main('status', on.o);
   assert.equal(s2.tunnel.enabled, true);
   assert.equal(s2.tunnel.connected, true);
+});
+
+// -------------------------------------------------------------------- F3 / F4 / F7 regression guards
+
+test('F3: tunnel-enable returns busy when the shared lock is already held', () => {
+  /* Hold the lock the same way wifi-privileged.py holds it: open the file,
+     then flock the open-file-description.  The lock stays on our fd after
+     flock(1) exits, so tunnelEnable sees it as held. */
+  const pi = fakePi({ tunnelEnabled: false, tunnelConnected: false });
+  const lockFd = fs.openSync(pi.tunnelLockPath, fs.constants.O_RDWR | fs.constants.O_CREAT, 0o600);
+  spawnSync('flock', ['--exclusive', '3'], { stdio: ['ignore', 'ignore', 'ignore', lockFd] });
+  try {
+    const s = pi.ask({ id: 'tf3', action: 'tunnel-enable', token: GOOD_TOKEN });
+    assert.equal(s.last.ok, false, s.last.message);
+    assert.match(s.last.message, /already being set up/i);
+    assert.ok(!fs.existsSync(pi.tunnelEnvPath), 'credential not written while locked');
+  } finally {
+    fs.closeSync(lockFd);
+  }
+});
+
+test('F3: tunnel-enable rollback leaves no staging file on disk', () => {
+  /* When the token is revoked, the rollback restore uses a staged rename — verify
+     the staging file is gone on success (and not left by a failed writeFileSync). */
+  const pi = fakePi({ tunnelEnabled: false, tunnelConnected: false, tunnelRevoked: true });
+  pi.ask({ id: 'tf3r', action: 'tunnel-enable', token: GOOD_TOKEN });
+  const leftover = fs.readdirSync(pi.dir).filter((f) => f.startsWith('tunnel.env.'));
+  assert.deepEqual(leftover, [], 'no staging file left after revoke rollback');
+});
+
+test('F4: tunnel-enable --since uses epoch seconds, not local-time formatted UTC', () => {
+  /* journalctl reads a bare YYYY-MM-DD HH:MM:SS as LOCAL time, so slicing the
+     UTC ISO string is wrong for any card west of UTC.  @<epoch> is unambiguous.
+     This test fails on the unfixed code and passes after the fix. */
+  const pi = fakePi({ tunnelEnabled: false, tunnelRevoked: true });
+  pi.ask({ id: 'tf4', action: 'tunnel-enable', token: GOOD_TOKEN });
+  const jcall = pi.calls.find((c) => /journalctl.*--since/.test(c.cmd));
+  assert.ok(jcall, 'journalctl --since called');
+  assert.match(jcall.cmd, /--since @\d+/, '--since argument is epoch seconds');
+  assert.doesNotMatch(jcall.cmd, /--since \d{4}-\d{2}-\d{2}/, '--since is not bare local-time format');
+});
+
+test('F7: tunnel-enable refuses to write a credential when cloudflared lacks --token support', () => {
+  /* The env-route guard prevents writing a credential that cloudflared would
+     fall back to passing via argv (/proc-visible to any local user). */
+  const pi = fakePi({ tunnelEnabled: false, tunnelConnected: false, cloudflaredHasEnvRoute: false });
+  const s = pi.ask({ id: 'tf7', action: 'tunnel-enable', token: GOOD_TOKEN });
+  assert.equal(s.last.ok, false, s.last.message);
+  assert.match(s.last.message, /not available on this device/i);
+  assert.ok(!fs.existsSync(pi.tunnelEnvPath), 'credential not written if env-route guard fails');
 });
