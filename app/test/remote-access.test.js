@@ -12,7 +12,7 @@ const HASH = execFileSync('openssl', ['passwd', '-6', '-stdin'], { input: 'long-
 /* A connector token shaped exactly like the real ones: base64 of JSON with
    32-char account, UUID tunnel id, and a base64-encoded secret. */
 const GOOD_TOKEN = Buffer.from(JSON.stringify({
-  a: 'a'.repeat(32),
+  a: 'ad7861717c55f5e2f439ca07d7402f35',
   t: '8f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8',
   s: Buffer.from('x'.repeat(32)).toString('base64'),
 })).toString('base64');

@@ -160,7 +160,7 @@ Three notes on that:
 | --- | --- |
 | Credential path | `/etc/pitchtribe/tunnel.env` |
 | Contents | exactly one line, `TUNNEL_TOKEN=<connector token>` |
-| Mode / owner | `0600 root:root`, directory `0755 root:root` |
+| Mode / owner | `0600 cloudflared:cloudflared`, directory `0755 root:root` |
 | Unit | `pitchtribe-tunnel.service` |
 | Written by | the root broker (`deploy/setup/wifi-privileged.py`) only — never a web process, never the dashboard directly |
 | Provision (enable) | write credential atomically → `systemctl enable --now pitchtribe-tunnel.service` |

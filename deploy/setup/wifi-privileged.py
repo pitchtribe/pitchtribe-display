@@ -2,9 +2,11 @@
 """Root-only NetworkManager broker for the kiosk startup Wi-Fi page."""
 import base64
 import fcntl
+import grp
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import socket
 import socketserver
@@ -168,6 +170,8 @@ def tunnel_write(content):
             output.flush()
             os.fsync(output.fileno())
         os.replace(staging, TUNNEL_ENV)
+        os.chown(TUNNEL_ENV, pwd.getpwnam('cloudflared').pw_uid,
+                 grp.getgrnam('cloudflared').gr_gid)
     finally:
         staging.unlink(missing_ok=True)
 

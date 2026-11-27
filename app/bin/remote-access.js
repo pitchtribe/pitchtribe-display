@@ -560,6 +560,11 @@ function tunnelEnable(o, token) {
     try { fs.fdatasyncSync(fd); } catch { /* best effort */ }
     fs.closeSync(fd); fd = undefined;
     fs.renameSync(tmpPath, envPath);
+    try {
+      const cfUid = Number(childProcess.execFileSync('id', ['-u', 'cloudflared'], { encoding: 'utf8' }).trim());
+      const cfGid = Number(childProcess.execFileSync('id', ['-g', 'cloudflared'], { encoding: 'utf8' }).trim());
+      fs.chownSync(envPath, cfUid, cfGid);
+    } catch { /* off-Pi or cloudflared user absent — no-op */ }
   } catch {
     if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* ignore */ } }
     try { fs.rmSync(tmpPath, { force: true }); } catch { /* ignore */ }

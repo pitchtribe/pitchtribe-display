@@ -282,6 +282,7 @@ $CFD_TOKENS"
   || die "pitchtribe-tunnel.service enablement symlink is present in the image; it is only enabled on a device when a club commissions a token"
 [[ ! -e "$MNT/etc/pitchtribe/tunnel.env" ]] \
   || die "the image has a connector token in /etc/pitchtribe/tunnel.env, which would ship one club's tunnel to every card"
+# Ownership (cloudflared:cloudflared 0600) is set at commissioning, not asserted here — file is absent in an unprovisioned image.
 log "cloudflared: binary and apt source only — no unit, no credentials, no tunnel until a club commissions one"
 log "pitchtribe-tunnel.service: installed, not enabled, no credential — the commissioning page has something to switch on"
 
