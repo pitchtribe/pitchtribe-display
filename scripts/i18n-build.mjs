@@ -24,6 +24,15 @@ const sourceFile = 'i18n/source.json';
 const source = JSON.parse(readFileSync(sourceFile, 'utf8'));
 const index = new Map(source.map((s, i) => [s, i]));
 const pagesHtml = Object.fromEntries(PAGES.map((p) => [p, readFileSync(join(HTML, p), 'utf8')]));
+
+// Keep the version badge in sync with app/package.json — patch source, index, and HTML in memory
+// so the build always reflects the current release without touching source files.
+const { version: _appVersion } = JSON.parse(readFileSync('app/package.json', 'utf8'));
+const _vBadge = `v${_appVersion} stable`;
+source.forEach((s, i) => { if (/^v\d+\.\d+\.\d+ stable$/.test(s)) source[i] = _vBadge; });
+index.clear(); source.forEach((s, i) => index.set(s, i));
+for (const p of Object.keys(pagesHtml)) pagesHtml[p] = pagesHtml[p].replace(/v\d+\.\d+\.\d+ stable/g, _vBadge);
+
 const current = [...new Set(PAGES.flatMap((p) => extract(pagesHtml[p])))];
 const unknown = current.filter((s) => !index.has(s));
 
@@ -46,6 +55,11 @@ const tables = Object.fromEntries(LANGS.map(({ code }) => {
     // Translations are inserted as HTML text: no tags, and & only as an entity.
     if (/[<>]/.test(v) || /&(?![a-z]+;|#\d+;)/i.test(v)) throw new Error(`${file} [${k}] must not contain < > or a bare &: ${v}`);
     if (!source[k]) throw new Error(`${file} has key ${k}, which is not in source.json`);
+  }
+  // Patch translated version badge to match the app version injected above
+  const vBadgeIdx = index.get(_vBadge);
+  if (vBadgeIdx !== undefined && t[vBadgeIdx] !== undefined) {
+    t[vBadgeIdx] = t[vBadgeIdx].replace(/v\d+\.\d+\.\d+/, `v${_appVersion}`);
   }
   return [code, t];
 }));

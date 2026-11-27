@@ -172,6 +172,7 @@
       <nav class="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold text-accent" aria-label="Buying details">
         <a href="#parts">Parts and prices →</a>
         <a href="#quick-buy">Ready-made baskets →</a>
+        <a href="#additional-screens">Extra screens →</a>
         <a href="#screens">Screens and mounts →</a>
         <a href="#wifi">Venue Wi-Fi →</a>
         <a href="#enquire">Ask for a quote →</a>
@@ -498,6 +499,84 @@
         Both shops move their prices, so treat the figures here as the snapshot they are. We check
         them when we touch this page, not continuously — and if a row has gone up, the parts list
         above is the fallback.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== ADDITIONAL SCREENS ===================== -->
+<section id="additional-screens" class="pb-20">
+  <div class="mx-auto w-full max-w-3xl px-4 sm:px-6">
+    <div class="reveal mb-8">
+      <p class="eyebrow">Already have a main Pi 5?</p>
+      <h2 class="section-title mb-3">Adding extra screens on a budget</h2>
+      <p class="text-[1.0625rem] text-muted">
+        A second (or third) TV only needs to show content — not run the dashboard. A
+        <strong class="font-semibold text-fg">Raspberry Pi Zero 2 W</strong> costs around £15 and is
+        enough for the kiosk display, bringing the total per extra screen to roughly
+        <strong class="font-semibold text-fg">£32</strong> (plus the TV).
+        <a class="font-semibold text-accent underline decoration-accent/40 underline-offset-4 transition hover:decoration-accent" href="/more-screens#zero-2w">How it works →</a>
+      </p>
+    </div>
+
+    <div class="reveal overflow-hidden rounded-[18px] border border-line bg-surface px-5 py-4 sm:px-6">
+      <p class="mb-3 text-[0.9rem] font-semibold text-fg">Quick buy: pre-filled Pi Hut basket</p>
+      <div class="divide-y divide-line text-[0.9375rem]">
+
+        <div class="basket-row">
+          <input id="as-board" type="checkbox" class="basket-tick" data-item="41181426909379" data-price="14.40" checked>
+          <label for="as-board">Raspberry Pi Zero 2 W</label>
+          <span class="basket-price">£14.40</span>
+          <p class="basket-note">
+            <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://thepihut.com/products/raspberry-pi-zero-2" target="_blank" rel="noopener noreferrer">View at The Pi Hut</a>
+          </p>
+        </div>
+
+        <div class="basket-row">
+          <input id="as-hdmi" type="checkbox" class="basket-tick" data-item="31909856444478" data-price="2.20" checked>
+          <label for="as-hdmi">Official mini-HDMI to HDMI cable, 1&nbsp;m</label>
+          <span class="basket-price">£2.20</span>
+          <p class="basket-note">
+            <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://thepihut.com/products/official-raspberry-pi-mini-hdmi-cable" target="_blank" rel="noopener noreferrer">View at The Pi Hut</a>
+          </p>
+        </div>
+
+        <div class="basket-row">
+          <input id="as-psu" type="checkbox" class="basket-tick" data-item="41035036950723" data-price="7.70" checked>
+          <label for="as-psu">Official 5&nbsp;V 2.5&nbsp;A micro-USB power supply, UK plug</label>
+          <span class="basket-price">£7.70</span>
+          <p class="basket-note">
+            <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://thepihut.com/products/raspberry-pi-zero-uk-power-supply" target="_blank" rel="noopener noreferrer">View at The Pi Hut</a>
+          </p>
+        </div>
+
+        <div class="flex items-baseline justify-between gap-3 py-3 font-semibold text-fg">
+          <span><span data-basket-count>3</span> parts ticked</span>
+          <span class="shrink-0 font-mono tabular-nums text-accent" data-basket-total>£24.30</span>
+        </div>
+      </div>
+
+      <a class="btn btn-primary basket-go mt-4 w-full" data-basket-link
+         href="https://thepihut.com/cart/41181426909379:1,31909856444478:1,41035036950723:1?storefront=true"
+         target="_blank" rel="noopener noreferrer">Fill my Pi Hut basket</a>
+      <p class="mt-3 text-center text-[0.8125rem] text-dim">
+        No account and no sign-in — the link fills the basket ready for you to check over. Add a
+        microSD card separately (any A1-rated 32&nbsp;GB or 64&nbsp;GB card from Amazon works, roughly £8)
+        and roughly £4 for delivery.
+      </p>
+    </div>
+
+    <div class="reveal mt-6 space-y-3 text-[0.9375rem] text-muted">
+      <p>
+        The Zero 2 W connects by Wi-Fi only — there is no Ethernet socket. It has 512&nbsp;MB of RAM,
+        which is enough for the kiosk but not the dashboard, so it must point at a Pi 5 main unit.
+        For smooth text, images and fixture lists it works well; heavily animated playlists suit a
+        Pi 5 instead.
+      </p>
+      <p>
+        <strong class="font-semibold text-fg">Not the original Zero W.</strong> The Zero 2 W
+        (released 2021, quad-core 64-bit ARM) is compatible. The original Zero W (2017,
+        single-core 32-bit ARM) is not — it will not run the installer.
       </p>
     </div>
   </div>

@@ -32,6 +32,90 @@
 </ol>
 <p>If you installed on plain Raspberry Pi OS rather than from the PitchTribe image, step 2 is simply the same command with <code>PITCHTRIBE_SERVER</code> — there’s no extra dashboard to switch off.</p>
 
+<h3 id="zero-2w">On a budget: Raspberry Pi Zero 2 W</h3>
+<p>If a TV only needs to show content — no dashboard — a <strong>Raspberry Pi Zero 2 W</strong> costs about £15 and runs the kiosk well for text, images and fixture lists. It is roughly a third of the cost of a Pi 5 build for a secondary screen.</p>
+<div class="callout warn">
+  <p class="callout-title">Secondary screens only — not the main Pi</p>
+  <p>The Zero 2 W has 512 MB of RAM, which is enough for the kiosk display but not the dashboard. Always point it at a Pi 5 main unit using <code>PITCHTRIBE_SERVER</code> (step 2 above), and disable the local dashboard service after installing.</p>
+</div>
+<p>Parts from The Pi Hut, UK retail prices including VAT, checked 27 November 2026:</p>
+<table>
+  <thead>
+    <tr><th>Part</th><th>Price</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="https://thepihut.com/products/raspberry-pi-zero-2" target="_blank" rel="noopener noreferrer">Raspberry Pi Zero 2 W</a></td>
+      <td>£14.40</td>
+    </tr>
+    <tr>
+      <td><a href="https://thepihut.com/products/official-raspberry-pi-mini-hdmi-cable" target="_blank" rel="noopener noreferrer">Official mini-HDMI to HDMI cable, 1&nbsp;m</a></td>
+      <td>£2.20</td>
+    </tr>
+    <tr>
+      <td><a href="https://thepihut.com/products/raspberry-pi-zero-uk-power-supply" target="_blank" rel="noopener noreferrer">Official 5&nbsp;V 2.5&nbsp;A micro-USB power supply, UK plug</a></td>
+      <td>£7.70</td>
+    </tr>
+    <tr>
+      <td>microSD card, 32&nbsp;GB or larger</td>
+      <td>from £8</td>
+    </tr>
+    <tr>
+      <td><strong>Total per screen</strong></td>
+      <td><strong>from £32</strong></td>
+    </tr>
+  </tbody>
+</table>
+<div data-basket="pihut" class="my-6 overflow-hidden rounded-[18px] border border-line bg-surface px-5 py-4 sm:px-6">
+  <p class="mb-3 text-[0.9rem] font-semibold text-fg">Quick buy: pre-filled Pi Hut basket</p>
+  <div class="divide-y divide-line text-[0.9375rem]">
+
+    <div class="basket-row">
+      <input id="z2w-board" type="checkbox" class="basket-tick" data-item="41181426909379" data-price="14.40" checked>
+      <label for="z2w-board">Raspberry Pi Zero 2 W</label>
+      <span class="basket-price">£14.40</span>
+      <p class="basket-note">
+        <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://thepihut.com/products/raspberry-pi-zero-2" target="_blank" rel="noopener noreferrer">View at The Pi Hut</a>
+      </p>
+    </div>
+
+    <div class="basket-row">
+      <input id="z2w-hdmi" type="checkbox" class="basket-tick" data-item="31909856444478" data-price="2.20" checked>
+      <label for="z2w-hdmi">Official mini-HDMI to HDMI cable, 1&nbsp;m</label>
+      <span class="basket-price">£2.20</span>
+      <p class="basket-note">
+        <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://thepihut.com/products/official-raspberry-pi-mini-hdmi-cable" target="_blank" rel="noopener noreferrer">View at The Pi Hut</a>
+      </p>
+    </div>
+
+    <div class="basket-row">
+      <input id="z2w-psu" type="checkbox" class="basket-tick" data-item="41035036950723" data-price="7.70" checked>
+      <label for="z2w-psu">Official 5&nbsp;V 2.5&nbsp;A micro-USB power supply, UK plug</label>
+      <span class="basket-price">£7.70</span>
+      <p class="basket-note">
+        <a class="underline decoration-line-hi underline-offset-4 transition hover:decoration-accent" href="https://thepihut.com/products/raspberry-pi-zero-uk-power-supply" target="_blank" rel="noopener noreferrer">View at The Pi Hut</a>
+      </p>
+    </div>
+
+    <div class="flex items-baseline justify-between gap-3 py-3 font-semibold text-fg">
+      <span><span data-basket-count>3</span> parts ticked</span>
+      <span class="shrink-0 font-mono tabular-nums text-accent" data-basket-total>£24.30</span>
+    </div>
+  </div>
+
+  <a class="btn btn-primary basket-go mt-4 w-full" data-basket-link
+     href="https://thepihut.com/cart/41181426909379:1,31909856444478:1,41035036950723:1?storefront=true"
+     target="_blank" rel="noopener noreferrer">Fill my Pi Hut basket</a>
+  <p class="mt-3 text-center text-[0.8125rem] text-dim">
+    No account and no sign-in — the link fills the basket ready for you to check over. Add a microSD card separately (not stocked at The Pi Hut; any A1-rated 32&nbsp;GB or 64&nbsp;GB card from Amazon works) and roughly £4 for delivery.
+  </p>
+</div>
+<p>The Zero 2 W connects by Wi-Fi only — there is no Ethernet socket. For a TV in a room with reliable 2.4 GHz Wi-Fi this works well. If the signal is poor, add a USB–Ethernet adapter (about £5–8) or use a full Pi 5 instead.</p>
+<div class="callout">
+  <p class="callout-title">Not the original Zero W</p>
+  <p>The <strong>Zero 2 W</strong> (released 2021, quad-core 64-bit ARM) runs the PitchTribe installer. The <strong>original Zero W</strong> (2017, single-core 32-bit ARM) uses an older processor that is not compatible with the current software — it will not work.</p>
+</div>
+
 <h2 id="browser">Option 2: a smart TV, PC or tablet</h2>
 <p>Anything with a modern web browser can be a screen — a smart TV’s built-in browser, a mini PC, an old laptop or a tablet on a stand.</p>
 <ol>
