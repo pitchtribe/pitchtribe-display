@@ -66,6 +66,9 @@ TOKEN_CHARS = re.compile(r'[A-Za-z0-9]+={0,2}')
 TOKEN_MIN, TOKEN_MAX = 120, 512
 TOKEN_HELP = ('That is not a PitchTribe remote access token. It is one long code starting '
               'eyJ, sent to you by PitchTribe.')
+# Only tokens from our own Zero Trust account are accepted.
+# Source: deliverables/pit-229/CLUB-TUNNEL-PROVISIONING.md
+PITCHTRIBE_ACCOUNT = 'ad7861717c55f5e2f439ca07d7402f35'
 
 
 def validate_token(raw):
@@ -93,6 +96,8 @@ def validate_token(raw):
         # carry the pasted credential into a response or a log.
         return None, TOKEN_HELP
     if not (isinstance(account, str) and account and isinstance(secret, str) and secret):
+        return None, TOKEN_HELP
+    if account != PITCHTRIBE_ACCOUNT:
         return None, TOKEN_HELP
     return token, None
 
@@ -243,6 +248,10 @@ def dispatch(request):
             return {'enabled': True, 'message': 'Remote access is on.'}
         return {'enabled': True,
                 'message': 'Remote access is set up but not connected right now. It keeps trying.'}
+    if action in ('tunnel-enable', 'tunnel-disable'):
+        if not SETUP_ACTIVE.exists():
+            return {'error': 'Hold the setup button for three seconds first, then paste the remote access code.',
+                    'status': 403}
     if action == 'tunnel-enable':
         # Validate again at the privileged boundary; never rely on the web process.
         token, problem = validate_token(request.get('token'))

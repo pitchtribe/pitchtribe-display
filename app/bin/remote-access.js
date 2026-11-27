@@ -91,6 +91,9 @@ const TUNNEL_TOKEN_MIN = 120;
 const TUNNEL_TOKEN_MAX = 512;
 const TUNNEL_TOKEN_CHARS = /^[A-Za-z0-9]+={0,2}$/;
 const TUNNEL_TOKEN_HELP = 'That is not a PitchTribe remote access token. It is one long code starting eyJ, sent to you by PitchTribe.';
+/* Only tokens from our own Zero Trust account are accepted.
+   Source: deliverables/pit-229/CLUB-TUNNEL-PROVISIONING.md */
+const PITCHTRIBE_ACCOUNT = 'ad7861717c55f5e2f439ca07d7402f35';
 const TUNNEL_UNIT = 'pitchtribe-tunnel.service';
 const TUNNEL_READY_PATH = 'http://127.0.0.1:20241/ready';
 /* How long to wait for the connector to register after enable. */
@@ -116,6 +119,7 @@ function validateTunnelToken(raw) {
     if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(String(tunnel || '')))
       return { error: TUNNEL_TOKEN_HELP };
     if (!Buffer.from(secret, 'base64').length) return { error: TUNNEL_TOKEN_HELP };
+    if (account !== PITCHTRIBE_ACCOUNT) return { error: TUNNEL_TOKEN_HELP };
     return { token };
   } catch {
     return { error: TUNNEL_TOKEN_HELP };

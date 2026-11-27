@@ -53,15 +53,19 @@ is remotely managed, so there is no `config.yml` on the card, and what the
 tunnel serves — hostname, ingress, Access policy — lives in our account and is
 already configured before the club is handed a token.
 
-**Where to type it.** Either front door; they write the same file through the
-same root broker.
+**Where to type it.** Either front door writes the same file through the same
+root broker.
 
-- On the TV at commissioning: the section on `http://127.0.0.1:8090/`, or
-  `/remote` on the same listener. `/remote` exists because `/` is only served
+- On the TV at commissioning: **hold the setup button for three seconds first**
+  to open the setup window, then paste the token into the Remote access section
+  on `http://127.0.0.1:8090/` or `/remote` on the same listener. The token form
+  only accepts input during a button-held window; outside one it returns an
+  instruction to hold the button. `/remote` exists because `/` is only served
   while `wlan0` is down — once Wi-Fi is up it redirects to the player — and a
-  connector needs the internet, so the token box has to stay reachable after
-  the network works.
-- In the dashboard: Settings → Remote access (PIT-236).
+  connector needs the internet, so the token box has to stay reachable after the
+  network works.
+- In the dashboard: Settings → Remote access (PIT-236). The dashboard door uses
+  the club's login password rather than the button window.
 
 **A code can be entered before the Wi-Fi works.** That is the normal order on
 a bench. The page says *"Code saved. Remote access will connect once the venue
@@ -232,8 +236,10 @@ issue thread or a shared log.
    Expect `disabled`, `no credential`, and an explicit start that is an inert
    no-op — `inactive` with a condition-failed note, not a crash loop.
 
-2. Enter the token on the TV page's Remote access section. Expect a plain
-   outcome within about half a minute, then confirm what actually happened:
+2. Hold the button for three seconds to open the setup window, then enter the
+   token on the TV page's Remote access section. Outside a window the form
+   returns "Hold the setup button…" and nothing is written. Expect a plain
+   outcome within about half a minute once inside the window, then confirm:
 
    ```sh
    stat -c '%U:%G %a' /etc/pitchtribe/tunnel.env

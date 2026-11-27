@@ -29,7 +29,7 @@ web = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(web)
 
 TOKEN = base64.b64encode(json.dumps({
-    'a': 'a' * 32,
+    'a': 'ad7861717c55f5e2f439ca07d7402f35',
     't': '8f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8',
     's': base64.b64encode(b'x' * 32).decode(),
 }, separators=(',', ':')).encode()).decode()

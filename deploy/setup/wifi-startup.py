@@ -52,6 +52,9 @@ TOKEN_CHARS = re.compile(r'[A-Za-z0-9]+={0,2}')
 TOKEN_MIN, TOKEN_MAX = 120, 512
 TOKEN_HELP = ('That is not a PitchTribe remote access token. It is one long code starting '
               'eyJ, sent to you by PitchTribe.')
+# Only tokens from our own Zero Trust account are accepted.
+# Source: deliverables/pit-229/CLUB-TUNNEL-PROVISIONING.md
+PITCHTRIBE_ACCOUNT = 'ad7861717c55f5e2f439ca07d7402f35'
 
 
 def validate_token(raw):
@@ -80,7 +83,29 @@ def validate_token(raw):
         return None, TOKEN_HELP
     if not (isinstance(account, str) and account and isinstance(secret, str) and secret):
         return None, TOKEN_HELP
+    if account != PITCHTRIBE_ACCOUNT:
+        return None, TOKEN_HELP
     return token, None
+
+
+def _origin_ok(headers):
+    """Return None if the POST may proceed, (code, body) if it should be refused.
+
+    Requires Content-Type: application/json — this turns any cross-origin request
+    into a non-simple one that needs a preflight the server does not answer.
+    Rejects an Origin or Referer that is present but does not match this listener.
+    Absent headers pass: a same-origin fetch may omit them.
+    """
+    if not headers.get('Content-Type', '').startswith('application/json'):
+        return 415, json.dumps({'error': 'Unavailable'})
+    own = f'http://{HOST}:{PORT}'
+    origin = headers.get('Origin', '')
+    if origin and origin != own:
+        return 403, json.dumps({'error': 'Unavailable'})
+    referer = headers.get('Referer', '')
+    if referer and not referer.startswith(own + '/'):
+        return 403, json.dumps({'error': 'Unavailable'})
+    return None
 
 
 STYLE = '''<style>
@@ -225,6 +250,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def remote_access(self):
         """Accept a connector token. Never echo it back, and never log it."""
+        rejection = _origin_ok(self.headers)
+        if rejection:
+            return self.send(*rejection)
         try:
             size = int(self.headers.get('Content-Length', '0'))
             # Per-route bound, like /connect's. A connector token is 180-252
@@ -248,6 +276,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(503, json.dumps({'error': 'Remote access helper is unavailable. Try again shortly.'}))
 
     def remote_off(self):
+        rejection = _origin_ok(self.headers)
+        if rejection:
+            return self.send(*rejection)
         try:
             result = privileged({'action': 'tunnel-disable'})
             code = result.pop('status', 200)

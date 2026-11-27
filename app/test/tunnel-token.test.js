@@ -37,7 +37,8 @@ def load(name):
 web = load('wifi-startup.py')
 broker = load('wifi-privileged.py')
 
-def token(account='a' * 32, tunnel='8f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8', secret_bytes=32, extra=None):
+PITCHTRIBE_ACCOUNT = 'ad7861717c55f5e2f439ca07d7402f35'
+def token(account=PITCHTRIBE_ACCOUNT, tunnel='8f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8', secret_bytes=32, extra=None):
     claims = {'a': account, 't': tunnel, 's': base64.b64encode(b'x' * secret_bytes).decode()}
     if extra:
         claims.update(extra)
@@ -85,6 +86,7 @@ const CASES = [
   { name: 'the right shape but a tunnel id that is not a UUID', raw: "token(tunnel='not-a-uuid')", python: true, accept: false },
   { name: 'JSON missing the account field', raw: "base64.b64encode(json.dumps({'t': '8f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8', 's': base64.b64encode(b'x' * 32).decode()}).encode()).decode()", python: true, accept: false },
   { name: 'an empty account field', raw: "token(account='')", python: true, accept: false },
+  { name: 'a token from a foreign account', raw: "token(account='b' * 32)", python: true, accept: false },
   { name: 'a number instead of a string', raw: '12345', python: true, accept: false },
   { name: 'None', raw: 'None', python: true, accept: false },
 ];
@@ -145,4 +147,35 @@ test('the JS validator (validateTunnelToken) agrees with both Python copies on e
     }
   }
   assert.deepEqual(drifted, [], `JS and Python copies disagree:\n  ${drifted.join('\n  ')}`);
+});
+
+test('the broker dispatch() refuses tunnel-enable and tunnel-disable without a physical-presence marker', () => {
+  /* The check lives in dispatch(), not wifi-startup.py, because the kiosk UID
+     has group access to the privileged socket and can call dispatch() directly,
+     bypassing every HTTP-layer control entirely. */
+  const script = `
+import base64, importlib.util, json, pathlib, sys, tempfile
+
+SETUP = ${JSON.stringify(SETUP)}
+spec = importlib.util.spec_from_file_location('wifi_privileged', SETUP + '/wifi-privileged.py')
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+tmp = pathlib.Path(tempfile.mkdtemp())
+mod.SETUP_ACTIVE = tmp / 'active'
+
+claims = {'a': 'ad7861717c55f5e2f439ca07d7402f35', 't': '8f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8', 's': base64.b64encode(b'x' * 32).decode()}
+token = base64.b64encode(json.dumps(claims, separators=(',', ':')).encode()).decode()
+
+enable_no_marker = mod.dispatch({'action': 'tunnel-enable', 'token': token})
+disable_no_marker = mod.dispatch({'action': 'tunnel-disable'})
+
+print(json.dumps({'enable_no_marker': enable_no_marker, 'disable_no_marker': disable_no_marker}))
+`;
+  const run = spawnSync('python3', ['-c', script], { encoding: 'utf8' });
+  assert.equal(run.status, 0, `python3 failed: ${run.stderr}`);
+  const { enable_no_marker, disable_no_marker } = JSON.parse(run.stdout);
+  assert.equal(enable_no_marker.status, 403, `tunnel-enable without marker: ${JSON.stringify(enable_no_marker)}`);
+  assert.equal(disable_no_marker.status, 403, `tunnel-disable without marker: ${JSON.stringify(disable_no_marker)}`);
+  assert.match(enable_no_marker.error, /setup button/i);
 });
