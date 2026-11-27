@@ -253,10 +253,12 @@ CFD_CREDS="$(find "$MNT/etc" "$MNT/root" "$MNT/home" -maxdepth 4 -path '*cloudfl
 $CFD_CREDS"
 # And by content, not just by filename: TunnelSecret is the credentials file a
 # tunnel is created with, a connector token is one long base64 blob that
-# `service install` writes straight into ExecStart, and TUNNEL_TOKEN= is how
-# our own unit receives one. Matched on the shape, so a credential someone
-# renamed, or one written to a path nobody thought to list, is still caught.
-CFD_TOKENS="$(grep -rlsIE 'TunnelSecret|cloudflared.*--token[[:space:]]+ey[A-Za-z0-9_-]{20,}|TUNNEL_TOKEN=ey[A-Za-z0-9+/=_-]{20,}' \
+# `service install` writes straight into ExecStart, TUNNEL_TOKEN= is how
+# our own unit receives one, and "token":"ey..." is the JSON shape written by
+# the dashboard door's staged-request path (remote-access-routes.js). Matched
+# on the shape, so a credential someone renamed, staged under a tmp suffix, or
+# written to a path nobody thought to list, is still caught.
+CFD_TOKENS="$(grep -rlsIE 'TunnelSecret|cloudflared.*--token[[:space:]]+ey[A-Za-z0-9_-]{20,}|TUNNEL_TOKEN=ey[A-Za-z0-9+/=_-]{20,}|"token"[[:space:]]*:[[:space:]]*"ey[A-Za-z0-9+/=_-]{20,}"' \
   "$MNT/etc" "$MNT/root" "$MNT/home" \
   "$MNT/var/lib/pitchtribe" "$MNT/var/lib/pitchtribe-remote-access" 2>/dev/null || true)"
 [[ -z "$CFD_TOKENS" ]] || die "the image has what looks like a tunnel credential or connector token in it:
