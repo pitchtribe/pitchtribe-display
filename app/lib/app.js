@@ -13,6 +13,7 @@ const { DEFAULT_PORTAL, renderSplash, themeCss } = require('./portal-page');
 const { readPortalFiles, writePortalSettings, portalFile } = require('./portal');
 const { mountBackupRoutes } = require('./backup-routes');
 const { mountRemoteAccessRoutes } = require('./remote-access-routes');
+const { mountPowerRoutes } = require('./power-routes');
 const { mountUserRoutes } = require('./user-routes');
 const um = require('./user-model');
 const setup = require('./setup');
@@ -922,6 +923,9 @@ function createApp(opts = {}) {
 
   // Remote access: switch SSH on or off (via the root helper).
   mountRemoteAccessRoutes({ api, dataDir, limiter, adminHash: (req) => sessionUser(req)?.passwordHash || data().settings.adminHash, hashPassword: opts.hashSshPassword });
+
+  // Power control: reboot or shutdown the Pi (via the root helper).
+  mountPowerRoutes({ api, dataDir, limiter, adminHash: (req) => sessionUser(req)?.passwordHash || data().settings.adminHash });
 
   /* Settings → People: the club's dashboard logins. `currentUser` is how those
      routes find out whose rights to apply — the volunteer the session names, or

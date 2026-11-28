@@ -245,6 +245,10 @@ If that is deliberate, re-run with PITCHTRIBE_ALLOW_MIRROR_GROUP_MEMBERS=\"$(ech
   install -m 0644 "$SRC_DIR/deploy/remote-access/pitchtribe-remote-access@.service" \
     "$SRC_DIR/deploy/remote-access/pitchtribe-remote-access.path" \
     "$SRC_DIR/deploy/remote-access/pitchtribe-support-expire.timer" /etc/systemd/system/
+  # Power control (Settings → Power): a root helper that reboots or shuts down the
+  # Pi when the dashboard asks. The helper executes systemctl reboot/poweroff.
+  install -m 0644 "$SRC_DIR/deploy/power/pitchtribe-power@.service" \
+    "$SRC_DIR/deploy/power/pitchtribe-power.path" /etc/systemd/system/
   # Cloudflare Tunnel (the dashboard from outside the building, when a club asks
   # for it). Only the binary goes on here, and deliberately: a tunnel exists once
   # somebody pastes a connector token into the commissioning page on the device,
@@ -341,11 +345,13 @@ offers a connector-token box that cannot work is worse than a build that stopped
   sed -e "s|@PORT@|$PORT|g" -e "s|@HTTPS_PORT@|$HTTPS_PORT|g" "$SRC_DIR/deploy/pitchtribe.service" >/etc/systemd/system/pitchtribe.service
   start_now daemon-reload
   systemctl enable pitchtribe.service pitchtribe-backup.path pitchtribe-backup.timer pitchtribe-backup@scan.service \
-    pitchtribe-remote-access.path pitchtribe-remote-access@status.service pitchtribe-support-expire.timer
+    pitchtribe-remote-access.path pitchtribe-remote-access@status.service pitchtribe-support-expire.timer \
+    pitchtribe-power.path pitchtribe-power@status.service
   start_now restart pitchtribe.service
   start_now start pitchtribe-backup.path pitchtribe-backup.timer pitchtribe-remote-access.path \
-    pitchtribe-support-expire.timer
+    pitchtribe-support-expire.timer pitchtribe-power.path
   start_now start --no-block pitchtribe-remote-access@status.service || true
+  start_now start --no-block pitchtribe-power@status.service || true
   start_now start --no-block pitchtribe-backup@scan.service || true
   SERVER="http://localhost$([[ "$PORT" == 80 ]] || echo ":$PORT")"
 fi

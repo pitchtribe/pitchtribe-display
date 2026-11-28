@@ -1,4 +1,4 @@
-/* PitchTribe dashboard — a small dependency-free single-page app.
+/* PitchTribe dashboard - a small dependency-free single-page app.
    Routes: #/content  #/playlists  #/playlists/<id>  #/screens  #/settings */
 (() => {
   'use strict';
@@ -163,7 +163,7 @@
     clock: { name: 'Clock', icon: 'clock', blurb: 'Big digital or analogue clock, or a countdown to kick-off.' },
     worldclock: { name: 'World clocks', icon: 'globe', blurb: 'The time in up to eight cities around the world.' },
     weather: { name: 'Weather', icon: 'weather', blurb: 'Current conditions and forecast for your ground.' },
-    joke: { name: 'Joke', icon: 'smile', blurb: 'Family-friendly sports jokes — punchline revealed halfway.' },
+    joke: { name: 'Joke', icon: 'smile', blurb: 'Family-friendly sports jokes - punchline revealed halfway.' },
     phrase: { name: 'Phrase', icon: 'quote', blurb: 'Club-spirit phrases in big type, or your own.' },
     trivia: { name: 'Did you know?', icon: 'bulb', blurb: 'Trivia facts: sport, film & TV, music, geography or culture.' },
     quiz: { name: 'Quiz', icon: 'quiz', blurb: 'Multiple-choice questions with an answer reveal: sport, film & TV, music, geography, culture or a mix.' },
@@ -171,7 +171,7 @@
     geoquiz: { name: 'Flags & capitals', icon: 'flag', blurb: 'Name the country from its flag, or its capital city.' },
     country: { name: 'Country of the day', icon: 'globe', blurb: 'A country’s flag, capital, continent and currency.' },
     history: { name: 'On this day', icon: 'history', blurb: 'This day, week or month in sporting or TV, film & music history.' },
-    spotball: { name: 'Spot the ball', icon: 'ball', blurb: 'Your photo, a grid and a blurred ball — answer revealed when you choose.' },
+    spotball: { name: 'Spot the ball', icon: 'ball', blurb: 'Your photo, a grid and a blurred ball - answer revealed when you choose.' },
     transport: { name: 'Transport hub', icon: 'bus', blurb: 'Live bus tracker, train departures, London buses, tube status, roads and planes overhead.' },
     sky: { name: 'Sunrise, sunset & moon', icon: 'moon', blurb: 'Sun times and moon phase for your ground. Works offline.' },
     floods: { name: 'Flood warnings', icon: 'drop', blurb: 'Environment Agency warnings near your ground (England).' },
@@ -181,7 +181,7 @@
     quakes: { name: 'Earthquakes', icon: 'globe', blurb: 'Recent earthquakes worldwide, from the USGS.' },
     potd: { name: 'Picture of the day', icon: 'image', blurb: 'Wikimedia Commons’ picture of the day, full screen.' },
     births: { name: 'Born on this day', icon: 'cake', blurb: 'Famous birthdays today, from Wikipedia.' },
-    headlines: { name: 'News headlines', icon: 'rss', blurb: 'Headlines from any RSS or Atom feed — your club, league or local news.' },
+    headlines: { name: 'News headlines', icon: 'rss', blurb: 'Headlines from any RSS or Atom feed - your club, league or local news.' },
     events: { name: 'Calendar', icon: 'fixtures', blurb: 'Upcoming events from any iCal (.ics) calendar, e.g. Google Calendar.' },
   };
   const WIDGET_GROUPS = [
@@ -563,7 +563,7 @@
       options.sort((x, y) => (x.snap.at < y.snap.at ? 1 : -1));
       if (chosen >= options.length) chosen = 0;
       const pick = h('select', { onchange: () => { chosen = Number(pick.value); draw(info); } }, options.map((o, i) => h('option', { value: String(i), selected: i === chosen },
-        `${o.snap.club || o.host} — ${fmtWhen(o.snap.at)}${o.snap.encrypted ? ' 🔒' : ''}${(info.usb || []).length > 1 ? ` (${o.stick.label || 'USB stick'})` : ''}`)));
+        `${o.snap.club || o.host} - ${fmtWhen(o.snap.at)}${o.snap.encrypted ? ' 🔒' : ''}${(info.usb || []).length > 1 ? ` (${o.stick.label || 'USB stick'})` : ''}`)));
       // This card has no backup key of its own, so the only way into an
       // encrypted stick is the code the club printed. See lib/backup-crypto.js.
       const picked = options[chosen] || null;
@@ -624,7 +624,7 @@
             h('label', { class: 'field' }, translate('Recovery code'), codeInput),
             needsCode ? h('p', { class: 'small muted' }, translate('These backups are encrypted and this is a new memory card, so the code printed when backups were switched on is what opens them. Dashes, spaces and lower case are all fine.')) : null,
             h('div', {}, usbBtn))
-          : h('p', { class: 'small muted' }, translate('Plug in the USB stick with your backups — it appears here within a few seconds.')),
+          : h('p', { class: 'small muted' }, translate('Plug in the USB stick with your backups - it appears here within a few seconds.')),
         h('div', {}, h('button', { class: 'btn ghost sm', type: 'button', disabled: busy, onclick: () => fileInput.click() }, translate('Restore from a backup file…')), fileInput),
         msg);
     }
@@ -832,7 +832,7 @@
     }
     await refresh();
     render();
-    if (ok) toast(localize`Uploaded ${ok} file${ok > 1 ? 's' : ''} — add ${ok > 1 ? 'them' : 'it'} to a playlist to show on screen`);
+    if (ok) toast(localize`Uploaded ${ok} file${ok > 1 ? 's' : ''} - add ${ok > 1 ? 'them' : 'it'} to a playlist to show on screen`);
   }
 
   // Drag & drop anywhere while on the content page.
@@ -912,10 +912,10 @@
     if (type === 'url') {
       f.url = h('input', { type: 'url', value: asset.url || '', required: true, placeholder: translate('https://') });
       body.append(h('label', { class: 'field' }, translate('Web address'), f.url,
-        h('span', { class: 'hint' }, translate('Live pages such as league tables, weather or social walls. Some sites block being shown inside other pages — preview the playlist to check.'))));
+        h('span', { class: 'hint' }, translate('Live pages such as league tables, weather or social walls. Some sites block being shown inside other pages - preview the playlist to check.'))));
     }
     if (type === 'notice') {
-      f.title = h('input', { type: 'text', value: c.title || '', maxlength: 200, placeholder: translate('AGM — Friday 7th November, 7pm') });
+      f.title = h('input', { type: 'text', value: c.title || '', maxlength: 200, placeholder: translate('AGM - Friday 7th November, 7pm') });
       f.body = h('textarea', { maxlength: 3000, placeholder: translate('All members welcome. Bar opens 6:30pm.') }, c.body || '');
       let style = c.style || 'default';
       const picker = h('div', { class: 'style-picker', role: 'group', 'aria-label': translate('Colour') });
@@ -1067,7 +1067,7 @@
       f.sponsors = { get value() { return sponsors; } };
     }
     if ((type === 'menu' && c.mode !== 'bar') || type === 'fixtures') {
-      f.title = h('input', { type: 'text', value: c.title || '', maxlength: 200, placeholder: type === 'menu' ? translate('Bar & Kitchen — Today’s Menu') : translate('Upcoming Fixtures') });
+      f.title = h('input', { type: 'text', value: c.title || '', maxlength: 200, placeholder: type === 'menu' ? translate('Bar & Kitchen - Today’s Menu') : translate('Upcoming Fixtures') });
       f.text = h('textarea', { class: 'code', spellcheck: false, maxlength: type === 'menu' ? 20000 : 50000 }, c.text || (isNew ? (type === 'menu' ? MENU_EXAMPLE : fixturesExample()) : ''));
       const summary = h('p', { class: 'parse-summary' });
       const update = () => { summary.textContent = type === 'menu' ? menuSummary(f.text.value) : fixturesSummary(f.text.value); };
@@ -1106,7 +1106,7 @@
               return chip;
             })),
             h('span', { class: 'hint' }, translate('None selected = all the leagues switched on in Settings.')))
-        : h('p', { class: 'help' }, translate('Sports feeds are switched off. '), h('a', { href: '#/settings', onclick: () => m.close() }, translate('Choose leagues in Settings')), translate(' — this slide fills in once they are on.')));
+        : h('p', { class: 'help' }, translate('Sports feeds are switched off. '), h('a', { href: '#/settings', onclick: () => m.close() }, translate('Choose leagues in Settings')), translate(' - this slide fills in once they are on.')));
       body.append(h('div', { class: 'row-2' }, h('label', { class: 'field' }, translate('Show'), f.show), h('label', { class: 'field' }, translate('At most (matches)'), f.limit)));
       body.append(h('p', { class: 'small muted' }, translate('More matches than fit on screen scroll past by themselves, and the slide stays up long enough to show them all. Scores update on screen by themselves too: every minute during live matches, every 10 minutes otherwise.')));
 
@@ -1148,7 +1148,7 @@
     }
     if (!isNew) {
       const n = usage(asset.id);
-      body.append(h('p', { class: 'small muted' }, n ? localize`Used in ${n} playlist${n > 1 ? 's' : ''}. Changes show on screens straight away.` : translate('Not in any playlist yet — add it from a playlist to show it on screen.')));
+      body.append(h('p', { class: 'small muted' }, n ? localize`Used in ${n} playlist${n > 1 ? 's' : ''}. Changes show on screens straight away.` : translate('Not in any playlist yet - add it from a playlist to show it on screen.')));
     }
 
     const saveBtn = h('button', { class: 'btn primary', type: 'button', onclick: () => save() }, isNew ? translate('Create') : translate('Save'));
@@ -1198,7 +1198,7 @@
         await refresh();
         m.close();
         render();
-        toast(isNew ? (f.addTo?.value ? 'Created and added to the playlist' : 'Created') : 'Saved — screens update in a few seconds');
+        toast(isNew ? (f.addTo?.value ? 'Created and added to the playlist' : 'Created') : 'Saved - screens update in a few seconds');
       } catch (err) {
         toast(err.message, 'error');
         saveBtn.disabled = false;
@@ -1265,7 +1265,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     const past = all.length - upcoming.length;
     let summary = localize`${upcoming.length} upcoming`;
     if (past) summary = localize`${summary}, ${past} past (hidden)`;
-    if (next) summary = localize`${summary} · next: ${next.title} — ${fixtureWhen(next)}`;
+    if (next) summary = localize`${summary} · next: ${next.title} - ${fixtureWhen(next)}`;
     return summary;
   }
 
@@ -1299,7 +1299,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
   /** Kind-specific fields for the widget editor. Sets f.widget() to collect the content. */
   function widgetFields(c, body, f, getModal) {
     const kind = c.kind;
-    const title = h('input', { type: 'text', value: c.title || '', maxlength: 200, placeholder: translate({ clock: 'Optional heading', worldclock: 'World clocks', weather: 'Weather at the ground', joke: 'Joke time', phrase: 'Optional heading', trivia: 'Automatic (e.g. “Music: did you know?”)', quiz: 'Automatic (e.g. “Music quiz”)', emoji: 'Emoji quiz', geoquiz: 'Flags & capitals', country: 'Country of the day', history: 'Automatic (e.g. “On this day — 3 November”)', spotball: 'Spot the ball', transport: 'Getting here', sky: 'Automatic', floods: 'Flood warnings', bankholiday: 'Automatic', carbon: 'Automatic', currency: 'Automatic', quakes: 'Recent earthquakes', potd: 'Picture of the day', births: 'Automatic', headlines: 'Latest news', events: 'Coming up' }[kind]) });
+    const title = h('input', { type: 'text', value: c.title || '', maxlength: 200, placeholder: translate({ clock: 'Optional heading', worldclock: 'World clocks', weather: 'Weather at the ground', joke: 'Joke time', phrase: 'Optional heading', trivia: 'Automatic (e.g. “Music: did you know?”)', quiz: 'Automatic (e.g. “Music quiz”)', emoji: 'Emoji quiz', geoquiz: 'Flags & capitals', country: 'Country of the day', history: 'Automatic (e.g. “On this day - 3 November”)', spotball: 'Spot the ball', transport: 'Getting here', sky: 'Automatic', floods: 'Flood warnings', bankholiday: 'Automatic', carbon: 'Automatic', currency: 'Automatic', quakes: 'Recent earthquakes', potd: 'Picture of the day', births: 'Automatic', headlines: 'Latest news', events: 'Coming up' }[kind]) });
     body.append(h('p', { class: 'small muted' }, translate(WIDGETS[kind].blurb)));
     body.append(h('label', { class: 'field' }, translate('Heading on screen'), title));
     const collect = { kind, title: () => title.value };
@@ -1322,7 +1322,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       const w = state.widgets.weather;
       body.append(w
         ? h('p', { class: 'small muted' }, localize`Location: ${w.place || `${w.latitude}, ${w.longitude}`}. `, h('a', { href: '#/settings', onclick: () => getModal().close() }, translate('Change in Settings')))
-        : h('p', { class: 'help' }, translate('No location set yet. '), h('a', { href: '#/settings', onclick: () => getModal().close() }, translate('Choose your ground in Settings')), translate(' — needs an internet connection.')));
+        : h('p', { class: 'help' }, translate('No location set yet. '), h('a', { href: '#/settings', onclick: () => getModal().close() }, translate('Choose your ground in Settings')), translate(' - needs an internet connection.')));
       collect.days = () => Number(days.value);
     }
     if (kind === 'quiz' || kind === 'trivia') {
@@ -1331,7 +1331,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       body.append(h('label', { class: 'field' }, translate('Topic'), topic));
       collect.topic = () => topic.value;
       if (kind === 'quiz') {
-        const source = h('select', {}, [['bundled', 'Built-in questions (works offline)'], ['opentdb', 'Online question bank — Open Trivia DB (thousands of questions)']]
+        const source = h('select', {}, [['bundled', 'Built-in questions (works offline)'], ['opentdb', 'Online question bank - Open Trivia DB (thousands of questions)']]
           .map(([v, l]) => h('option', { value: v, selected: (c.source || 'bundled') === v }, translate(l))));
         body.append(h('label', { class: 'field' }, translate('Questions from'), source, h('span', { class: 'hint' }, translate('Online questions are community-written (CC BY-SA) and mostly English. If the internet is down the built-in questions are used.'))));
         collect.source = () => source.value;
@@ -1383,7 +1383,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       const extra = h('textarea', { class: 'code', spellcheck: kind !== 'quiz', maxlength: 20000, placeholder: translate({ joke: 'Why did the treasurer smile? | Subs are in!', phrase: 'Up the Riversiders!', trivia: 'Riverside FC was founded in 1889.', quiz: 'When was the club founded? | 1889 | 1901 | 1923 | 1950', emoji: '🏉🏆 | Rugby World Cup | Sport' }[kind]) }, c.extra || '');
       extra.style.minHeight = '120px';
       const only = h('input', { type: 'checkbox', checked: Boolean(c.only) });
-      body.append(h('label', { class: 'field' }, translate('Add your own (optional)'), extra, h('span', { class: 'hint' }, localize`${translate(hint)}. Mixed in with ${translate({ joke: '30 jokes', phrase: '25 phrases', trivia: 'the built-in facts', quiz: 'the built-in questions', emoji: '32 puzzles' }[kind])} that come built in — a new selection every day.`)));
+      body.append(h('label', { class: 'field' }, translate('Add your own (optional)'), extra, h('span', { class: 'hint' }, localize`${translate(hint)}. Mixed in with ${translate({ joke: '30 jokes', phrase: '25 phrases', trivia: 'the built-in facts', quiz: 'the built-in questions', emoji: '32 puzzles' }[kind])} that come built in - a new selection every day.`)));
       body.append(h('label', { class: 'switch' }, only, translate('Only show mine')));
       Object.assign(collect, { extra: () => extra.value, only: () => only.checked });
     }
@@ -1424,7 +1424,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         tracker: h('div', { class: 'form-grid sub' },
           h('div', { class: 'row-2' }, h('label', { class: 'field' }, translate('Bus routes to track'), trackLines, h('span', { class: 'hint' }, translate('Route numbers, comma-separated (up to 6).'))), h('label', { class: 'field' }, translate('Heading'), trackTitle)),
           h('div', { class: 'row-2' }, h('label', { class: 'field' }, translate('Within (km of the ground)'), trackRadius), h('label', { class: 'field' }, translate('Operator code'), trackOperator, h('span', { class: 'hint' }, translate('Only if another company runs the same route numbers nearby.')))),
-          !state.widgets.bods?.apiKey && h('p', { class: 'help' }, translate('Needs a free Bus Open Data Service API key — '), h('a', { href: '#/settings', onclick: () => getModal().close() }, translate('add it in Settings → Widgets')), '.')),
+          !state.widgets.bods?.apiKey && h('p', { class: 'help' }, translate('Needs a free Bus Open Data Service API key - '), h('a', { href: '#/settings', onclick: () => getModal().close() }, translate('add it in Settings → Widgets')), '.')),
         trains: h('label', { class: 'field sub' }, translate('Station code'), station, h('span', { class: 'hint' }, translate('The 3-letter National Rail code, e.g. BIW Biggleswade, BDM Bedford, KGX King’s Cross.'))),
         buses: h('div', { class: 'row-2 sub' }, h('label', { class: 'field' }, translate('TfL stop ID'), busStop, h('span', { class: 'hint' }, translate('From the stop’s page on tfl.gov.uk.'))), h('label', { class: 'field' }, translate('Stop name'), busStopName)),
         planes: h('label', { class: 'field sub' }, translate('Within (km of the ground)'), planesRadius),
@@ -1455,7 +1455,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       collect.postcode = () => postcode.value.trim();
     }
     if (kind === 'quakes') {
-      const feed = pick(c.feed || '4.5_week', [['significant_week', 'Significant — past week'], ['4.5_week', 'Magnitude 4.5+ — past week'], ['4.5_day', 'Magnitude 4.5+ — past day'], ['2.5_day', 'Magnitude 2.5+ — past day']]);
+      const feed = pick(c.feed || '4.5_week', [['significant_week', 'Significant - past week'], ['4.5_week', 'Magnitude 4.5+ - past week'], ['4.5_day', 'Magnitude 4.5+ - past day'], ['2.5_day', 'Magnitude 2.5+ - past day']]);
       const limit = num(c.limit || 6, 1, 10);
       body.append(h('div', { class: 'row-2' }, h('label', { class: 'field' }, translate('Feed'), feed), h('label', { class: 'field' }, translate('How many'), limit)));
       Object.assign(collect, { feed: () => feed.value, limit: () => Number(limit.value) });
@@ -1481,7 +1481,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       const limit = num(c.limit || 6, 1, 10);
       body.append(h('label', { class: 'field' }, kind === 'headlines' ? translate('Feed address (RSS or Atom)') : translate('Calendar address (iCal / .ics)'), url,
         h('span', { class: 'hint' }, kind === 'headlines'
-          ? translate('Only use feeds you’re allowed to show publicly — your own club’s, your league’s, or ones whose terms allow it.')
+          ? translate('Only use feeds you’re allowed to show publicly - your own club’s, your league’s, or ones whose terms allow it.')
           : translate('In Google Calendar: Settings → your calendar → “Public address in iCal format”. Repeating events show their first date only.'))));
       if (kind === 'events') {
         const days = num(c.days || 60, 1, 365);
@@ -1495,13 +1495,13 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     if (kind === 'spotball') {
       const images = state.assets.filter((a) => a.type === 'image');
       let pos = c.x != null ? { x: c.x, y: c.y } : null;
-      const photo = h('select', {}, h('option', { value: '' }, images.length ? translate('— Choose a photo —') : translate('Upload a photo first')),
+      const photo = h('select', {}, h('option', { value: '' }, images.length ? translate('- Choose a photo -') : translate('Upload a photo first')),
         images.slice().reverse().map((a) => h('option', { value: a.id, selected: a.id === c.imageId }, a.name)));
       const radius = h('input', { type: 'range', min: 2, max: 20, step: 0.5, value: c.radius || 6 });
       const cover = h('input', { type: 'checkbox', checked: c.cover !== false });
       const grid = h('input', { type: 'checkbox', checked: c.grid !== false });
       const revealAt = h('input', { type: 'datetime-local', value: c.revealAt || '' });
-      const prize = h('input', { type: 'text', value: c.prize || '', maxlength: 200, placeholder: translate('£20 bar tab — entries at the bar') });
+      const prize = h('input', { type: 'text', value: c.prize || '', maxlength: 200, placeholder: translate('£20 bar tab - entries at the bar') });
       const stageBox = h('div', { class: 'sb-editor' });
       const marker = h('div', { class: 'sb-marker' });
       const img = h('img', { alt: '' });
@@ -1516,7 +1516,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
           marker.style.top = `${pos.y}%`;
           marker.style.width = `${Number(radius.value) * 2}%`;
           const cell = `${'ABCDEFGHIJ'[Math.min(9, Math.floor(pos.x / 10))]}${Math.min(7, Math.floor(pos.y / 12.5)) + 1}`;
-          status.textContent = localize`Ball marked at ${cell} — tap the photo again to move it.`;
+          status.textContent = localize`Ball marked at ${cell} - tap the photo again to move it.`;
         } else {
           status.textContent = a ? translate('Tap the photo where the ball is.') : '';
         }
@@ -1635,7 +1635,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     });
     return shell('playlists',
       h('div', { class: 'page-head' },
-        h('div', {}, h('h1', {}, translate('Playlists')), h('p', {}, translate('The running order for each screen — with timings for when each item plays.'))),
+        h('div', {}, h('h1', {}, translate('Playlists')), h('p', {}, translate('The running order for each screen - with timings for when each item plays.'))),
         h('div', { class: 'actions' }, h('button', { class: 'btn primary', type: 'button', onclick: newPlaylist }, icon('plus'), translate('New playlist')))),
       cards.length ? h('div', { class: 'grid' }, cards) : h('div', { class: 'card empty' }, h('h2', {}, translate('No playlists yet')), h('p', {}, translate('Create one, then assign it to your screens.'))));
   }
@@ -1681,7 +1681,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         draft = structuredClone(state.playlists.find((p) => p.id === id));
         dirty = false;
         render();
-        toast('Saved — screens update in a few seconds');
+        toast('Saved - screens update in a few seconds');
       } catch (err) {
         saveBtn.disabled = false;
         toast(err.message, 'error');
@@ -1818,7 +1818,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
             h('input', { type: 'checkbox', checked: chosen.has(a.id), onchange: (e) => { e.target.checked ? chosen.add(a.id) : chosen.delete(a.id); syncBtn(); } }),
             thumb(a, { tag: false }),
             h('div', {}, h('strong', {}, a.name), h('div', { class: 'small muted' }, `${typeLabel(a)} · ${fmtDuration(a.duration)}${inPl ? ' · already in this playlist' : ''}`)));
-        }) : [h('p', { class: 'muted' }, state.assets.length ? translate('Nothing matches.') : translate('Your library is empty — upload or create content first.'))]));
+        }) : [h('p', { class: 'muted' }, state.assets.length ? translate('Nothing matches.') : translate('Your library is empty - upload or create content first.'))]));
       };
       const syncBtn = () => { addBtn.disabled = !chosen.size; addBtn.textContent = chosen.size ? localize`Add ${chosen.size}` : translate('Add'); };
       draw();
@@ -1844,7 +1844,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     drawItems();
 
     const clock = h('input', { type: 'checkbox', checked: draft.showClock, onchange: (e) => { draft.showClock = e.target.checked; markDirty(); } });
-    const ticker = h('textarea', { maxlength: 2000, placeholder: translate('Bar open from 12:00 on matchdays\nMembers’ draw — Friday night'), oninput: (e) => { draft.ticker = e.target.value; markDirty(); } }, draft.ticker || '');
+    const ticker = h('textarea', { maxlength: 2000, placeholder: translate('Bar open from 12:00 on matchdays\nMembers’ draw - Friday night'), oninput: (e) => { draft.ticker = e.target.value; markDirty(); } }, draft.ticker || '');
     const screensUsing = state.screens.filter((s) => s.playlistId === id);
 
     return shell('playlists',
@@ -1878,7 +1878,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
 
   function viewScreens() {
     const playlistOptions = (selected) => [
-      h('option', { value: '', selected: !selected }, translate('— Nothing (show splash) —')),
+      h('option', { value: '', selected: !selected }, translate('- Nothing (show splash) -')),
       ...state.playlists.map((p) => h('option', { value: p.id, selected: p.id === selected }, p.name)),
     ];
     const patch = async (s, body, msg) => {
@@ -1911,12 +1911,12 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
           s.resolution && [h('dt', {}, translate('Resolution')), h('dd', {}, s.resolution)],
           s.ip && [h('dt', {}, translate('Address')), h('dd', { class: 'mono' }, s.ip.replace(/^::ffff:/, ''))]),
         h('div', { class: 'row-2' },
-          h('label', { class: 'field' }, translate('Playlist'), h('select', { onchange: (e) => patch(s, { playlistId: e.target.value }, 'Playlist changed — the screen updates now') }, playlistOptions(s.playlistId))),
+          h('label', { class: 'field' }, translate('Playlist'), h('select', { onchange: (e) => patch(s, { playlistId: e.target.value }, 'Playlist changed - the screen updates now') }, playlistOptions(s.playlistId))),
           h('label', { class: 'field' }, translate('Rotation'), h('select', { onchange: (e) => patch(s, { rotation: Number(e.target.value) }, 'Rotation changed') },
             [[0, 'Landscape'], [90, 'Portrait (90°)'], [180, 'Upside down'], [270, 'Portrait (270°)']].map(([v, l]) => h('option', { value: v, selected: (s.rotation || 0) === v }, translate(l)))))),
         h('div', { class: 'row-2' },
           h('label', { class: 'field' }, 'Music list', h('select', { onchange: (e) => patch(s, { musicListId: e.target.value }, 'Music list changed') },
-            h('option', { value: '', selected: !s.musicListId }, '— No music —'),
+            h('option', { value: '', selected: !s.musicListId }, '- No music -'),
             (state.musicLists || []).map((list) => h('option', { value: list.id, selected: s.musicListId === list.id }, list.name)))),
           h('label', { class: 'field' }, 'Music volume', h('input', { type: 'range', min: 0, max: 100, value: s.musicVolume ?? 70, onchange: (e) => patch(s, { musicVolume: Number(e.target.value) }, 'Music volume changed') }))),
         h('label', { class: 'field' }, 'Music enabled', h('input', { type: 'checkbox', checked: s.musicEnabled !== false, onchange: (e) => patch(s, { musicEnabled: e.target.checked }, 'Music playback changed') })),
@@ -1936,7 +1936,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
           const seconds = Number(prompt('Seek to seconds from start', '0'));
           if (Number.isFinite(seconds)) await api('POST', `/screens/${encodeURIComponent(s.id)}/command`, { command: 'music', action: 'seek', seconds });
         } }, 'Seek')),
-        h('label', { class: 'field' }, translate('Language on screen'), h('select', { onchange: (e) => patch(s, { language: e.target.value }, 'Language changed — the screen updates now') },
+        h('label', { class: 'field' }, translate('Language on screen'), h('select', { onchange: (e) => patch(s, { language: e.target.value }, 'Language changed - the screen updates now') },
           h('option', { value: '', selected: !s.language }, localize`Club default (${(state.languages.find((l) => l.code === state.settings.language) || { name: 'English' }).name})`),
           state.languages.map((l) => h('option', { value: l.code, selected: s.language === l.code }, l.name)))),
         h('div', { class: 'actions' },
@@ -1964,7 +1964,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
           h('div', { class: 'stack', style: 'margin-top:8px;gap:8px' },
             h('label', { class: 'field' }, translate('Screen id'), slugInput),
             h('div', { class: 'copy-row' }, urlCode,
-              h('button', { class: 'btn sm', type: 'button', onclick: () => navigator.clipboard?.writeText(urlCode.textContent).then(() => toast('Copied'), () => toast('Copy failed — select the text instead', 'error')) }, icon('copy'), translate('Copy'))))),
+              h('button', { class: 'btn sm', type: 'button', onclick: () => navigator.clipboard?.writeText(urlCode.textContent).then(() => toast('Copied'), () => toast('Copy failed - select the text instead', 'error')) }, icon('copy'), translate('Copy'))))),
         h('li', {}, translate('Once it shows up below, choose its playlist.'))));
 
     return shell('screens',
@@ -1972,7 +1972,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         h('div', {}, h('h1', {}, translate('Screens')), h('p', {}, translate('Every display connected to PitchTribe. Updates every few seconds.')))),
       h('div', { class: 'stack' },
         howTo,
-        cards.length ? h('div', { class: 'screens' }, cards) : h('div', { class: 'card empty' }, h('h2', {}, translate('No screens yet')), h('p', {}, translate('Follow the steps above — your first screen will appear here.')))));
+        cards.length ? h('div', { class: 'screens' }, cards) : h('div', { class: 'card empty' }, h('h2', {}, translate('No screens yet')), h('p', {}, translate('Follow the steps above - your first screen will appear here.')))));
   }
 
   // ============================================================ guest wi-fi
@@ -1998,12 +1998,12 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       enabled: h('input', { type: 'checkbox', checked: p.enabled }),
       ssid: h('input', { type: 'text', value: p.ssid, maxlength: 32, required: true }),
       radio: h('select', {}, [
-        ['auto', 'Automatic — the USB aerial if one is plugged in, otherwise built-in'],
+        ['auto', 'Automatic - the USB aerial if one is plugged in, otherwise built-in'],
         ['builtin', 'The Pi’s built-in Wi-Fi'],
         ['usb', 'USB Wi-Fi aerial (e.g. Alfa)'],
-        ['off', 'None — ceiling access points only'],
+        ['off', 'None - ceiling access points only'],
       ].map(([v, l]) => h('option', { value: v, selected: p.radio === v }, translate(l)))),
-      band: h('select', {}, [['2.4', '2.4 GHz — reaches further, through walls'], ['5', '5 GHz — faster, shorter range']]
+      band: h('select', {}, [['2.4', '2.4 GHz - reaches further, through walls'], ['5', '5 GHz - faster, shorter range']]
         .map(([v, l]) => h('option', { value: v, selected: p.band === v }, translate(l)))),
       channel: h('select', {}),
       accessPoints: h('input', { type: 'checkbox', checked: p.accessPoints }),
@@ -2052,8 +2052,8 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
           render();
           // Don't promise a network the Pi can't broadcast: without the add-on
           // these settings are saved and nothing applies them.
-          toast(!r.settings.enabled ? 'Saved — guest Wi-Fi is off'
-            : portal.installed ? 'Saved — the Wi-Fi updates in a few seconds'
+          toast(!r.settings.enabled ? 'Saved - guest Wi-Fi is off'
+            : portal.installed ? 'Saved - the Wi-Fi updates in a few seconds'
               : 'Saved, but the guest Wi-Fi add-on isn’t installed on this Pi yet', portal.installed ? 'ok' : 'error');
           setTimeout(() => { if (currentView === 'wifi') { portal = null; render(); } }, 8000); // pick up the hardware check
         } catch (err) { toast(err.message, 'error'); }
@@ -2072,16 +2072,16 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       h('div', { class: 'row-2' },
         h('label', { class: 'field' }, translate('Session length'), f.sessionMinutes, h('span', { class: 'hint' }, translate('Guests tap “Connect” again afterwards.'))),
         h('div', { class: 'row-2' }, h('label', { class: 'field' }, translate('Download limit (Mbit/s)'), f.downMbps), h('label', { class: 'field' }, translate('Upload (Mbit/s)'), f.upMbps))),
-      h('p', { class: 'small muted' }, translate('Limits are per device. Guests can reach the internet only — never the club’s own computers, tills or this dashboard.')),
+      h('p', { class: 'small muted' }, translate('Limits are per device. Guests can reach the internet only - never the club’s own computers, tills or this dashboard.')),
       h('h2', { style: 'margin-top:8px' }, translate('Splash page')),
       h('label', { class: 'field' }, translate('Headline'), f.headline, h('span', { class: 'hint' }, translate('{club} is replaced with your club’s name.'))),
       h('label', { class: 'field' }, translate('Message'), f.message),
-      h('div', { class: 'row-2' }, h('label', { class: 'field' }, translate('Logo'), f.logoAssetId, h('span', { class: 'hint' }, translate('From your content library — upload a PNG with a transparent background for best results.'))), h('label', { class: 'field' }, translate('Colour'), f.accent)),
+      h('div', { class: 'row-2' }, h('label', { class: 'field' }, translate('Logo'), f.logoAssetId, h('span', { class: 'hint' }, translate('From your content library - upload a PNG with a transparent background for best results.'))), h('label', { class: 'field' }, translate('Colour'), f.accent)),
       h('label', { class: 'field' }, translate('Terms of use'), f.terms, h('span', { class: 'hint' }, translate('A sensible starting point is filled in. Have someone at the club check it suits you.'))),
       h('label', { class: 'field' }, translate('After connecting, offer a link to'), f.redirectUrl),
       h('h2', { style: 'margin-top:8px' }, translate('Email addresses')),
       h('div', { class: 'row-2' }, h('label', { class: 'field' }, translate('Ask guests for their email'), f.collectEmail), h('label', { class: 'field' }, translate('Marketing consent wording'), f.consentText)),
-      h('p', { class: 'small muted' }, translate('Guests choose separately whether you may email them — the consent box is never pre-ticked. Only contact people who said yes, and delete the list when you no longer need it.')),
+      h('p', { class: 'small muted' }, translate('Guests choose separately whether you may email them - the consent box is never pre-ticked. Only contact people who said yes, and delete the list when you no longer need it.')),
       h('div', {}, h('button', { class: 'btn primary', type: 'submit' }, translate('Save'))));
 
     const stats = h('div', { class: 'card panel-box stack', style: 'gap:12px' },
@@ -2089,7 +2089,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       h('dl', { class: 'kv' },
         h('dt', {}, translate('Portal service')), h('dd', {}, running ? translate('Running')
           : !p.enabled ? translate('Off')
-            : portal.installed ? translate('Starting up — give it a minute, then check Hardware below')
+            : portal.installed ? translate('Starting up - give it a minute, then check Hardware below')
               : translate('Not installed on this Pi')),
         h('dt', {}, translate('Connected now')), h('dd', {}, String(st.active)),
         h('dt', {}, translate('Connections today')), h('dd', {}, String(st.today)),
@@ -2108,7 +2108,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
             } }, icon('trash'), translate('Delete list'))))
         : null,
       h('details', { class: 'help' }, h('summary', {}, translate('How the hardware is set up')),
-        h('p', { style: 'margin-top:8px' }, translate('The guest network runs on the Pi’s built-in Wi-Fi (or a USB aerial) while the Pi’s network cable stays plugged into the club router. Cards written from the PitchTribe SD card image already have everything they need — switch Guest Wi-Fi on above and it applies by itself.')),
+        h('p', { style: 'margin-top:8px' }, translate('The guest network runs on the Pi’s built-in Wi-Fi (or a USB aerial) while the Pi’s network cable stays plugged into the club router. Cards written from the PitchTribe SD card image already have everything they need - switch Guest Wi-Fi on above and it applies by itself.')),
         h('p', {}, translate('On a Pi that was set up by hand, install the guest Wi-Fi part once, from a terminal on the Pi over SSH (switch SSH on under Settings → Remote access):')),
         h('pre', {}, translate('curl -sSL https://pitchtribe.media/install.sh | sudo PITCHTRIBE_PORTAL=1 bash')),
         h('p', {}, h('a', { href: 'https://pitchtribe.media/docs/guest-wifi', target: '_blank', rel: 'noopener' }, translate('Step-by-step guide')))));
@@ -2145,8 +2145,8 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     };
     const role = (d) => {
       if (d.name === hw.wifi) return 'Broadcasting guest Wi-Fi';
-      if (d.name === hw.wired) return d.carrier ? 'Access points — cable connected' : 'Access points — no cable plugged in';
-      if (d.kind === 'ethernet' && d.bus === 'builtin') return d.carrier ? 'Internet — connected' : 'Internet — no cable plugged in';
+      if (d.name === hw.wired) return d.carrier ? 'Access points - cable connected' : 'Access points - no cable plugged in';
+      if (d.kind === 'ethernet' && d.bus === 'builtin') return d.carrier ? 'Internet - connected' : 'Internet - no cable plugged in';
       return 'Not used';
     };
     return h('div', { class: 'card panel-box stack', style: 'gap:10px' }, head,
@@ -2157,12 +2157,74 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       h('p', { class: 'small muted' }, localize`Checked ${new Date(hw.checkedAt).toLocaleString()}. Plugging an adapter in or out re-checks by itself.`));
   }
 
+  // Settings → Power ----------------------------------------------------------------
+  let powerInfo = null; // GET /api/power
+  let powerBusy = false;
+
+  async function loadPower() {
+    try { powerInfo = await api('GET', '/power'); } catch (err) { toast(err.message, 'error'); }
+    if (currentView === 'settings') render();
+  }
+
+  function powerCard() {
+    const head = [
+      h('h2', {}, translate('Reboot & Shutdown')),
+      h('p', { class: 'small muted' }, translate('Restart or shut down the Pi. PitchTribe never does this by itself - these controls let you do it remotely when needed.')),
+    ];
+    if (!powerInfo) {
+      loadPower();
+      return h('div', { class: 'card panel-box stack', style: 'gap:10px' }, ...head, h('p', { class: 'small muted' }, translate('Loading…')));
+    }
+    if (!powerInfo.available) {
+      return h('div', { class: 'card panel-box stack', style: 'gap:10px' }, ...head,
+        h('p', { class: 'small muted' }, powerInfo.unavailableReason
+          || translate('Power controls can only be used from a Raspberry Pi running PitchTribe.')));
+    }
+
+    async function requestPower(action) {
+      const actionLabel = action === 'reboot' ? 'Reboot' : 'Shut down';
+      const confirmed = await confirmDialog(
+        actionLabel,
+        action === 'reboot'
+          ? 'The Pi will restart. Screens will come back on their own after about a minute.'
+          : 'The Pi will shut down completely. You\'ll need to unplug and re-plug the power to turn it back on.',
+        { confirmLabel: actionLabel, danger: true }
+      );
+      if (!confirmed) return;
+
+      const password = await promptDialog('Confirm with your dashboard password', 'Password', '');
+      if (!password) return;
+
+      powerBusy = true;
+      render();
+      try {
+        await api('POST', '/power', { action, currentPassword: password });
+        toast(action === 'reboot' ? 'Reboot initiated - the Pi will restart shortly' : 'Shutdown initiated - the Pi will power off shortly');
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+      powerBusy = false;
+      await loadPower();
+    }
+
+    return h('div', { class: 'card panel-box stack', style: 'gap:10px' }, ...head,
+      powerInfo.status?.last
+        ? h('p', { class: 'small muted' }, localize`Last action: ${powerInfo.status.last.action} at ${new Date(powerInfo.status.last.at).toLocaleString()}`)
+        : null,
+      h('div', { class: 'actions' },
+        h('button', { class: 'btn', type: 'button', disabled: powerBusy, onclick: () => requestPower('reboot') },
+          translate('Reboot now')),
+        h('button', { class: 'btn danger', type: 'button', disabled: powerBusy, onclick: () => requestPower('shutdown') },
+          translate('Shut down'))),
+      h('p', { class: 'small muted' }, translate('Use Reboot after installing updates that need a restart. Use Shut down before moving the Pi or if you need to turn it off completely.')));
+  }
+
   // ============================================================== settings
   function viewSettings() {
     const club = h('input', { type: 'text', value: state.settings.clubName, maxlength: 80, required: true });
     const lang = h('select', {}, state.languages.map((l) => h('option', { value: l.code, selected: (state.settings.language || 'en') === l.code }, l.name)));
     const def = h('select', {},
-      h('option', { value: '', selected: !state.settings.defaultPlaylistId }, translate('— None —')),
+      h('option', { value: '', selected: !state.settings.defaultPlaylistId }, translate('- None -')),
       state.playlists.map((p) => h('option', { value: p.id, selected: p.id === state.settings.defaultPlaylistId }, p.name)));
     const general = h('form', {
       class: 'card panel-box form-grid',
@@ -2191,7 +2253,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         try {
           await api('POST', '/settings/password', { current: cur.value, next: next.value });
           cur.value = next.value = '';
-          toast('Password changed — other devices have been signed out');
+          toast('Password changed - other devices have been signed out');
         } catch (err) { toast(err.message, 'error'); }
       },
     },
@@ -2208,6 +2270,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     const supportBox = supportAccessCard();
     const tunnelBox = tunnelCard();
     const secureBox = secureConnectionCard();
+    const powerBox = powerCard();
 
     const about = h('div', { class: 'card panel-box stack', style: 'gap:10px' },
       h('h2', {}, translate('About')),
@@ -2221,7 +2284,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
 
     return shell('settings',
       h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, translate('Settings')))),
-      h('div', { class: 'stack', style: 'max-width:640px' }, general, sports, widgetSettings, backupsBox, remoteBox, supportBox, tunnelBox, secureBox, pw, about));
+      h('div', { class: 'stack', style: 'max-width:640px' }, general, sports, widgetSettings, backupsBox, remoteBox, supportBox, tunnelBox, secureBox, powerBox, pw, about));
   }
 
   /* Settings → About: the nightly Raspberry Pi OS update ------------------------------
@@ -2233,7 +2296,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     const u = state.osUpdate;
     if (!u || !u.available) {
       return [h('dt', {}, translate('Raspberry Pi OS')),
-        h('dd', { class: 'muted' }, translate('Not checked yet — the nightly update fills this in the first time it runs.'))];
+        h('dd', { class: 'muted' }, translate('Not checked yet - the nightly update fills this in the first time it runs.'))];
     }
     const when = u.checkedAt ? ago(Date.parse(u.checkedAt)) : 'at an unknown time';
     const summary = u.result === 'offline' ? `Couldn’t reach the update service · tried ${when}`
@@ -2252,19 +2315,19 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     // The one that matters: the helper never restarts a screen by itself, so a
     // kernel fix sits there installed-but-inert until somebody is told.
     if (u.rebootRequired) {
-      out.push(warn('A restart is waiting. One of the updates needs the Pi restarted before it takes effect — ',
+      out.push(warn('A restart is waiting. One of the updates needs the Pi restarted before it takes effect - ',
         'PitchTribe never does that by itself, in case a match is on. Restart it when it suits the club; the screens come back on their own.'));
     }
     if (u.silent) {
       out.push(warn(`The nightly update hasn’t run for ${u.daysSinceCheck} days. `,
-        'If the Pi has been switched off, that’s nothing to worry about — it catches up on the next night it’s on.'));
+        'If the Pi has been switched off, that’s nothing to worry about - it catches up on the next night it’s on.'));
     } else if (u.unpatched) {
       out.push(u.daysSincePatched === null
         ? warn('This Pi has never managed to fetch its operating-system updates. Check that it can reach the internet: until it can, it isn’t getting security fixes.')
         : warn(`Nothing has been installed for ${u.daysSincePatched} days. `,
-          'The Pi tries every night and can’t reach the update service — check its internet connection, because meanwhile the card isn’t getting security fixes.'));
+          'The Pi tries every night and can’t reach the update service - check its internet connection, because meanwhile the card isn’t getting security fixes.'));
     } else if (u.result === 'offline') {
-      out.push(h('p', { class: 'small muted' }, translate('The Pi couldn’t reach the update service on its last try. That happens — it tries again tonight.')));
+      out.push(h('p', { class: 'small muted' }, translate('The Pi couldn’t reach the update service on its last try. That happens - it tries again tonight.')));
     } else if (u.result === 'error') {
       out.push(warn(`The last update stopped part way${u.message ? ` (${u.message})` : ''}. `,
         'It tries again tonight. If it keeps happening, the memory card may be full.'));
@@ -2283,7 +2346,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
   function secureConnectionCard() {
     const head = [
       h('h2', {}, translate('Secure connection (HTTPS)')),
-      h('p', { class: 'small muted' }, translate('Encrypts what passes between your phone and the Pi — the dashboard password most of all — on the club’s network.')),
+      h('p', { class: 'small muted' }, translate('Encrypts what passes between your phone and the Pi - the dashboard password most of all - on the club’s network.')),
     ];
     const box = (...kids) => h('div', { class: 'card panel-box stack', style: 'gap:10px' }, ...head, ...kids);
     const t = state.tls;
@@ -2309,11 +2372,11 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         ? h('span', {}, translate('You are on '), h('strong', {}, translate('HTTPS')), translate(' now.'))
         : h('span', {}, translate('You are on plain '), h('strong', {}, translate('http')), translate('. The secure address is '), h('a', { href: t.url }, t.url))),
       h('dl', { class: 'kv' },
-        h('dt', {}, translate('Certificate')), h('dd', {}, h('code', { style: 'word-break:break-all' }, t.fingerprint || '—')),
-        h('dt', {}, translate('Renews')), h('dd', {}, t.notAfter ? new Date(t.notAfter).toLocaleDateString() : '—')),
-      h('p', { class: 'small muted' }, translate('Your browser will warn you the first time, and it is right to: the Pi signed its own certificate, because no certificate authority will vouch for a name like '), h('code', {}, t.names?.[0] || translate('pitchtribe.local')), translate(' on a private network. Continue past the warning once, and check that the fingerprint your browser shows matches the one above — that is what tells you it is this Pi and not something else on the network.')),
+        h('dt', {}, translate('Certificate')), h('dd', {}, h('code', { style: 'word-break:break-all' }, t.fingerprint || '-')),
+        h('dt', {}, translate('Renews')), h('dd', {}, t.notAfter ? new Date(t.notAfter).toLocaleDateString() : '-')),
+      h('p', { class: 'small muted' }, translate('Your browser will warn you the first time, and it is right to: the Pi signed its own certificate, because no certificate authority will vouch for a name like '), h('code', {}, t.names?.[0] || translate('pitchtribe.local')), translate(' on a private network. Continue past the warning once, and check that the fingerprint your browser shows matches the one above - that is what tells you it is this Pi and not something else on the network.')),
       h('label', { class: 'switch' }, toggle, translate('Send the dashboard to HTTPS')),
-      h('p', { class: 'small muted' }, translate('Off by default, so nobody meets a warning unasked. With it on, opening the dashboard over '), h('code', {}, translate('http')), translate(' jumps to HTTPS. Screens and the TV on this Pi are left on '), h('code', {}, translate('http')), translate(' — they have no keyboard to dismiss a warning with — and they carry nothing private. If a phone will not get past the warning, add '), h('code', {}, translate('?nossl')), translate(' to the dashboard address to come back over '), h('code', {}, translate('http')), '.'));
+      h('p', { class: 'small muted' }, translate('Off by default, so nobody meets a warning unasked. With it on, opening the dashboard over '), h('code', {}, translate('http')), translate(' jumps to HTTPS. Screens and the TV on this Pi are left on '), h('code', {}, translate('http')), translate(' - they have no keyboard to dismiss a warning with - and they carry nothing private. If a phone will not get past the warning, add '), h('code', {}, translate('?nossl')), translate(' to the dashboard address to come back over '), h('code', {}, translate('http')), '.'));
   }
 
   // Settings → Remote access -----------------------------------------------------------
@@ -2338,7 +2401,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
   function remoteAccessCard() {
     const head = [
       h('h2', {}, translate('Remote access (SSH)')),
-      h('p', { class: 'small muted' }, translate('Lets you log in to the Pi from a computer — to update PitchTribe, add guest Wi-Fi, or reset a password — without a keyboard and screen.')),
+      h('p', { class: 'small muted' }, translate('Lets you log in to the Pi from a computer - to update PitchTribe, add guest Wi-Fi, or reset a password - without a keyboard and screen.')),
     ];
     if (!remoteInfo) {
       loadRemote();
@@ -2363,7 +2426,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     const current = h('input', { type: 'password', autocomplete: 'current-password', required: true });
     const loginRows = h('div', { class: 'stack', style: 'gap:10px' },
       h('label', { class: 'field' }, translate('Username'), user, h('span', { class: 'hint' }, translate('Small letters, numbers and hyphens. Use the name you set in Raspberry Pi Imager to give it a new password.'))),
-      h('label', { class: 'field' }, on ? translate('New SSH password') : translate('SSH password'), pass, h('span', { class: 'hint' }, translate('At least 10 characters. Write it down somewhere safe — it isn’t the dashboard password.'))));
+      h('label', { class: 'field' }, on ? translate('New SSH password') : translate('SSH password'), pass, h('span', { class: 'hint' }, translate('At least 10 characters. Write it down somewhere safe - it isn’t the dashboard password.'))));
     const sync = () => { loginRows.hidden = !enabled.checked; };
     enabled.addEventListener('change', sync);
     sync();
@@ -2374,14 +2437,14 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         e.preventDefault();
         const turningOn = enabled.checked;
         if (turningOn && !pass.value && !on) { toast('Choose an SSH password', 'error'); return; }
-        if (turningOn && on && !pass.value && user.value === name) { toast('Nothing to change — enter a new password, or switch it off', 'error'); return; }
+        if (turningOn && on && !pass.value && user.value === name) { toast('Nothing to change - enter a new password, or switch it off', 'error'); return; }
         if (!turningOn && !on) { toast('Remote access is already off'); return; }
         remoteBusy = true;
         try {
           const r = await api('POST', '/remote-access', { enabled: turningOn, username: user.value.trim(), password: pass.value, currentPassword: current.value });
           current.value = pass.value = '';
           const last = await awaitRemoteRequest(r.requestId);
-          toast(last ? last.message : 'The Pi hasn’t answered yet — check again in a minute', last && !last.ok ? 'error' : undefined);
+          toast(last ? last.message : 'The Pi hasn’t answered yet - check again in a minute', last && !last.ok ? 'error' : undefined);
         } catch (err) { toast(err.message, 'error'); }
         remoteBusy = false;
         await loadRemote();
@@ -2448,7 +2511,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         const r = await api('POST', '/remote-access', { ...body, currentPassword: current.value });
         current.value = '';
         const last = await awaitRemoteRequest(r.requestId);
-        toast(last ? last.message : 'The Pi hasn’t answered yet — check again in a minute', last && !last.ok ? 'error' : undefined);
+        toast(last ? last.message : 'The Pi hasn’t answered yet - check again in a minute', last && !last.ok ? 'error' : undefined);
       } catch (err) { toast(err.message, 'error'); }
       supportBusy = false;
       await loadRemote();
@@ -2458,7 +2521,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     if (s.enabled) {
       const left = s.expiresAt ? Math.max(0, new Date(s.expiresAt) - Date.now()) : 0;
       const mins = Math.round(left / 60000);
-      const countdown = !s.expiresAt ? 'no end time recorded — it will be ended at the next check'
+      const countdown = !s.expiresAt ? 'no end time recorded - it will be ended at the next check'
         : left <= 0 ? 'any moment now'
           : mins < 60 ? `in ${mins} min` : `in ${Math.floor(mins / 60)} h ${mins % 60} min`;
       const end = h('button', { class: 'btn', type: 'button', disabled: supportBusy },
@@ -2475,7 +2538,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         h('dl', { class: 'kv' },
           h('dt', {}, translate('Ends')), h('dd', {}, countdown),
           h('dt', {}, translate('Support connected')), h('dd', {}, s.connected ? translate('now') : ago(s.lastConnection ? new Date(s.lastConnection).getTime() : 0)),
-          h('dt', {}, translate('Signed in as')), h('dd', {}, s.user || '—')),
+          h('dt', {}, translate('Signed in as')), h('dd', {}, s.user || '-')),
         h('label', { class: 'field' }, translate('Your dashboard password'), current, h('span', { class: 'hint' }, translate('Needed to end support access, the same as to start it.'))),
         h('div', {}, end),
         h('p', { class: 'small muted' }, translate('It ends by itself at the time above even if you never come back to this page. The club owns the Raspberry Pi ID it is signed in to, so you can also remove this device at '),
@@ -2501,13 +2564,13 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
           translate('This Pi keeps trying to sign out on its own; to be certain, remove the device at '),
           h('a', { href: 'https://connect.raspberrypi.com', target: '_blank', rel: 'noopener' }, translate('connect.raspberrypi.com')), '.'),
         h('div', {}, stuckEnd)) : null,
-      h('label', { class: 'field' }, translate('Let support connect for'), hours, h('span', { class: 'hint' }, translate('It ends by itself when the time is up — there is no option to leave it on indefinitely.'))),
+      h('label', { class: 'field' }, translate('Let support connect for'), hours, h('span', { class: 'hint' }, translate('It ends by itself when the time is up - there is no option to leave it on indefinitely.'))),
       h('label', { class: 'field' }, translate('Your dashboard password'), current, h('span', { class: 'hint' }, translate('Needed to start support access, because it gives us a shell on this Pi.'))),
       remoteInfo.status.last && !remoteInfo.status.last.ok && String(remoteInfo.status.last.action || '').startsWith('support-')
         ? h('p', { class: 'small', style: 'color:var(--danger)' }, `⚠ ${remoteInfo.status.last.message}`) : null,
       h('div', {}, h('button', { class: 'btn primary', type: 'submit', disabled: supportBusy }, supportBusy ? translate('Working…') : translate('Turn support access on'))),
       h('p', { class: 'small muted' }, translate('This uses Raspberry Pi Connect. You will be given a link to finish at, where you sign in with the '),
-        h('strong', {}, translate('club’s own')), translate(' Raspberry Pi ID — not a PitchTribe account — so the club can see the device and remove it whenever it likes. '),
+        h('strong', {}, translate('club’s own')), translate(' Raspberry Pi ID - not a PitchTribe account - so the club can see the device and remove it whenever it likes. '),
         translate('Nothing is opened on the club’s router: the Pi connects outwards. SSH, above, is not affected either way.')));
     return form;
   }
@@ -2518,7 +2581,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
   function tunnelCard() {
     const head = [
       h('h2', {}, translate('Remote access from outside the club')),
-      h('p', { class: 'small muted' }, translate("Lets PitchTribe open this club's dashboard from outside the building — to update content, change settings, or help with a problem — without opening any port on the club's router.")),
+      h('p', { class: 'small muted' }, translate("Lets PitchTribe open this club's dashboard from outside the building - to update content, change settings, or help with a problem - without opening any port on the club's router.")),
     ];
     const box = (...kids) => h('div', { class: 'card panel-box stack', style: 'gap:10px' }, ...head, ...kids);
     if (!remoteInfo) return box(h('p', { class: 'small muted' }, translate('Loading…')));
@@ -2557,7 +2620,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
           const r = await api('POST', '/remote-access', body);
           token.value = current.value = '';
           const last = await awaitRemoteRequest(r.requestId);
-          toast(last ? last.message : translate("The Pi hasn't answered yet — check again in a minute"), last && !last.ok ? 'error' : undefined);
+          toast(last ? last.message : translate("The Pi hasn't answered yet - check again in a minute"), last && !last.ok ? 'error' : undefined);
         } catch (err) { toast(err.message, 'error'); }
         tunnelBusy = false;
         await loadRemote();
@@ -2612,15 +2675,15 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
   }
 
   /* The printed card. A club that loses its memory card *and* this code has
-     lost its backup, which is the one new way encryption can bite — so it is
+     lost its backup, which is the one new way encryption can bite - so it is
      generated rather than chosen, shown large, and printable on paper. */
   function printRecoveryCode(code) {
     const sheet = h('div', { id: 'print-code' },
-      h('h1', {}, localize`PitchTribe backup recovery code${state && state.settings && state.settings.clubName ? ` — ${state.settings.clubName}` : ''}`),
+      h('h1', {}, localize`PitchTribe backup recovery code${state && state.settings && state.settings.clubName ? ` - ${state.settings.clubName}` : ''}`),
       h('p', {}, localize`Printed ${new Date().toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })}`),
       h('div', { class: 'recovery-code' }, code),
-      h('p', {}, translate('Keep this somewhere safe, and not with the USB stick — a thief who takes both has everything.')),
-      h('p', {}, translate('If the Raspberry Pi’s memory card ever fails, type this code into the PitchTribe set-up screen to get the club’s content, photos, settings and password back off the backup stick. Without it, and without the old memory card, those backups cannot be read — by anybody, including us.')),
+      h('p', {}, translate('Keep this somewhere safe, and not with the USB stick - a thief who takes both has everything.')),
+      h('p', {}, translate('If the Raspberry Pi’s memory card ever fails, type this code into the PitchTribe set-up screen to get the club’s content, photos, settings and password back off the backup stick. Without it, and without the old memory card, those backups cannot be read - by anybody, including us.')),
       h('p', {}, translate('You can see this code again at any time: sign in to the dashboard and go to Settings → Backups.')));
     document.body.append(sheet);
     document.body.classList.add('printing-code');
@@ -2639,9 +2702,9 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
           ? translate('Backups on the USB stick are encrypted from now on. This code is the only way to read them if this Pi’s memory card fails. Print it, or write it down, and keep it away from the stick.')
           : translate('This is the code that unlocks the backups on your USB stick after a memory-card failure. Keep it away from the stick itself.')),
         h('div', { class: 'recovery-code' }, formatted),
-        h('p', { class: 'small muted' }, translate('Letters and numbers only — there is no O, I, L or U in it, so nothing can be mistaken for a 0 or a 1.'))),
+        h('p', { class: 'small muted' }, translate('Letters and numbers only - there is no O, I, L or U in it, so nothing can be mistaken for a 0 or a 1.'))),
       footer: (close) => [
-        h('button', { class: 'btn', type: 'button', onclick: () => navigator.clipboard?.writeText(formatted).then(() => toast('Copied'), () => toast('Copy failed — write it down instead', 'error')) }, icon('copy'), translate('Copy')),
+        h('button', { class: 'btn', type: 'button', onclick: () => navigator.clipboard?.writeText(formatted).then(() => toast('Copied'), () => toast('Copy failed - write it down instead', 'error')) }, icon('copy'), translate('Copy')),
         h('button', { class: 'btn', type: 'button', onclick: () => printRecoveryCode(formatted) }, translate('Print')),
         h('button', { class: 'btn primary', type: 'button', onclick: close }, firstTime ? translate('I have written it down') : translate('Close')),
       ],
@@ -2651,7 +2714,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
   async function revealRecoveryCode({ firstTime = false } = {}) {
     try {
       const { code } = await api('GET', '/backup/recovery');
-      if (!code) return toast('There is no recovery code yet — switch encryption on first.', 'error');
+      if (!code) return toast('There is no recovery code yet - switch encryption on first.', 'error');
       showRecoveryCode(code, { firstTime });
     } catch (err) {
       toast(err.message, 'error');
@@ -2684,7 +2747,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
   async function turnEncryptionOn() {
     const ok = await confirmDialog(
       'Encrypt the backups on this stick?',
-      'You will be shown a recovery code to print. If this Pi’s memory card fails, that code is the only way to read the backups — lose both and the backups are gone. Encrypting starts now and takes a few minutes if the club has a lot of video.',
+      'You will be shown a recovery code to print. If this Pi’s memory card fails, that code is the only way to read the backups - lose both and the backups are gone. Encrypting starts now and takes a few minutes if the club has a lot of video.',
       { confirmLabel: 'Encrypt and show me the code', danger: false }
     );
     if (!ok) return;
@@ -2695,7 +2758,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
   function backupCard() {
     const head = [
       h('h2', {}, translate('Backups')),
-      h('p', { class: 'small muted' }, translate('A copy of everything — content, photos and videos, playlists, screens, settings and the password — so a failed memory card is a quick fix, not a fresh start.')),
+      h('p', { class: 'small muted' }, translate('A copy of everything - content, photos and videos, playlists, screens, settings and the password - so a failed memory card is a quick fix, not a fresh start.')),
     ];
     if (!backupInfo) {
       loadBackup();
@@ -2722,7 +2785,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         usb.push(h('p', { class: 'small', style: st.last.ok ? '' : 'color:var(--danger)' },
           st.last.ok ? localize`Last: ${st.last.message.toLowerCase()} ${fmtWhen(st.last.at)} ✓` : `⚠ ${st.last.message} (${fmtWhen(st.last.at)})`));
       }
-      if (mine) usb.push(h('p', { class: 'small muted' }, localize`${mine.snapshots.length} backup${mine.snapshots.length === 1 ? '' : 's'} on the stick — the last 30 are kept.`));
+      if (mine) usb.push(h('p', { class: 'small muted' }, localize`${mine.snapshots.length} backup${mine.snapshots.length === 1 ? '' : 's'} on the stick - the last 30 are kept.`));
       usb.push(h('div', { class: 'actions' },
         h('button', { class: 'btn sm primary', type: 'button', disabled: !stick, onclick: () => backupAction({ action: 'now' }, 'Backing up now…', 'Backed up to the USB stick') }, translate('Back up now')),
         h('button', { class: 'btn sm', type: 'button', onclick: async () => {
@@ -2732,12 +2795,12 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       usb.push(encryptionRow(cfg, st));
     } else if (sticks.length) {
       usb.push(h('p', { class: 'small' }, translate('Choose the stick to back up to. PitchTribe keeps its backups in a folder of their own and leaves everything else on the stick alone.')));
-      usb.push(h('p', { class: 'small muted' }, translate('The backups are encrypted, and you will be shown a recovery code to print — a stick in a drawer holds your guest sign-ups, your photos and your password, so it should not be readable by whoever finds it.')));
+      usb.push(h('p', { class: 'small muted' }, translate('The backups are encrypted, and you will be shown a recovery code to print - a stick in a drawer holds your guest sign-ups, your photos and your password, so it should not be readable by whoever finds it.')));
       for (const k of sticks) {
         usb.push(h('div', { class: 'actions', style: 'align-items:center' },
           h('span', { class: 'small', style: 'flex:1' }, `${k.label || 'USB stick'} · ${size(k)}`),
           h('button', { class: 'btn sm primary', type: 'button', disabled: Boolean(k.error), onclick: async () => {
-            await backupAction({ action: 'use', uuid: k.uuid, encrypt: true }, 'Making the first backup…', 'Backups switched on — first backup done');
+            await backupAction({ action: 'use', uuid: k.uuid, encrypt: true }, 'Making the first backup…', 'Backups switched on - first backup done');
             await revealRecoveryCode({ firstTime: true });
           } }, translate('Use this stick for backups'))));
       }
@@ -2750,7 +2813,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     const restorable = sticks.flatMap((k) => (k.backups || []).flatMap((b) => b.snapshots.map((snap) => ({ k, host: b.host, snap }))))
       .sort((x, y) => (x.snap.at < y.snap.at ? 1 : -1));
     if (backupInfo.available && restorable.length && !backupBusy && !st.running) {
-      const pick = h('select', {}, restorable.map((o, i) => h('option', { value: String(i) }, `${o.snap.club || o.host} — ${fmtWhen(o.snap.at)}`)));
+      const pick = h('select', {}, restorable.map((o, i) => h('option', { value: String(i) }, `${o.snap.club || o.host} - ${fmtWhen(o.snap.at)}`)));
       usb.push(h('details', { class: 'help' }, h('summary', {}, translate('Restore from the USB stick')),
         h('div', { class: 'stack', style: 'gap:8px;margin-top:8px' },
           h('p', { class: 'small muted' }, translate('Puts everything back as it was at that time, including the password. Changes made since are lost.')),
@@ -2758,7 +2821,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
           h('div', {}, h('button', { class: 'btn sm danger', type: 'button', onclick: async () => {
             const o = restorable[Number(pick.value)];
             if (!(await confirmDialog(localize`Restore the backup from ${fmtWhen(o.snap.at)}?`, 'Everything changes back to how it was then, and everyone is signed out.', { confirmLabel: 'Restore' }))) return;
-            backupAction({ action: 'restore', uuid: o.k.uuid, host: o.host, snapshot: o.snap.id }, 'Restoring… the screens go blank for a moment.', 'Restored — sign in again');
+            backupAction({ action: 'restore', uuid: o.k.uuid, host: o.host, snapshot: o.snap.id }, 'Restoring… the screens go blank for a moment.', 'Restored - sign in again');
           } }, translate('Restore'))))));
     }
 
@@ -2770,7 +2833,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       try {
         toast('Restoring…');
         await uploadBackup('/backup/restore-file', f);
-        toast('Restored — sign in again');
+        toast('Restored - sign in again');
         await sleep(1200);
         boot();
       } catch (err) { toast(err.message, 'error'); }
@@ -2792,7 +2855,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     const enabled = h('input', { type: 'checkbox', checked: sp.enabled });
     const tz = h('input', { type: 'text', value: sp.timezone, maxlength: 60 });
     const status = new Map(sp.status.map((st) => [st.key, st]));
-    const copyBtn = (text) => h('button', { class: 'btn sm', type: 'button', onclick: () => navigator.clipboard?.writeText(text).then(() => toast('Copied'), () => toast('Copy failed — select the text instead', 'error')) }, icon('copy'), translate('Copy'));
+    const copyBtn = (text) => h('button', { class: 'btn sm', type: 'button', onclick: () => navigator.clipboard?.writeText(text).then(() => toast('Copied'), () => toast('Copy failed - select the text instead', 'error')) }, icon('copy'), translate('Copy'));
     const sportsBase = `${baseUrl()}/feeds`;
 
     const form = h('form', {
@@ -2802,7 +2865,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         try {
           state.sports = await api('PUT', '/settings/sports', { enabled: enabled.checked, leagues: [...chosen], timezone: tz.value });
           render();
-          toast(enabled.checked ? 'Sports feeds on — fetching scores now' : 'Sports feeds off');
+          toast(enabled.checked ? 'Sports feeds on - fetching scores now' : 'Sports feeds off');
           if (enabled.checked) setTimeout(async () => { await refresh().catch(() => {}); if (currentView === 'settings') render(); }, 4000);
         } catch (err) { toast(err.message, 'error'); }
       },
@@ -2850,7 +2913,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
      inventing its own wording.
 
      Two things it has to get right. A generated starter password exists only in
-     the response that created it — the server keeps a hash and nothing else —
+     the response that created it - the server keeps a hash and nothing else -
      so if this page does not show it there and then, nobody can ever recover
      it. And the controls that would lock the person clicking out of this very
      page are greyed out here as well as refused by the server, because finding
@@ -2901,7 +2964,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         return shell('people', head, h('div', { class: 'card empty' }, translate('Loading…')));
 
       }
-      // The server says which "no" this is — not an owner, or simply offline —
+      // The server says which "no" this is - not an owner, or simply offline -
       // and says it better than a guess from the status code would.
       return shell('people', head, h('div', { class: 'card empty' },
         h('h2', {}, translate('Can’t show the people list')),
@@ -2989,7 +3052,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
     const roleHint = h('span', { class: 'hint' });
     const syncRoleHint = () => {
       roleHint.textContent = self
-        ? translate('You cannot change your own role — ask another owner to do it.')
+        ? translate('You cannot change your own role - ask another owner to do it.')
         : translate(ROLE_BLURB[role.value] || '');
 
     };
@@ -3009,7 +3072,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
         h('label', { class: 'switch' }, active, translate('Can sign in')),
         h('span', { class: 'hint' }, self
           ? translate('You cannot switch off your own account.')
-          : translate('Switch this off to keep the record but stop them signing in — they lose the dashboard on their next click.'))),
+          : translate('Switch this off to keep the record but stop them signing in - they lose the dashboard on their next click.'))),
       password && h('label', { class: 'field' }, translate('Starter password'), password,
         h('span', { class: 'hint' }, translate('At least 8 characters. Leave it blank and PitchTribe makes one up for you to read out once, and asks them to choose their own the first time they sign in.'))),
       err);
@@ -3054,7 +3117,7 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
 
   /* A made-up password is in this one response and nowhere else: the server
      stored a hash of it and threw the rest away. Dismiss this without writing
-     it down and the only way back is another reset — so say so, and make it
+     it down and the only way back is another reset - so say so, and make it
      big enough to read out across a clubhouse. */
   function showStarterPassword(user, secret) {
     modal({
@@ -3062,16 +3125,16 @@ ${d(18, '14:00')} | Riverside FC v Northdale Athletic | County Cup | Home`;
       body: h('div', { class: 'stack', style: 'gap:12px' },
         h('p', { class: 'small' }, h('strong', {}, personName(user)), translate(' signs in with the username '), h('code', {}, user.username), translate(' and this password:')),
         h('div', { class: 'recovery-code' }, secret),
-        h('p', { class: 'small muted' }, translate('This is the only time it is shown — PitchTribe keeps no copy of it. They are asked to choose their own password the first time they sign in. If this one gets lost before then, use '), h('strong', {}, translate('Password')), translate(' on the people list to make another.'))),
+        h('p', { class: 'small muted' }, translate('This is the only time it is shown - PitchTribe keeps no copy of it. They are asked to choose their own password the first time they sign in. If this one gets lost before then, use '), h('strong', {}, translate('Password')), translate(' on the people list to make another.'))),
       footer: (close) => [
-        h('button', { class: 'btn', type: 'button', onclick: () => navigator.clipboard?.writeText(secret).then(() => toast('Copied'), () => toast('Copy failed — read it off the screen instead', 'error')) }, icon('copy'), translate('Copy')),
+        h('button', { class: 'btn', type: 'button', onclick: () => navigator.clipboard?.writeText(secret).then(() => toast('Copied'), () => toast('Copy failed - read it off the screen instead', 'error')) }, icon('copy'), translate('Copy')),
         h('button', { class: 'btn primary', type: 'button', onclick: close }, translate('Done')),
 
       ],
     });
   }
 
-  /** Give somebody a new password — the owner's own password first. */
+  /** Give somebody a new password - the owner's own password first. */
   function resetPersonPassword(user) {
     const err = h('p', { class: 'error-text', role: 'alert' });
     const next = h('input', { type: 'password', autocomplete: 'new-password', minlength: 12, maxlength: 200, placeholder: translate('Leave blank to make one up') });
