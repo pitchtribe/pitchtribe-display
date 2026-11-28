@@ -302,6 +302,22 @@ If that is deliberate, re-run with PITCHTRIBE_ALLOW_MIRROR_GROUP_MEMBERS=\"$(ech
     # with a token a club pasted in. image/build.sh asserts that none of it
     # happened here.
     log "cloudflared $(dpkg-query -W -f '${Version}' cloudflared 2>/dev/null || echo '(unpackaged)') installed — no tunnel, no token, no service"
+    # pitchtribe-tunnel.service runs as User=cloudflared (added in PIT-240).
+    # The official Cloudflare deb's postinst creates this user on a fresh
+    # package install, but not when reinstalling the same version — which is
+    # the normal path on a re-run of this installer on an already-commissioned
+    # Pi. Create both the group and the user explicitly so the service can
+    # start regardless of which install path was taken.
+    getent group cloudflared >/dev/null || groupadd --system cloudflared
+    id -u cloudflared >/dev/null 2>&1 \
+      || useradd --system --no-create-home --shell /usr/sbin/nologin \
+           -g cloudflared cloudflared
+    # Upgrade path: tunnel.env may be owned root:root from before PIT-240 when
+    # the service ran without a User= directive. Fix ownership so cloudflared
+    # can read it; the commissioning flow sets this correctly on new files.
+    if [[ -f /etc/pitchtribe/tunnel.env ]]; then
+      chown cloudflared:cloudflared /etc/pitchtribe/tunnel.env
+    fi
   elif [[ "$IMAGE_BUILD" == 1 ]]; then
     die "could not install cloudflared, from Cloudflare's apt repo or from the release package.
 This is fatal in an image build on purpose: a card whose commissioning page
