@@ -1,0 +1,21 @@
+[Unit]
+# %i is one of:
+#   status   at boot — record the last power action
+#   request  pitchtribe-power.path: the dashboard's Settings asked to reboot or shutdown
+Description=PitchTribe power control (%i)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+# Type=oneshot disables TimeoutStartSec= by default, so without this line the unit
+# has no overall bound and a single hung syscall keeps it activating forever.
+# 60s should be more than enough for reading a request and initiating shutdown/reboot.
+TimeoutStartSec=60
+Environment=DATA_DIR=/var/lib/pitchtribe
+Environment=DASHBOARD_USER=pitchtribe
+Environment=DASHBOARD_GROUP=pitchtribe-dashboard
+# Root, because it needs to execute systemctl reboot/poweroff
+ExecStart=/usr/bin/env node /opt/pitchtribe/app/bin/power.js %i
+
+[Install]
+WantedBy=multi-user.target

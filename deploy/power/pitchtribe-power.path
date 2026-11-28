@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch for power control requests from the PitchTribe dashboard
+# Settings → Power writes one request at a time here — reboot or shutdown — and
+# the helper deletes it as it reads it.
+
+[Path]
+PathChanged=/var/lib/pitchtribe/power-request.json
+Unit=pitchtribe-power@request.service
+
+[Install]
+WantedBy=multi-user.target
