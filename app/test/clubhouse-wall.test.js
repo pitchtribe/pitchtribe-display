@@ -22,7 +22,12 @@ const offline = async () => ({ ok: false, status: 503, json: async () => ({}), t
 function lastSaturday() {
   const d = new Date();
   d.setUTCHours(14, 0, 0, 0);
-  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 1) % 7));
+  // When today is Saturday (6) the original formula subtracts 0 days, returning
+  // today at 14:00 UTC — which is in the future for a CI run before that hour and
+  // therefore filtered out by the engine's `start <= now` guard. Subtract 7 days
+  // instead so we always land on the *previous* Saturday, unambiguously in the past.
+  const daysBack = d.getUTCDay() === 6 ? 7 : (d.getUTCDay() + 1) % 7;
+  d.setUTCDate(d.getUTCDate() - daysBack);
   return d;
 }
 
