@@ -447,8 +447,8 @@
     const err = h('p', { class: 'error-text', role: 'alert' });
     const club = h('input', { type: 'text', name: 'club', autocomplete: 'organization', maxlength: 80, required: true, placeholder: translate('e.g. Riverside FC') });
     const username = h('input', { type: 'text', name: 'username', autocomplete: 'username', autocapitalize: 'none', spellcheck: false, required: true });
-    const pw = h('input', { type: 'password', name: 'password', autocomplete: setup ? 'new-password' : 'current-password', required: true, minlength: setup ? 8 : null });
-    const pw2 = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 12 });
+    const pw = h('input', { type: 'password', name: 'password', autocomplete: setup ? 'off' : 'current-password', required: true, minlength: setup ? 8 : null });
+    const pw2 = h('input', { type: 'password', autocomplete: 'off', required: true, minlength: 12 });
     const btn = h('button', { class: 'btn primary', type: 'submit' }, setup ? translate('Create dashboard') : translate('Sign in'));
     const form = h('form', { class: 'form-grid', onsubmit: submit },
       setup && h('label', { class: 'field' }, translate('Club name'), club),
@@ -585,7 +585,7 @@
         draw(info);
         msg.textContent = translate('Restoring from the USB stick… The screen goes blank for a moment. Big video collections take a few minutes.');
         try {
-          const r = await api('POST', '/setup/restore-usb', { uuid: o.stick.uuid, host: o.host, snapshot: o.snap.id, ...(needsCode ? { recoveryCode: typed } : {}) });
+          const r = await api('POST', '/setup/restore-usb', { uuid: o.stick.uuid, host: o.host, snapshot: o.snap.id, ...(typed.trim() ? { recoveryCode: typed } : {}) });
           const result = await waitForBackup(r.requestId, async () => {
             const st = await fetch('/api/auth/status', { credentials: 'same-origin', cache: 'no-store' }).then((x) => x.json());
             return st.setupRequired ? { ...st.restore } : { done: true };
@@ -621,7 +621,7 @@
         options.length
           ? h('div', { class: 'stack', style: 'gap:8px' },
             h('label', { class: 'field' }, translate('Backup on the USB stick'), pick),
-            needsCode ? h('label', { class: 'field' }, translate('Recovery code'), codeInput) : null,
+            h('label', { class: 'field' }, translate('Recovery code'), codeInput),
             needsCode ? h('p', { class: 'small muted' }, translate('These backups are encrypted and this is a new memory card, so the code printed when backups were switched on is what opens them. Dashes, spaces and lower case are all fine.')) : null,
             h('div', {}, usbBtn))
           : h('p', { class: 'small muted' }, translate('Plug in the USB stick with your backups — it appears here within a few seconds.')),
