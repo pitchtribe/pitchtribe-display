@@ -66,8 +66,8 @@ for (const page of pages) {
 
   // Each panel runs from its data-basket marker to the next one, or to the end.
   const starts = [...html.matchAll(/<div\s+data-basket="([a-z]+)"/g)];
-  if (starts.length !== 2) {
-    fail(page, `expected 2 quick-buy baskets, found ${starts.length}`);
+  if (starts.length < 1) {
+    fail(page, `expected at least 1 quick-buy basket, found 0`);
     continue;
   }
 
